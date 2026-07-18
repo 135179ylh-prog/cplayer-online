@@ -594,7 +594,8 @@ async function refreshUserPlaylistLibrary() {
                 list.forEach(function (pl) {
                     const row = document.createElement('div');
                     row.className = 'flex items-center gap-2 p-2 rounded-xl bg-white/5 mb-2';
-                    row.innerHTML = '<div class="flex-1 min-w-0"><div class="text-sm font-medium truncate">' + escapeHtml(pl.name) + '</div><div class="text-[11px] opacity-50">' + pl.songs.length + ' 首</div></div><button type="button" class="px-2 py-1 text-xs rounded-lg bg-white/10" data-act="load">播放</button><button type="button" class="px-2 py-1 text-xs rounded-lg bg-white/10" data-act="del">删除</button>';
+                    row.innerHTML = '<div class="flex-1 min-w-0"><div class="text-sm font-medium truncate">' + escapeHtml(pl.name) + '</div><div class="text-[11px] opacity-50">' + pl.songs.length + ' 首</div></div><button type="button" class="px-2 py-1 text-xs rounded-lg bg-white/10" data-act="detail">管理</button><button type="button" class="px-2 py-1 text-xs rounded-lg bg-white/10" data-act="load">播放</button><button type="button" class="px-2 py-1 text-xs rounded-lg bg-white/10" data-act="del">删除</button>';
+                    row.querySelector('[data-act="detail"]').onclick = function () { openPlaylistDetail(pl.id); };
                     row.querySelector('[data-act="load"]').onclick = function () { loadUserPlaylistIntoQueue(pl.id, true); };
                     row.querySelector('[data-act="del"]').onclick = async function () {
                         if (!confirm('删除歌单「' + pl.name + '」？')) return;
@@ -658,6 +659,285 @@ async function refreshUserPlaylistLibrary() {
         window.openMyPlaylists = openMyPlaylists;
         window.closeMyPlaylists = closeMyPlaylists;
         window.refreshMyPlaylists = refreshMyPlaylists;
+
+        // ===== User playlist detail management =====
+        let currentDetailPlaylistId = '';
+        let playlistDetailBusy = false;
+        let playlistDetailReturnFocus = null;
+
+        async function getUserPlaylistById(playlistId) {
+            const list = await listUserPlaylists();
+            return list.find(function (item) { return item.id === playlistId; }) || null;
+        }
+
+        function getPlaylistDetailSong(song) {
+            const isObject = song && typeof song === 'object';
+            const id = isObject ? song.id : song;
+            return {
+                raw: song,
+                id: id,
+                name: isObject && song.name ? song.name : (id != null ? '歌曲 ID: ' + id : '未知歌曲'),
+                artist: isObject ? (song.artist || song.artists || '未知艺术家') : '未知艺术家',
+                cover: isObject ? (song.cover || song.picUrl || '') : ''
+            };
+        }
+
+        function syncPlaylistDetailActionState() {
+            const modal = document.getElementById('playlistDetailModal');
+            if (!modal) return;
+            modal.setAttribute('aria-busy', playlistDetailBusy ? 'true' : 'false');
+            modal.querySelectorAll('[data-detail-action]').forEach(function (button) {
+                button.disabled = playlistDetailBusy || button.dataset.unavailable === '1';
+            });
+        }
+
+        function setPlaylistDetailBusy(isBusy) {
+            playlistDetailBusy = !!isBusy;
+            syncPlaylistDetailActionState();
+        }
+
+        function createPlaylistDetailButton(action, iconClass, label, unavailable, handler) {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'playlist-detail-icon-button';
+            button.dataset.detailAction = action;
+            button.dataset.unavailable = unavailable ? '1' : '0';
+            button.setAttribute('aria-label', label);
+            button.title = label;
+            button.disabled = playlistDetailBusy || unavailable;
+            const icon = document.createElement('i');
+            icon.className = 'fas ' + iconClass;
+            icon.setAttribute('aria-hidden', 'true');
+            button.appendChild(icon);
+            button.addEventListener('click', function (event) {
+                event.preventDefault();
+                event.stopPropagation();
+                if (!button.disabled) handler();
+            });
+            return button;
+        }
+
+        async function refreshPlaylistDetailList() {
+            const requestedId = currentDetailPlaylistId;
+            const box = document.getElementById('playlistDetailList');
+            const title = document.getElementById('playlistDetailTitle');
+            const count = document.getElementById('playlistDetailCount');
+            const status = document.getElementById('playlistDetailStatus');
+            const playAllButton = document.getElementById('playlistDetailPlayBtn');
+            if (!box || !requestedId) return;
+
+            box.innerHTML = '<div class="p-6 text-center text-sm opacity-50">正在加载歌单...</div>';
+            if (status) status.textContent = '';
+            if (playAllButton) {
+                playAllButton.dataset.unavailable = '1';
+                syncPlaylistDetailActionState();
+            }
+
+            try {
+                const target = await getUserPlaylistById(requestedId);
+                if (currentDetailPlaylistId !== requestedId) return;
+                if (!target) {
+                    if (title) title.textContent = '歌单不存在';
+                    if (count) count.textContent = '';
+                    box.innerHTML = '<div class="p-6 text-center text-sm opacity-50">该歌单可能已被删除</div>';
+                    return;
+                }
+
+                const songs = Array.isArray(target.songs) ? target.songs : [];
+                if (title) title.textContent = target.name || '未命名歌单';
+                if (count) count.textContent = songs.length + ' 首';
+                if (playAllButton) {
+                    playAllButton.dataset.unavailable = songs.length ? '0' : '1';
+                    syncPlaylistDetailActionState();
+                }
+                if (!songs.length) {
+                    box.innerHTML = '<div class="p-6 text-center text-sm opacity-50">歌单为空，可从搜索结果加入歌曲</div>';
+                    return;
+                }
+
+                box.innerHTML = '';
+                const fragment = document.createDocumentFragment();
+                songs.forEach(function (rawSong, index) {
+                    const song = getPlaylistDetailSong(rawSong);
+                    const row = document.createElement('div');
+                    row.className = 'playlist-detail-row';
+                    row.dataset.songIndex = String(index);
+
+                    const cover = document.createElement('div');
+                    cover.className = 'playlist-detail-cover';
+                    if (song.cover) {
+                        const image = document.createElement('img');
+                        image.alt = '';
+                        image.loading = 'lazy';
+                        const separator = String(song.cover).includes('?') ? '&' : '?';
+                        const coverUrl = String(song.cover) + separator + 'param=80y80';
+                        image.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+                        if (typeof window.getCachedImage === 'function') {
+                            window.getCachedImage(coverUrl).then(function (cachedUrl) {
+                                if (image.isConnected) image.src = cachedUrl;
+                            }).catch(function () { if (image.isConnected) image.src = coverUrl; });
+                        } else {
+                            image.src = coverUrl;
+                        }
+                        image.onerror = function () { image.style.display = 'none'; };
+                        cover.appendChild(image);
+                    } else {
+                        cover.innerHTML = '<i class="fas fa-music opacity-35" aria-hidden="true"></i>';
+                    }
+
+                    const info = document.createElement('div');
+                    info.className = 'min-w-0';
+                    const songName = document.createElement('div');
+                    songName.className = 'truncate text-sm font-semibold';
+                    songName.textContent = song.name;
+                    const artist = document.createElement('div');
+                    artist.className = 'truncate text-xs opacity-50';
+                    artist.textContent = song.artist;
+                    info.appendChild(songName);
+                    info.appendChild(artist);
+
+                    const actions = document.createElement('div');
+                    actions.className = 'playlist-detail-actions';
+                    actions.appendChild(createPlaylistDetailButton('play', 'fa-play', '播放 ' + song.name, song.id == null, function () {
+                        const normalized = normalizeSongObject(rawSong);
+                        const targetIndex = normalized && normalized.id != null ? window.addSongToQueueOnly(normalized, { toast: false }) : -1;
+                        if (targetIndex < 0) {
+                            if (typeof showToast === 'function') showToast('歌曲信息不完整，无法播放', true);
+                            return;
+                        }
+                        if (typeof window.playSongAtIndex === 'function') window.playSongAtIndex(targetIndex);
+                        closePlaylistDetail();
+                    }));
+                    actions.appendChild(createPlaylistDetailButton('up', 'fa-arrow-up', '上移 ' + song.name, index === 0, function () {
+                        movePlaylistDetailSong(index, -1);
+                    }));
+                    actions.appendChild(createPlaylistDetailButton('down', 'fa-arrow-down', '下移 ' + song.name, index === songs.length - 1, function () {
+                        movePlaylistDetailSong(index, 1);
+                    }));
+                    actions.appendChild(createPlaylistDetailButton('remove', 'fa-trash', '从歌单移除 ' + song.name, false, function () {
+                        if (!confirm('从歌单移除「' + song.name + '」？')) return;
+                        removePlaylistDetailSong(index);
+                    }));
+
+                    row.appendChild(cover);
+                    row.appendChild(info);
+                    row.appendChild(actions);
+                    fragment.appendChild(row);
+                });
+                box.appendChild(fragment);
+            } catch (error) {
+                console.error('[playlist detail] load failed', error);
+                if (currentDetailPlaylistId !== requestedId) return;
+                box.innerHTML = '<div class="p-6 text-center text-sm text-red-300">歌单加载失败，请重试</div>';
+                if (status) status.textContent = '歌单加载失败';
+            }
+        }
+
+        async function mutatePlaylistDetail(mutator, successMessage) {
+            const playlistId = currentDetailPlaylistId;
+            if (!playlistId || playlistDetailBusy) return;
+            setPlaylistDetailBusy(true);
+            let changed = false;
+            try {
+                const target = await getUserPlaylistById(playlistId);
+                if (!target) throw new Error('歌单不存在');
+                const songs = Array.isArray(target.songs) ? target.songs.slice() : [];
+                changed = mutator(songs) === true;
+                if (changed) {
+                    target.songs = songs;
+                    await saveUserPlaylistRecord(target);
+                    if (typeof showToast === 'function' && successMessage) showToast(successMessage);
+                }
+            } catch (error) {
+                console.error('[playlist detail] save failed', error);
+                if (typeof showToast === 'function') showToast('保存歌单失败，请重试', true);
+            } finally {
+                if (currentDetailPlaylistId === playlistId) {
+                    try { await refreshPlaylistDetailList(); } catch (error) { console.error(error); }
+                }
+                if (changed) {
+                    try { await refreshMyPlaylists(); } catch (error) { console.error(error); }
+                    try { await refreshUserPlaylistLibrary(); } catch (error) { console.error(error); }
+                }
+                setPlaylistDetailBusy(false);
+            }
+        }
+
+        function movePlaylistDetailSong(index, offset) {
+            return mutatePlaylistDetail(function (songs) {
+                const targetIndex = index + offset;
+                if (index < 0 || index >= songs.length || targetIndex < 0 || targetIndex >= songs.length) return false;
+                const currentSong = songs[index];
+                songs[index] = songs[targetIndex];
+                songs[targetIndex] = currentSong;
+                return true;
+            }, offset < 0 ? '歌曲已上移' : '歌曲已下移');
+        }
+
+        function removePlaylistDetailSong(index) {
+            return mutatePlaylistDetail(function (songs) {
+                if (index < 0 || index >= songs.length) return false;
+                songs.splice(index, 1);
+                return true;
+            }, '已从歌单移除');
+        }
+
+        async function playCurrentDetailPlaylist() {
+            const playlistId = currentDetailPlaylistId;
+            if (!playlistId || playlistDetailBusy) return;
+            try {
+                await loadUserPlaylistIntoQueue(playlistId, true);
+                closePlaylistDetail();
+            } catch (error) {
+                console.error('[playlist detail] play failed', error);
+                if (typeof showToast === 'function') showToast('播放歌单失败', true);
+            }
+        }
+
+        async function openPlaylistDetail(playlistId) {
+            const modal = document.getElementById('playlistDetailModal');
+            if (!modal || !playlistId) return;
+            currentDetailPlaylistId = playlistId;
+            playlistDetailReturnFocus = document.activeElement;
+            modal.classList.remove('hidden');
+            modal.style.display = 'flex';
+            modal.setAttribute('aria-hidden', 'false');
+            await refreshPlaylistDetailList();
+            const closeButton = document.getElementById('closePlaylistDetailBtn');
+            if (closeButton) closeButton.focus();
+        }
+
+        function closePlaylistDetail() {
+            const modal = document.getElementById('playlistDetailModal');
+            if (!modal) return;
+            modal.style.display = 'none';
+            modal.classList.add('hidden');
+            modal.setAttribute('aria-hidden', 'true');
+            currentDetailPlaylistId = '';
+            const returnTarget = playlistDetailReturnFocus;
+            playlistDetailReturnFocus = null;
+            if (returnTarget && returnTarget.isConnected && typeof returnTarget.focus === 'function') returnTarget.focus();
+        }
+
+        function bindPlaylistDetailUI() {
+            const modal = document.getElementById('playlistDetailModal');
+            if (!modal || modal.dataset.bound === '1') return;
+            modal.dataset.bound = '1';
+            const closeButton = document.getElementById('closePlaylistDetailBtn');
+            const playButton = document.getElementById('playlistDetailPlayBtn');
+            if (closeButton) closeButton.addEventListener('click', closePlaylistDetail);
+            if (playButton) playButton.addEventListener('click', playCurrentDetailPlaylist);
+            modal.addEventListener('click', function (event) {
+                if (event.target === modal) closePlaylistDetail();
+            });
+            document.addEventListener('keydown', function (event) {
+                if (event.key === 'Escape' && currentDetailPlaylistId) closePlaylistDetail();
+            });
+        }
+
+        window.openPlaylistDetail = openPlaylistDetail;
+        window.closePlaylistDetail = closePlaylistDetail;
+        window.refreshPlaylistDetailList = refreshPlaylistDetailList;
 
         function bindUserPlaylistUI() {
             if (window.__userPlaylistUIBound) return;
@@ -831,6 +1111,7 @@ if (t.closest('#clearQueueBtn')) {
                     // leave to original openSettings binding; do not block
                 }
             }, true);
+            bindPlaylistDetailUI();
             refreshUserPlaylistLibrary();
         }
         window.bindUserPlaylistUI = bindUserPlaylistUI;

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'cplayer5-v39-my-playlists-fix';
+const CACHE_NAME = 'cplayer5-v41-playlist-ordering';
 
 // 核心资源 - 安装时缓存
 const CORE_ASSETS = [
