@@ -631,7 +631,22 @@ async function refreshUserPlaylistLibrary() {
                     closeAddToPlaylistModal();
                     return;
                 }
-                if (t.closest('#clearQueueBtn')) {
+                                if (t.closest('#mClearQueueBtn')) {
+                    e.preventDefault();
+                    if (!playlist.length) { if (typeof showToast === 'function') showToast('播放列表已为空'); return; }
+                    if (!confirm('清空当前播放列表？')) return;
+                    try { audio.pause(); } catch (e) {}
+                    playlist = [];
+                    window.playlist = playlist;
+                    currentIndex = -1;
+                    playlistTotalCount = 0;
+                    if (typeof renderAllPlaylistItems === 'function') renderAllPlaylistItems();
+                    if (window.mobileUI && typeof window.mobileUI.loadPlaylist === 'function') window.mobileUI.loadPlaylist();
+                    if (typeof scheduleSaveCurrentQueue === 'function') scheduleSaveCurrentQueue('clear');
+                    if (typeof showToast === 'function') showToast('已清空播放列表');
+                    return;
+                }
+if (t.closest('#clearQueueBtn')) {
                     e.preventDefault();
                     if (!playlist.length) { if (typeof showToast === 'function') showToast('播放列表已为空'); return; }
                     if (!confirm('清空当前播放列表？')) return;
@@ -925,8 +940,8 @@ async function refreshUserPlaylistLibrary() {
         });
 
         function initEventListeners() {
-            dom.searchButton.addEventListener('click', () => searchSongs(dom.searchInput.value));
-            dom.searchInput.addEventListener('keypress', (e) => e.key === 'Enter' && searchSongs(dom.searchInput.value));
+            dom.searchButton.addEventListener('click', () => { if (window.innerWidth >= 768 && typeof switchDesktopTab === 'function') switchDesktopTab('search'); searchSongs(dom.searchInput.value); });
+            dom.searchInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') { if (window.innerWidth >= 768 && typeof switchDesktopTab === 'function') switchDesktopTab('search'); searchSongs(dom.searchInput.value); } });
 
             // Floating Toggle Button - opens sidebar
             document.getElementById('togglePlaylistBtn').addEventListener('click', (e) => {
@@ -1432,6 +1447,8 @@ async function refreshUserPlaylistLibrary() {
                             e.preventDefault();
                             e.stopPropagation();
                             window.addSongToQueueOnly(newSong);
+                            // keep search results visible; just refresh playlist counters
+                            if (typeof renderAllPlaylistItems === 'function') renderAllPlaylistItems();
                         };
                         plBtn.onclick = function (e) {
                             e.preventDefault();
@@ -3300,6 +3317,7 @@ async function refreshUserPlaylistLibrary() {
                     // Use global musicService instance
                     const results = await musicService.search(query);
                     container.innerHTML = '';
+                    container.classList.remove('hidden');
 
                     if (!results || results.length === 0) {
                         container.innerHTML = '<div class="p-4 text-center opacity-50 text-xs">无结果</div>';
