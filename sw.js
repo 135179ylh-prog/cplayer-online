@@ -1,4 +1,4 @@
-const CACHE_NAME = 'cplayer5-v41-playlist-ordering';
+const CACHE_NAME = 'cplayer5-v42-library-backup-failure-skip';
 
 // 核心资源 - 安装时缓存
 const CORE_ASSETS = [

@@ -1,0 +1,21 @@
+{
+  "format": "cplayer-playlists-backup",
+  "version": 1,
+  "exportedAt": "2026-07-18T12:00:00.000Z",
+  "playlists": [
+    {
+      "name": "不应写入的歌单",
+      "songs": [
+        {
+          "id": "valid-first-song",
+          "name": "第一首合法歌曲",
+          "artist": "测试歌手"
+        },
+        {
+          "id": "invalid-second-song",
+          "name": "缺少歌手字段"
+        }
+      ]
+    }
+  ]
+}

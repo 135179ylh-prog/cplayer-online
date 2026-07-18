@@ -1,0 +1,32 @@
+{
+  "format": "cplayer-playlists-backup",
+  "version": 1,
+  "exportedAt": "2026-07-18T12:00:00.000Z",
+  "playlists": [
+    {
+      "name": "Codex 验收歌单",
+      "songs": [
+        {
+          "id": "import-song-c",
+          "name": "导入歌曲 C",
+          "artist": "测试歌手",
+          "cover": "",
+          "album": "验收专辑",
+          "source": "Test"
+        },
+        {
+          "id": "import-song-d",
+          "name": "导入歌曲 D",
+          "artist": "测试歌手",
+          "cover": "",
+          "album": "验收专辑",
+          "source": "Test"
+        }
+      ]
+    },
+    {
+      "name": "第二验收歌单",
+      "songs": []
+    }
+  ]
+}
