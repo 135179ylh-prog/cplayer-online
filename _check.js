@@ -708,6 +708,42 @@ async function refreshUserPlaylistLibrary() {
                     createUserPlaylist(name).then(() => { if (inp) inp.value=''; refreshUserPlaylistLibrary(); if (typeof showToast === 'function') showToast('已创建歌单'); });
                     return;
                 }
+                if (t.closest('#closeMyPlaylistsBtn')) {
+                    e.preventDefault();
+                    closeMyPlaylists();
+                    return;
+                }
+                if (t.closest('#myCreatePlaylistBtn')) {
+                    e.preventDefault();
+                    const inp = document.getElementById('myNewPlaylistName');
+                    const name = inp ? inp.value.trim() : '';
+                    if (!name) { if (typeof showToast === 'function') showToast('请输入歌单名称', true); return; }
+                    createUserPlaylist(name).then(() => { if (inp) inp.value=''; refreshMyPlaylists(); refreshUserPlaylistLibrary(); if (typeof showToast === 'function') showToast('已创建歌单'); });
+                    return;
+                }
+                if (t.closest('#myPlaylistsBtn')) {
+                    e.preventDefault();
+                    openMyPlaylists();
+                    return;
+                }
+                if (t.closest('#closeMyPlaylistsBtn')) {
+                    e.preventDefault();
+                    closeMyPlaylists();
+                    return;
+                }
+                if (t.closest('#myCreatePlaylistBtn')) {
+                    e.preventDefault();
+                    const inp = document.getElementById('myNewPlaylistName');
+                    const name = inp ? inp.value.trim() : '';
+                    if (!name) { if (typeof showToast === 'function') showToast('请输入歌单名称', true); return; }
+                    createUserPlaylist(name).then(() => { if (inp) inp.value=''; refreshMyPlaylists(); refreshUserPlaylistLibrary(); if (typeof showToast === 'function') showToast('已创建歌单'); });
+                    return;
+                }
+                if (t.closest('#myPlaylistsBtn')) {
+                    e.preventDefault();
+                    openMyPlaylists();
+                    return;
+                }
 if (t.closest('#clearQueueBtn')) {
                     e.preventDefault();
                     if (!playlist.length) { if (typeof showToast === 'function') showToast('播放列表已为空'); return; }
