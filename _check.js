@@ -499,47 +499,68 @@
         }
         window.closeAddToPlaylistModal = closeAddToPlaylistModal;
 
+
+
+
+
         function escapeHtml(str) {
             return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
         }
 
-        async function refreshUserPlaylistModalList() {
+        async function refreshUserPlaylistModalList(statusText) {
             const box = document.getElementById('userPlaylistList');
             if (!box) return;
-            box.innerHTML = '<div class="p-3 text-sm opacity-50">加载中...</div>';
+            if (statusText) {
+                const tip = document.createElement('div');
+                tip.className = 'p-2 mb-2 text-xs rounded-lg bg-white/10 text-white/80';
+                tip.textContent = statusText;
+                const existing = box.querySelector('[data-tip="1"]');
+                if (existing) existing.remove();
+                tip.dataset.tip = '1';
+                box.prepend(tip);
+            }
             try {
                 const list = await listUserPlaylists();
-                if (!list.length) {
-                    box.innerHTML = '<div class="p-3 text-sm opacity-50 text-center">还没有歌单，先新建一个</div>';
-                    return;
-                }
-                box.innerHTML = '';
-                list.forEach(function (pl) {
+                const rows = list.map(function (pl) {
                     const row = document.createElement('button');
                     row.type = 'button';
-                    row.className = 'w-full text-left p-3 rounded-xl bg-white/5 mb-2';
-                    row.innerHTML = '<div class="font-medium">' + escapeHtml(pl.name) + '</div><div class="text-xs opacity-50">' + pl.songs.length + ' 首</div>';
+                    row.className = 'w-full text-left p-3 rounded-xl bg-white/5 mb-2 flex items-center justify-between gap-3';
+                    row.innerHTML = '<div class="min-w-0"><div class="font-medium truncate">' + escapeHtml(pl.name) + '</div><div class="text-xs opacity-50">' + pl.songs.length + ' 首</div></div><span class="text-xs opacity-70">加入</span>';
                     row.onclick = async function () {
                         try {
                             if (!pendingSongForPlaylist) return;
+                            const name = pendingSongForPlaylist.name || '歌曲';
                             await addSongToUserPlaylist(pl.id, pendingSongForPlaylist);
-                            if (typeof showToast === 'function') showToast('已加入歌单: ' + pl.name);
-                            closeAddToPlaylistModal();
+                            if (typeof showToast === 'function') showToast('已加入: ' + pl.name + '（' + name + '）');
+                            // DO NOT close modal; allow adding same song to more playlists or picking another
+                            refreshUserPlaylistModalList('已加入「' + pl.name + '」: ' + name);
                             refreshUserPlaylistLibrary();
                         } catch (e) {
                             console.error(e);
                             if (typeof showToast === 'function') showToast('加入失败', true);
                         }
                     };
-                    box.appendChild(row);
+                    return row;
                 });
+                // keep status tip on top
+                const tip = box.querySelector('[data-tip="1"]');
+                box.innerHTML = '';
+                if (tip) box.appendChild(tip);
+                if (!list.length) {
+                    const empty = document.createElement('div');
+                    empty.className = 'p-3 text-sm opacity-50 text-center';
+                    empty.textContent = '还没有歌单，先新建一个吧';
+                    box.appendChild(empty);
+                } else {
+                    rows.forEach(function (r) { box.appendChild(r); });
+                }
             } catch (e) {
                 console.error(e);
                 box.innerHTML = '<div class="p-3 text-sm text-red-400">加载失败</div>';
             }
         }
 
-        async function refreshUserPlaylistLibrary() {
+async function refreshUserPlaylistLibrary() {
             const box = document.getElementById('userPlaylistLibrary');
             if (!box) return;
             try {
@@ -608,6 +629,36 @@
                 if (t.closest('#closeUserPlaylistModal')) {
                     e.preventDefault();
                     closeAddToPlaylistModal();
+                    return;
+                }
+                if (t.closest('#clearQueueBtn')) {
+                    e.preventDefault();
+                    if (!playlist.length) { if (typeof showToast === 'function') showToast('播放列表已为空'); return; }
+                    if (!confirm('清空当前播放列表？')) return;
+                    try { audio.pause(); } catch (e) {}
+                    playlist = [];
+                    window.playlist = playlist;
+                    currentIndex = -1;
+                    playlistTotalCount = 0;
+                    if (typeof renderAllPlaylistItems === 'function') renderAllPlaylistItems();
+                    if (window.mobileUI && typeof window.mobileUI.loadPlaylist === 'function') window.mobileUI.loadPlaylist();
+                    if (typeof scheduleSaveCurrentQueue === 'function') scheduleSaveCurrentQueue('clear');
+                    if (typeof showToast === 'function') showToast('已清空播放列表');
+                    return;
+                }
+                if (t.closest('#clearQueueBtn')) {
+                    e.preventDefault();
+                    if (!playlist.length) { if (typeof showToast === 'function') showToast('播放列表已为空'); return; }
+                    if (!confirm('清空当前播放列表？')) return;
+                    try { audio.pause(); } catch (e) {}
+                    playlist = [];
+                    window.playlist = playlist;
+                    currentIndex = -1;
+                    playlistTotalCount = 0;
+                    if (typeof renderAllPlaylistItems === 'function') renderAllPlaylistItems();
+                    if (window.mobileUI && typeof window.mobileUI.loadPlaylist === 'function') window.mobileUI.loadPlaylist();
+                    if (typeof scheduleSaveCurrentQueue === 'function') scheduleSaveCurrentQueue('clear');
+                    if (typeof showToast === 'function') showToast('已清空播放列表');
                     return;
                 }
                 if (t.closest('#settingsBtn, #mobileSettingsBtn')) {
