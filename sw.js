@@ -1,4 +1,4 @@
-const CACHE_NAME = 'cplayer5-v32-playmode-fix3';
+const CACHE_NAME = 'cplayer5-v33-repeat-all';
 
 // 核心资源 - 安装时缓存
 const CORE_ASSETS = [

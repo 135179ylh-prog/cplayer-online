@@ -122,8 +122,8 @@
         let playlist = [], currentIndex = -1, playMode = 'random';
 
         // Play mode (sequence / repeat_one / shuffle)
-        const PLAY_MODES = ['sequence', 'repeat_one', 'shuffle'];
-        const PLAY_MODE_LABELS = { sequence: '顺序播放', repeat_one: '单曲循环', shuffle: '随机播放' };
+        const PLAY_MODES = ['sequence', 'repeat_one', 'repeat_all', 'shuffle'];
+        const PLAY_MODE_LABELS = { sequence: '顺序播放', repeat_one: '单曲循环', repeat_all: '列表循环', shuffle: '随机播放' };
         function updatePlayModeUI() {
             const mBtn = document.getElementById('mPlayModeBtn');
             if (mBtn) mBtn.textContent = (PLAY_MODE_LABELS[playMode] || '模式').replace('播放','');
