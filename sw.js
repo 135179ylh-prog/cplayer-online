@@ -1,4 +1,4 @@
-const CACHE_NAME = 'cplayer5-v22-mobile-delete';
+const CACHE_NAME = 'cplayer5-v22-del-btn';
 
 // 核心资源 - 安装时缓存
 const CORE_ASSETS = [
