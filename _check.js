@@ -646,6 +646,16 @@ async function refreshUserPlaylistLibrary() {
                     if (typeof showToast === 'function') showToast('已清空播放列表');
                     return;
                 }
+                if (t.closest('#mPlayModeBtn')) {
+                    e.preventDefault();
+                    if (typeof cyclePlayMode === 'function') cyclePlayMode();
+                    return;
+                }
+                if (t.closest('#mPlayModeBtn')) {
+                    e.preventDefault();
+                    if (typeof cyclePlayMode === 'function') cyclePlayMode();
+                    return;
+                }
 if (t.closest('#clearQueueBtn')) {
                     e.preventDefault();
                     if (!playlist.length) { if (typeof showToast === 'function') showToast('播放列表已为空'); return; }
@@ -876,6 +886,8 @@ if (t.closest('#clearQueueBtn')) {
             }
 
             initEventListeners();
+            try { const saved = localStorage.getItem('cp_play_mode'); if (saved) playMode = saved; } catch(e){}
+            if (typeof updatePlayModeUI === 'function') updatePlayModeUI();
             initSettingsUI();
             setupPlaylistIdLoader();
             if (typeof bindUserPlaylistUI === 'function') bindUserPlaylistUI();  // 初始化歌单ID加载按钮
@@ -962,7 +974,7 @@ if (t.closest('#clearQueueBtn')) {
             dom.playPauseBtn.addEventListener('click', togglePlayPause);
             dom.prevBtn.addEventListener('click', playPreviousSong);
             dom.nextBtn.addEventListener('click', playNextSong);
-            dom.playModeBtn.addEventListener('click', togglePlayMode);
+            dom.playModeBtn.addEventListener('click', cyclePlayMode); dom.playModeBtn.addEventListener('click', togglePlayMode);
 
             dom.progressBar.parentElement.parentElement.addEventListener('click', seekAudio);
 

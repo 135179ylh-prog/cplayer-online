@@ -1,4 +1,4 @@
-const CACHE_NAME = 'cplayer5-v26-search-fix';
+const CACHE_NAME = 'cplayer5-v27-playmode-mobile';
 
 // 核心资源 - 安装时缓存
 const CORE_ASSETS = [
