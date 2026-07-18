@@ -692,6 +692,22 @@ async function refreshUserPlaylistLibrary() {
                     if (typeof showToast === 'function') showToast('已清空播放列表');
                     return;
                 }
+                if (t.closest('#settingsCreatePlaylistBtn')) {
+                    e.preventDefault();
+                    const inp = document.getElementById('settingsCreatePlaylistName');
+                    const name = inp ? inp.value.trim() : '';
+                    if (!name) { if (typeof showToast === 'function') showToast('请输入歌单名称', true); return; }
+                    createUserPlaylist(name).then(() => { if (inp) inp.value=''; refreshUserPlaylistLibrary(); if (typeof showToast === 'function') showToast('已创建歌单'); });
+                    return;
+                }
+                if (t.closest('#settingsCreatePlaylistBtn')) {
+                    e.preventDefault();
+                    const inp = document.getElementById('settingsCreatePlaylistName');
+                    const name = inp ? inp.value.trim() : '';
+                    if (!name) { if (typeof showToast === 'function') showToast('请输入歌单名称', true); return; }
+                    createUserPlaylist(name).then(() => { if (inp) inp.value=''; refreshUserPlaylistLibrary(); if (typeof showToast === 'function') showToast('已创建歌单'); });
+                    return;
+                }
 if (t.closest('#clearQueueBtn')) {
                     e.preventDefault();
                     if (!playlist.length) { if (typeof showToast === 'function') showToast('播放列表已为空'); return; }
@@ -3218,6 +3234,9 @@ if (t.closest('#clearQueueBtn')) {
                                 <div class="font-bold truncate text-sm ${textClass}">${song.name}</div>
                                 <div class="text-xs truncate opacity-50">${song.artist || ''}</div>
                             </div>
+                            <button type="button" class="js-add-playlist-item flex-none w-10 h-9 rounded-full border border-white/25 flex items-center justify-center text-white/85 text-xs active:bg-white/10" title="歌单" aria-label="歌单" style="pointer-events:auto;z-index:5;position:relative;">
+                                +
+                            </button>
                             <button type="button" class="js-remove-queue flex-none w-12 h-9 rounded-full border border-white/25 flex items-center justify-center text-white/85 text-xs active:bg-red-500/40" title="删除" aria-label="删除" style="pointer-events:auto;z-index:5;position:relative;">
                                 删
                             </button>
