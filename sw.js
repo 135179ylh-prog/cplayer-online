@@ -1,4 +1,4 @@
-const CACHE_NAME = 'cplayer5-v24-playlist-tools';
+const CACHE_NAME = 'cplayer5-v23-ux-batch';
 
 // 核心资源 - 安装时缓存
 const CORE_ASSETS = [
