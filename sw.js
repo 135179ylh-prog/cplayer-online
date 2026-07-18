@@ -1,4 +1,4 @@
-const CACHE_NAME = 'cplayer5-v28-mobile-text-btns';
+const CACHE_NAME = 'cplayer5-v32-playmode-fix3';
 
 // 核心资源 - 安装时缓存
 const CORE_ASSETS = [

@@ -120,6 +120,27 @@
 
         let audioContext, analyser, gainNode, isPlaying = false;
         let playlist = [], currentIndex = -1, playMode = 'random';
+
+        // Play mode (sequence / repeat_one / shuffle)
+        const PLAY_MODES = ['sequence', 'repeat_one', 'shuffle'];
+        const PLAY_MODE_LABELS = { sequence: '顺序播放', repeat_one: '单曲循环', shuffle: '随机播放' };
+        function updatePlayModeUI() {
+            const mBtn = document.getElementById('mPlayModeBtn');
+            if (mBtn) mBtn.textContent = (PLAY_MODE_LABELS[playMode] || '模式').replace('播放','');
+            const btn = document.getElementById('playModeBtn');
+            if (btn) btn.title = PLAY_MODE_LABELS[playMode] || '播放模式';
+        }
+        function cyclePlayMode() {
+            const idx = PLAY_MODES.indexOf(playMode);
+            playMode = PLAY_MODES[(idx + 1) % PLAY_MODES.length];
+            try { localStorage.setItem('cp_play_mode', playMode); } catch(e){}
+            updatePlayModeUI();
+            if (typeof showToast === 'function') showToast('播放模式: ' + (PLAY_MODE_LABELS[playMode] || playMode));
+            try { console.log('[playMode]', playMode); } catch(e){}
+        }
+        window.cyclePlayMode = cyclePlayMode;
+        window.updatePlayModeUI = updatePlayModeUI;
+
         let parsedLyrics = [], activeLyricIndex = -1;
 
         // 伪随机播放：打乱后的播放顺序索引
