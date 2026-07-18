@@ -4656,14 +4656,26 @@ id="settingsDropZone"
                         if (isPlaying) div.id = 'mobile-playing-item';
 
                         div.innerHTML = `
-                            <span class="text-xs font-mono opacity-50 w-6 text-center">${i + 1}</span>
+                            <span class="text-xs font-mono opacity-50 w-6 text-center flex-none">${i + 1}</span>
                             <img src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" class="w-10 h-10 rounded-lg object-cover bg-white/5 flex-none" loading="lazy" crossorigin="anonymous">
                             <div class="flex-1 min-w-0">
                                 <div class="font-bold truncate text-sm ${textClass}">${song.name}</div>
-                                <div class="text-xs truncate opacity-50">${song.artist}</div>
+                                <div class="text-xs truncate opacity-50">${song.artist || ''}</div>
                             </div>
-                            <span class="opacity-40 p-2"><i class="fas ${isPlaying ? 'fa-volume-up' : 'fa-play'} text-xs"></i></span>
+                            <button type="button" class="js-remove-queue flex-none w-9 h-9 rounded-full border border-white/20 flex items-center justify-center text-white/70 active:bg-red-500/30" title="删除" aria-label="删除">
+                                <i class="fas fa-trash text-xs"></i>
+                            </button>
                         `;
+                        const removeBtn = div.querySelector('.js-remove-queue');
+                        if (removeBtn) {
+                            removeBtn.onclick = (e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                if (typeof window.removeSongFromQueue === 'function') {
+                                    window.removeSongFromQueue(actualIndex);
+                                }
+                            };
+                        }
                         div.onclick = () => {
                             playSongAtIndex(actualIndex);
                             self.closeSheet();

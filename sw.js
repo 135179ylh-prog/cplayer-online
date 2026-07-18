@@ -1,4 +1,4 @@
-const CACHE_NAME = 'cplayer5-v21-fixed';
+const CACHE_NAME = 'cplayer5-v22-mobile-delete';
 
 // 核心资源 - 安装时缓存
 const CORE_ASSETS = [
