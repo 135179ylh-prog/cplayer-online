@@ -1313,13 +1313,14 @@
                 </button>
 
                 <!-- Next -->
-<button id="mPlayModeBtn" type="button" class="w-9 h-9 rounded-full bg-white/10 flex items-center justify-center"><i class="fas fa-list-ol text-sm"></i></button>
+<button id="mPlayModeBtn" type="button" class="px-3 h-9 rounded-full bg-white/10 text-xs flex items-center justify-center">模式</button>
                 <button id="mobileNextBtn" class="p-3 active:scale-90 transition-transform text-2xl" aria-label="下一曲">
                     <i class="fas fa-step-forward"></i>
                 </button>
 
                 <!-- Like/Menu -->
                 <!-- Playlist/Search Toggle (Replaces Volume) -->
+<button id="mClearQueueBtnBar" type="button" class="px-3 h-9 rounded-full bg-red-500/20 text-red-200 text-xs border border-red-400/30">清空</button>
                 <button id="mobilePlaylistToggleBtn" class="p-3 opacity-70 active:scale-95 transition-transform"
                     aria-label="打开播放列表">
                     <i class="fas fa-list-ul text-xl"></i>
@@ -2216,6 +2217,21 @@ async function refreshUserPlaylistLibrary() {
                 if (t.closest('#mPlayModeBtn')) {
                     e.preventDefault();
                     if (typeof cyclePlayMode === 'function') cyclePlayMode();
+                    return;
+                }
+                if (t.closest('#mClearQueueBtnBar')) {
+                    e.preventDefault();
+                    if (!playlist.length) { if (typeof showToast === 'function') showToast('播放列表已为空'); return; }
+                    if (!confirm('清空当前播放列表？')) return;
+                    try { audio.pause(); } catch (e) {}
+                    playlist = [];
+                    window.playlist = playlist;
+                    currentIndex = -1;
+                    playlistTotalCount = 0;
+                    if (typeof renderAllPlaylistItems === 'function') renderAllPlaylistItems();
+                    if (window.mobileUI && typeof window.mobileUI.loadPlaylist === 'function') window.mobileUI.loadPlaylist();
+                    if (typeof scheduleSaveCurrentQueue === 'function') scheduleSaveCurrentQueue('clear');
+                    if (typeof showToast === 'function') showToast('已清空播放列表');
                     return;
                 }
 if (t.closest('#clearQueueBtn')) {

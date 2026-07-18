@@ -656,6 +656,21 @@ async function refreshUserPlaylistLibrary() {
                     if (typeof cyclePlayMode === 'function') cyclePlayMode();
                     return;
                 }
+                if (t.closest('#mClearQueueBtnBar')) {
+                    e.preventDefault();
+                    if (!playlist.length) { if (typeof showToast === 'function') showToast('播放列表已为空'); return; }
+                    if (!confirm('清空当前播放列表？')) return;
+                    try { audio.pause(); } catch (e) {}
+                    playlist = [];
+                    window.playlist = playlist;
+                    currentIndex = -1;
+                    playlistTotalCount = 0;
+                    if (typeof renderAllPlaylistItems === 'function') renderAllPlaylistItems();
+                    if (window.mobileUI && typeof window.mobileUI.loadPlaylist === 'function') window.mobileUI.loadPlaylist();
+                    if (typeof scheduleSaveCurrentQueue === 'function') scheduleSaveCurrentQueue('clear');
+                    if (typeof showToast === 'function') showToast('已清空播放列表');
+                    return;
+                }
 if (t.closest('#clearQueueBtn')) {
                     e.preventDefault();
                     if (!playlist.length) { if (typeof showToast === 'function') showToast('播放列表已为空'); return; }
