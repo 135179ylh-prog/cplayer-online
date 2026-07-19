@@ -19,4 +19,4 @@
 2. [x] 完成网络、队列、导入、移动同步和 Service Worker 加固。
 3. [x] 增加回归检查脚本与用户向 README 说明。
 4. [x] 完成最终静态、离线和真实 Chrome 验证。
-5. [ ] 提交发布 v31，并核对 GitHub Pages 与线上页面。
+5. [x] 提交发布 v31，并核对 GitHub Pages 与线上页面。

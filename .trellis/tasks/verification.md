@@ -43,4 +43,4 @@
 - 真实 Chrome：危险歌名在桌面/移动均以文本渲染；封面第 161 张触发淘汰并保持 160 张上限。
 - 真实 Chrome：停止独立本地服务器后仍从缓存打开 `v31`；访问同域下载器后离线壳仍为播放器。
 - 静态门禁：`verify_features.py`、主脚本/SW 语法、Python 编译与 `git diff --check` 通过；详细证据在 `07-19-stability-hardening/verification.md`。
-- 待完成：推送后核对线上 `v31` 与 GitHub Pages 工作流。
+- 线上 `v31`：提交 `fdee705` 已推送；GitHub Pages 运行 `29683524137` 成功，线上 `playlist.js` 返回 200，真实搜索“周杰伦”返回 30 条结果和完整操作按钮；截图与详细记录在 `07-19-stability-hardening/verification.md`。
