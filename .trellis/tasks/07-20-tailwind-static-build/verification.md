@@ -22,7 +22,11 @@
 - CDP 桌面截图：主播放器和下载器均保持正常可见布局；关键计算样式与迁移前一致。
 - CDP 390 x 844 iframe：移动布局显示、桌面布局隐藏，移动控制仍完整；新 Service Worker cache 包含静态 CSS。
 - 受保护 Claude Code review：第一次因 `max turns=10` 未产生 verdict，保留 `research/claude-review.md` 作为诊断；第二次以 `max turns=20` 完成，`research/claude-review-02.md` 含 `<verdict>APPROVED</verdict>`，没有阻塞发现。
+- GitHub Actions：`Deploy GitHub Pages #43`（run `29703387496`，提交 `0632745`）显示 `Success`，总时长 23 秒，artifact 为 24.7 MB。唯一 annotation 是 GitHub 对 action Node 20 runtime 的平台迁移提示，不是项目失败。
+- 线上主页面：`css/tailwind.css` 返回 200、`text/css` 且长度为 27,815 bytes；`js/tailwindcss.js` 返回 404；DOM 中没有 Tailwind script，`window.mobileUI` 已初始化。
+- 线上 Service Worker：激活 cache 为 `cplayer5-v48-static-tailwind`，缓存中只有 `/cplayer-online/css/tailwind.css` 这一个 Tailwind 资源。
+- 线上下载器：标题为 `CPlayer 5 - 歌单下载器`，使用本地 `css/tailwind.css`，没有 Tailwind script，保留 1 个输入框和 1 个操作按钮。
 
 ## 待完成
 
-- 推送后验证 GitHub Pages 上的两个页面和缓存资源。
+无。
