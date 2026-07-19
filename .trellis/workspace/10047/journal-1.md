@@ -105,3 +105,39 @@ Hardened API, search, queue persistence, mobile synchronization, and PWA caching
 ### Next Steps
 
 - None - task complete
+
+
+## Session 4: Harden Pages deployment and prebuild Tailwind CSS
+
+**Date**: 2026-07-20
+**Task**: Harden Pages deployment and prebuild Tailwind CSS
+**Branch**: `main`
+
+### Summary
+
+Restricted GitHub Pages artifacts to runtime files, documented API/version boundaries, and replaced Tailwind runtime compilation with a committed static stylesheet verified locally and online.
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `be1682d` | (see git log) |
+| `c172838` | (see git log) |
+| `0632745` | (see git log) |
+| `95ca2a7` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
