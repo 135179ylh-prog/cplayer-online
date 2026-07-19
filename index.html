@@ -4,6 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="cplayer-api-base-url" content="https://api.chksz.top/api">
     <title>CPlayer 5</title>
 
     <!-- Favicon -->
@@ -1114,11 +1115,12 @@
 
 <body class="bg-bg-color text-on-bg-color font-sans transition-colors duration-300">
 
-    <div id="userPlaylistModal" class="fixed inset-0 hidden" style="z-index:2147483000;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.55);">
+    <div id="userPlaylistModal" class="fixed inset-0 hidden" style="z-index:2147483000;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.55);"
+        role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="userPlaylistModalTitle">
       <div style="background:#1a1a1f;color:#fff;border-radius:16px;max-width:420px;width:92%;overflow:hidden;border:1px solid rgba(255,255,255,.15);">
         <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 16px;border-bottom:1px solid rgba(255,255,255,.1);">
-          <b>加入歌单</b>
-          <button id="closeUserPlaylistModal" type="button" style="background:transparent;border:0;color:#fff;font-size:18px;cursor:pointer;">×</button>
+          <b id="userPlaylistModalTitle">加入歌单</b>
+          <button id="closeUserPlaylistModal" type="button" aria-label="关闭加入歌单窗口" style="background:transparent;border:0;color:#fff;font-size:18px;cursor:pointer;">×</button>
         </div>
         <div style="display:flex;gap:8px;padding:12px 16px;border-bottom:1px solid rgba(255,255,255,.1);">
           <input id="modalNewPlaylistName" placeholder="新建歌单名称" style="flex:1;padding:8px 10px;border-radius:10px;border:1px solid rgba(255,255,255,.15);background:rgba(255,255,255,.06);color:#fff;">
@@ -1130,7 +1132,7 @@
 
 
     <!-- ★ WebGL 流体背景 -->
-    <canvas id="fluidBg" class="fixed inset-0 w-full h-full -z-10 pointer-events-none"></canvas>
+    <canvas id="fluidBg" class="fixed inset-0 w-full h-full -z-10 pointer-events-none" aria-hidden="true"></canvas>
     <div id="fluidNoise"
         class="fixed inset-0 w-full h-full pointer-events-none opacity-[0.025] mix-blend-overlay -z-[9]"
         style="background-image: url(&quot;data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E&quot;);">
@@ -1170,13 +1172,13 @@
                         class="top-btn w-10 h-10 rounded-full shadow-lg flex items-center justify-center transition-all duration-300 hover:scale-110">
                         <i class="fas fa-folder-open text-sm opacity-70" aria-hidden="true"></i>
                     </button>
-                    <button id="settingsBtn" title="设置"
+                    <button id="settingsBtn" title="设置" aria-label="打开设置"
                         class="top-btn w-10 h-10 rounded-full shadow-lg flex items-center justify-center transition-all duration-300 hover:scale-110">
-                        <i class="fas fa-cog text-sm opacity-70"></i>
+                        <i class="fas fa-cog text-sm opacity-70" aria-hidden="true"></i>
                     </button>
-                    <button id="fullscreenBtn" title="全屏模式"
+                    <button id="fullscreenBtn" title="全屏模式" aria-label="切换全屏模式"
                         class="top-btn mobile-hide w-10 h-10 rounded-full shadow-lg flex items-center justify-center transition-all duration-300 hover:scale-110">
-                        <i class="fas fa-expand text-sm opacity-70"></i>
+                        <i class="fas fa-expand text-sm opacity-70" aria-hidden="true"></i>
                     </button>
                 </div>
             </header>
@@ -1185,11 +1187,12 @@
             <div class="w-full flex flex-col items-center justify-center gap-0">
                 <!-- 视觉化 & 封面 -->
                 <div class="visualizer-container">
-                    <canvas id="audioVisualizer"></canvas>
+                    <canvas id="audioVisualizer" aria-hidden="true"></canvas>
                     <div class="album-art-wrapper" id="albumArtWrapper">
                         <img id="albumArt"
                             src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300' viewBox='0 0 300 300'%3E%3Cdefs%3E%3ClinearGradient id='grad' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' style='stop-color:%23333;stop-opacity:1' /%3E%3Cstop offset='100%25' style='stop-color:%23111;stop-opacity:1' /%3E%3C/linearGradient%3E%3C/defs%3E%3Ccircle cx='150' cy='150' r='148' fill='url(%23grad)' stroke='%23222' stroke-width='4'/%3E%3Ccircle cx='150' cy='150' r='50' fill='%2300C853' opacity='0.8'/%3E%3Ccircle cx='150' cy='150' r='5' fill='%23000'/%3E%3Cpath fill='none' stroke='%23444' stroke-width='1' d='M150,10 A140,140 0 1,1 149.9,10' stroke-dasharray='5,5'/%3E%3C/svg%3E"
-                            alt="专辑封面" crossOrigin="anonymous" draggable="true">
+                            alt="当前歌曲专辑封面" width="300" height="300" decoding="async"
+                            crossOrigin="anonymous" draggable="true">
                         <!-- 精美内嵌加载动画 -->
                         <div id="desktopLoaderOverlay"
                             class="absolute inset-0 rounded-full flex items-center justify-center bg-black/40 backdrop-blur-[2px] opacity-0 pointer-events-none transition-opacity duration-300 z-10 text-primary-color">
@@ -1235,30 +1238,30 @@
                     <div class="control-buttons-row justify-center gap-6">
                         <button id="playModeBtn" title="播放模式" aria-label="切换播放模式"
                             class="w-9 h-9 flex items-center justify-center rounded-full hover:bg-white/10 transition-colors opacity-80 hover:opacity-100">
-                            <i class="fas fa-random text-lg"></i>
+                            <i class="fas fa-random text-lg" aria-hidden="true"></i>
                         </button>
 
                         <div class="flex items-center gap-6">
                             <button id="prevBtn" aria-label="上一曲"
                                 class="w-12 h-12 rounded-full hover:bg-white/10 flex items-center justify-center transition-all active:scale-95">
-                                <i class="fas fa-backward text-xl"></i>
+                                <i class="fas fa-backward text-xl" aria-hidden="true"></i>
                             </button>
 
                             <button id="playPauseBtn" aria-label="播放/暂停"
                                 class="w-16 h-16 rounded-full bg-primary-color text-on-primary-color flex items-center justify-center shadow-lg hover:scale-105 active:scale-95 transition-all">
-                                <i class="fas fa-play text-2xl ml-1"></i>
+                                <i class="fas fa-play text-2xl ml-1" aria-hidden="true"></i>
                             </button>
 
                             <button id="nextBtn" aria-label="下一曲"
                                 class="w-12 h-12 rounded-full hover:bg-white/10 flex items-center justify-center transition-all active:scale-95">
-                                <i class="fas fa-forward text-xl"></i>
+                                <i class="fas fa-forward text-xl" aria-hidden="true"></i>
                             </button>
                         </div>
 
                         <div class="volume-control-group">
-                            <button id="volumeBtn"
+                            <button id="volumeBtn" aria-label="调节音量" title="音量"
                                 class="w-9 h-9 flex items-center justify-center rounded-full hover:bg-white/10 transition-colors opacity-80 hover:opacity-100">
-                                <i id="volumeIcon" class="fas fa-volume-up text-lg"></i>
+                                <i id="volumeIcon" class="fas fa-volume-up text-lg" aria-hidden="true"></i>
                             </button>
                             <div id="volumePopover" class="volume-popup">
                                 <input type="range" id="volumeSlider" class="volume-slider-vertical" min="0" max="1"
@@ -1311,12 +1314,12 @@
             <!-- Tab 切换头部 -->
             <div class="flex-none pt-5 pb-0 px-5">
                 <div class="flex items-center gap-5 border-b border-white/10 pb-3">
-                    <button id="desktopTabPlaylist"
+                    <button id="desktopTabPlaylist" role="tab" aria-selected="true" aria-controls="desktopContentPlaylist"
                         class="text-base font-bold border-b-2 border-primary-color pb-1 transition-all opacity-100">
                         <i class="fas fa-list-ul mr-1.5 text-primary-color"></i>当前播放
                         <span id="playlistCount" class="text-xs opacity-50 font-normal ml-1"></span>
                     </button>
-                    <button id="desktopTabSearch"
+                    <button id="desktopTabSearch" role="tab" aria-selected="false" aria-controls="desktopContentSearch"
                         class="text-base font-bold border-b-2 border-transparent pb-1 transition-all opacity-50">
                         <i class="fas fa-search mr-1.5"></i>搜索添加
                     </button>
@@ -1354,7 +1357,7 @@
 
         <!-- 隐藏的兼容元素 (保留旧ID供JS不报错) -->
         <div id="floatingSearchPanel" class="hidden"></div>
-        <button id="toggleSearchBtn" class="hidden"></button>
+        <button id="toggleSearchBtn" class="hidden" aria-label="打开搜索"></button>
 
     </div>
 
@@ -1364,8 +1367,8 @@
         <header class="flex-none h-14 flex items-center justify-center relative z-20">
             <h1 class="text-lg font-bold tracking-wider opacity-90">CPlayer 5</h1>
             <!-- 设置按钮 (移动端) -->
-            <button id="mobileSettingsBtn" class="absolute right-4 p-2 opacity-70 active:opacity-100">
-                <i class="fas fa-cog"></i>
+            <button id="mobileSettingsBtn" class="absolute right-4 p-2 opacity-70 active:opacity-100" aria-label="打开设置">
+                <i class="fas fa-cog" aria-hidden="true"></i>
             </button>
         </header>
 
@@ -1383,6 +1386,7 @@
                         <!-- Default SVG Cover if src is empty -->
                         <img id="mobileCoverImg"
                             src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300' viewBox='0 0 300 300'%3E%3Cdefs%3E%3ClinearGradient id='grad' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' style='stop-color:%23333;stop-opacity:1' /%3E%3Cstop offset='100%25' style='stop-color:%23111;stop-opacity:1' /%3E%3C/linearGradient%3E%3C/defs%3E%3Ccircle cx='150' cy='150' r='148' fill='url(%23grad)' stroke='%23222' stroke-width='4'/%3E%3Ccircle cx='150' cy='150' r='50' fill='%2300C853' opacity='0.8'/%3E%3Ccircle cx='150' cy='150' r='5' fill='%23000'/%3E%3Cpath fill='none' stroke='%23444' stroke-width='1' d='M150,10 A140,140 0 1,1 149.9,10' stroke-dasharray='5,5'/%3E%3C/svg%3E"
+                            alt="当前歌曲专辑封面" width="300" height="300" decoding="async"
                             crossorigin="anonymous" />
                         <!-- 精美内嵌加载动画 -->
                         <div id="mobileLoaderOverlay"
@@ -1460,24 +1464,24 @@
                 <!-- Mode Toggle (Random/Loop) -->
                 <button id="mobileModeBtn" class="p-3 opacity-70 active:scale-95 transition-transform"
                     aria-label="切换播放模式">
-                    <i class="fas fa-random text-xl"></i>
+                    <i class="fas fa-random text-xl" aria-hidden="true"></i>
                 </button>
 
                 <!-- Prev -->
                 <button id="mobilePrevBtn" class="p-3 active:scale-90 transition-transform text-2xl" aria-label="上一曲">
-                    <i class="fas fa-step-backward"></i>
+                    <i class="fas fa-step-backward" aria-hidden="true"></i>
                 </button>
 
                 <!-- Play/Pause (Circle) -->
                 <button id="mobilePlayBtn" aria-label="播放/暂停"
                     class="w-16 h-16 rounded-full bg-primary-color text-on-primary-color flex items-center justify-center shadow-lg active:scale-95 transition-transform text-2xl">
-                    <i class="fas fa-play pl-1"></i>
+                    <i class="fas fa-play pl-1" aria-hidden="true"></i>
                 </button>
 
                 <!-- Next -->
 <button id="mPlayModeBtn" type="button" class="px-4 h-11 rounded-full bg-white/10 text-sm flex items-center justify-center">模式</button>
                 <button id="mobileNextBtn" class="p-3 active:scale-90 transition-transform text-2xl" aria-label="下一曲">
-                    <i class="fas fa-step-forward"></i>
+                    <i class="fas fa-step-forward" aria-hidden="true"></i>
                 </button>
 
                 <!-- Like/Menu -->
@@ -1486,7 +1490,7 @@
 <button id="myPlaylistsBtn" type="button" aria-label="打开音乐资料库" title="音乐资料库" class="px-4 h-11 rounded-full bg-white/10 text-sm flex items-center justify-center">歌单</button>
                 <button id="mobilePlaylistToggleBtn" class="p-3 opacity-90 active:scale-95 transition-transform text-sm"
                     aria-label="打开播放列表">
-                    <i class="fas fa-list-ul text-xl"></i>
+                    <i class="fas fa-list-ul text-xl" aria-hidden="true"></i>
                 </button>
             </div>
 
@@ -1505,17 +1509,17 @@
                 <!-- Header / Tabs -->
                 <div class="flex-none px-4 pb-2 relative">
                     <!-- Close Button -->
-                    <button id="closeSheetBtn" class="absolute right-4 top-1 opacity-50 p-2">
-                        <i class="fas fa-chevron-down"></i>
+                    <button id="closeSheetBtn" class="absolute right-4 top-1 opacity-50 p-2" aria-label="关闭播放列表面板">
+                        <i class="fas fa-chevron-down" aria-hidden="true"></i>
                     </button>
 
                     <!-- Tab Switcher -->
                     <div class="flex justify-center gap-6 text-lg font-bold">
-                        <button id="sheetTabPlaylist"
+                        <button id="sheetTabPlaylist" role="tab" aria-selected="true" aria-controls="sheetContentPlaylist"
                             class="opacity-100 border-b-2 border-primary-color pb-1 transition-all">
                             当前播放
                         </button>
-                        <button id="sheetTabSearch"
+                        <button id="sheetTabSearch" role="tab" aria-selected="false" aria-controls="sheetContentSearch"
                             class="opacity-50 border-b-2 border-transparent pb-1 transition-all">
                             搜索添加
                         </button>
@@ -1547,17 +1551,18 @@
 
     <!-- 设置模态框 -->
     <div id="settingsModal"
-        class="fixed inset-0 z-[100] flex items-center justify-center cplayer-modal-backdrop hidden opacity-0 transition-opacity duration-300">
+        class="fixed inset-0 z-[100] flex items-center justify-center cplayer-modal-backdrop hidden opacity-0 transition-opacity duration-300"
+        role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="settingsModalTitle">
         <div class="modal-card w-full max-w-sm md:max-w-2xl mx-4 p-6 rounded-3xl shadow-2xl transform scale-95 transition-transform duration-300"
             id="settingsCard">
             <div class="flex justify-between items-center mb-6">
-                <h2 class="text-xl font-bold flex items-center">
+                <h2 id="settingsModalTitle" class="text-xl font-bold flex items-center">
                     <i class="fas fa-sliders-h mr-2 theme-text-primary"></i>
                     歌单设置
                 </h2>
-                <button id="closeSettingsBtn"
+                <button id="closeSettingsBtn" aria-label="关闭设置"
                     class="w-8 h-8 rounded-full flex items-center justify-center hover:bg-black/10 transition-colors">
-                    <i class="fas fa-times"></i>
+                    <i class="fas fa-times" aria-hidden="true"></i>
                 </button>
             </div>
 
@@ -1639,7 +1644,8 @@
 
     <!-- ★ 欢迎/歌单引导模态框 -->
     <div id="welcomeModal"
-        class="fixed inset-0 z-[110] flex items-center justify-center cplayer-modal-backdrop hidden opacity-0 transition-opacity duration-500">
+        class="fixed inset-0 z-[110] flex items-center justify-center cplayer-modal-backdrop hidden opacity-0 transition-opacity duration-500"
+        role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="welcomeModalTitle">
         <div class="w-full max-w-md mx-4 rounded-3xl shadow-2xl transform scale-95 transition-all duration-500 overflow-hidden"
             id="welcomeCard">
 
@@ -1655,7 +1661,7 @@
                 </div>
 
                 <!-- Title -->
-                <h2 class="text-2xl font-bold text-center mb-2">欢迎使用 CPlayer 5</h2>
+                <h2 id="welcomeModalTitle" class="text-2xl font-bold text-center mb-2">欢迎使用 CPlayer 5</h2>
                 <p class="text-center opacity-60 text-sm mb-8">输入你的网易云歌单 ID，即刻开始超清母带体验</p>
 
                 <!-- Input -->
@@ -1722,6 +1728,14 @@
 
     <!-- JavaScript 逻辑 -->
     <script type="module">
+        import {
+            API_REQUEST_RETRIES,
+            API_REQUEST_TIMEOUT_MS,
+            API_RETRY_DELAY_MS,
+            fetchJsonWithRetry,
+            normalizeSongObject
+        } from './js/core-utils.js';
+
         // 监听 plusready 事件，增加原生能力支持
         document.addEventListener('plusready', function () {
             // 锁定屏幕方向为竖屏
@@ -1740,33 +1754,28 @@
 
         // ================= 架构核心：ChKSz API (整合版) =================
 
+        const apiBaseMeta = document.querySelector('meta[name="cplayer-api-base-url"]');
+
         class ChKSzAPI {
             static get baseUrl() {
-                return 'https://api.chksz.top/api';
+                const value = apiBaseMeta && apiBaseMeta.content ? apiBaseMeta.content.trim() : '';
+                if (!value) throw new Error('API 地址未配置');
+                return value.replace(/\/+$/, '');
             }
         }
 
-        const API_REQUEST_TIMEOUT_MS = 15000;
-
         async function fetchJsonWithTimeout(url, timeoutMs = API_REQUEST_TIMEOUT_MS) {
-            const controller = typeof AbortController === 'function' ? new AbortController() : null;
-            const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
-            try {
-                const response = await fetch(url, controller ? { signal: controller.signal } : undefined);
-                if (!response.ok) throw new Error('网络请求失败 (' + response.status + ')');
-                return await response.json();
-            } catch (error) {
-                if (error && error.name === 'AbortError') throw new Error('网络请求超时');
-                throw error;
-            } finally {
-                if (timer) clearTimeout(timer);
-            }
+            return fetchJsonWithRetry(url, {
+                timeoutMs,
+                retries: API_REQUEST_RETRIES,
+                retryDelayMs: API_RETRY_DELAY_MS
+            });
         }
 
         class MusicService {
             constructor() {
                 this.loadSettings();
-                this.baseUrl = 'https://api.chksz.top/api';
+                this.baseUrl = ChKSzAPI.baseUrl;
             }
 
             loadSettings() {
@@ -2063,21 +2072,6 @@
         let queueSavePendingReason = '';
         let suppressQueueAutosave = false;
         let pendingSongForPlaylist = null;
-
-        function normalizeSongObject(song) {
-            if (song == null) return null;
-            if (typeof song !== 'object') {
-                song = { id: song, name: '歌曲 ID: ' + song };
-            }
-            return {
-                id: song.id,
-                name: song.name || '未知歌曲',
-                artist: song.artist || song.artists || '未知艺术家',
-                cover: song.cover || song.picUrl || '',
-                album: song.album || '',
-                source: song.source || 'Search'
-            };
-        }
 
         function readRecentHistory() {
             try {
@@ -2563,6 +2557,7 @@
                     return;
                 }
                 modal.classList.remove('hidden');
+                modal.setAttribute('aria-hidden', 'false');
                 modal.style.cssText = 'position:fixed;inset:0;z-index:2147483000;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.55);';
                 refreshUserPlaylistModalList();
             } catch (e) {
@@ -2577,6 +2572,7 @@
             if (!modal) return;
             modal.style.display = 'none';
             modal.classList.add('hidden');
+            modal.setAttribute('aria-hidden', 'true');
             pendingSongForPlaylist = null;
         }
         window.closeAddToPlaylistModal = closeAddToPlaylistModal;
@@ -2821,6 +2817,9 @@ async function refreshUserPlaylistLibrary() {
                     image.src = song.cover.replace(/^http:/, 'https:');
                     image.alt = '';
                     image.loading = 'lazy';
+                    image.width = 44;
+                    image.height = 44;
+                    image.decoding = 'async';
                     image.onerror = function () {
                         cover.innerHTML = '<i class="fas fa-music opacity-40" aria-hidden="true"></i>';
                     };
@@ -3015,6 +3014,9 @@ async function refreshUserPlaylistLibrary() {
                         const image = document.createElement('img');
                         image.alt = '';
                         image.loading = 'lazy';
+                        image.width = 40;
+                        image.height = 40;
+                        image.decoding = 'async';
                         const separator = String(song.cover).includes('?') ? '&' : '?';
                         const coverUrl = String(song.cover) + separator + 'param=80y80';
                         image.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
@@ -3146,8 +3148,8 @@ async function refreshUserPlaylistLibrary() {
             currentDetailPlaylistId = playlistId;
             playlistDetailReturnFocus = document.activeElement;
             modal.classList.remove('hidden');
-            modal.style.display = 'flex';
             modal.setAttribute('aria-hidden', 'false');
+            modal.style.display = 'flex';
             await refreshPlaylistDetailList();
             const closeButton = document.getElementById('closePlaylistDetailBtn');
             if (closeButton) closeButton.focus();
@@ -3591,6 +3593,7 @@ async function refreshUserPlaylistLibrary() {
             }
 
             initEventListeners();
+            setupConnectivityFeedback();
             try {
                 const saved = localStorage.getItem('cp_play_mode');
                 playMode = normalizePlayMode(saved || playMode);
@@ -3856,12 +3859,14 @@ async function refreshUserPlaylistLibrary() {
                 tabPlaylist.classList.toggle('opacity-50', !isPlaylist);
                 tabPlaylist.classList.toggle('border-primary-color', isPlaylist);
                 tabPlaylist.classList.toggle('border-transparent', !isPlaylist);
+                tabPlaylist.setAttribute('aria-selected', String(isPlaylist));
             }
             if (tabSearch) {
                 tabSearch.classList.toggle('opacity-100', !isPlaylist);
                 tabSearch.classList.toggle('opacity-50', isPlaylist);
                 tabSearch.classList.toggle('border-primary-color', !isPlaylist);
                 tabSearch.classList.toggle('border-transparent', isPlaylist);
+                tabSearch.setAttribute('aria-selected', String(!isPlaylist));
             }
             if (contentPlaylist) {
                 contentPlaylist.classList.toggle('hidden', !isPlaylist);
@@ -3945,6 +3950,19 @@ async function refreshUserPlaylistLibrary() {
             }, 2000);
         }
 
+        let connectivityFeedbackBound = false;
+
+        function setupConnectivityFeedback() {
+            if (connectivityFeedbackBound || typeof window === 'undefined' || typeof navigator === 'undefined') return;
+            connectivityFeedbackBound = true;
+
+            const notifyOffline = () => showToast('已离线，已保存的歌单和最近播放仍可使用', true);
+            const notifyOnline = () => showToast('网络已恢复');
+            window.addEventListener('offline', notifyOffline);
+            window.addEventListener('online', notifyOnline);
+            if (navigator.onLine === false) setTimeout(notifyOffline, 300);
+        }
+
         // ================= 设置 UI =================
         function initSettingsUI() {
             // 设置项的UI已精简，此处留空防报错
@@ -3954,6 +3972,7 @@ async function refreshUserPlaylistLibrary() {
             try { if (typeof bindUserPlaylistUI === 'function') bindUserPlaylistUI(); if (typeof refreshUserPlaylistLibrary === 'function') refreshUserPlaylistLibrary(); } catch (e) {}
 
             dom.settingsModal.classList.remove('hidden');
+            dom.settingsModal.setAttribute('aria-hidden', 'false');
             // Allow reflow
             void dom.settingsModal.offsetWidth;
             dom.settingsModal.classList.remove('opacity-0');
@@ -4000,6 +4019,7 @@ async function refreshUserPlaylistLibrary() {
             dom.settingsModal.querySelector('.modal-card').classList.remove('scale-100');
             setTimeout(() => {
                 dom.settingsModal.classList.add('hidden');
+                dom.settingsModal.setAttribute('aria-hidden', 'true');
             }, 300);
         }
 
@@ -4291,6 +4311,9 @@ async function refreshUserPlaylistLibrary() {
                             const img = document.createElement('img');
                             img.className = 'w-full h-full object-cover';
                             img.loading = 'lazy';
+                            img.width = 40;
+                            img.height = 40;
+                            img.decoding = 'async';
                             img.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
                             window.getCachedImage(`${song.cover}?param=80y80`).then(cachedSrc => {
                                 if (img.isConnected) img.src = cachedSrc;
@@ -5140,6 +5163,7 @@ async function refreshUserPlaylistLibrary() {
             if (!modal || !card) return;
 
             modal.classList.remove('hidden');
+            modal.setAttribute('aria-hidden', 'false');
             void modal.offsetWidth;
             modal.classList.remove('opacity-0');
             card.classList.remove('scale-95');
@@ -5162,6 +5186,7 @@ async function refreshUserPlaylistLibrary() {
             card.classList.remove('scale-100');
             setTimeout(() => {
                 modal.classList.add('hidden');
+                modal.setAttribute('aria-hidden', 'true');
                 // Reset states
                 const loading = document.getElementById('welcomeLoading');
                 const error = document.getElementById('welcomeError');
@@ -5319,6 +5344,9 @@ async function refreshUserPlaylistLibrary() {
                 const img = document.createElement('img');
                 img.className = 'w-full h-full object-cover';
                 img.loading = 'lazy';
+                img.width = 40;
+                img.height = 40;
+                img.decoding = 'async';
                 img.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
                 window.getCachedImage(`${songCover}?param=80y80`).then(cachedSrc => {
                     if (img.isConnected) img.src = cachedSrc;
@@ -5999,11 +6027,13 @@ async function refreshUserPlaylistLibrary() {
                 this.dom.tabPlaylist.classList.toggle('opacity-50', !isPlaylist);
                 this.dom.tabPlaylist.classList.toggle('border-primary-color', isPlaylist);
                 this.dom.tabPlaylist.classList.toggle('border-transparent', !isPlaylist);
+                this.dom.tabPlaylist.setAttribute('aria-selected', String(isPlaylist));
 
                 this.dom.tabSearch.classList.toggle('opacity-100', !isPlaylist);
                 this.dom.tabSearch.classList.toggle('opacity-50', isPlaylist);
                 this.dom.tabSearch.classList.toggle('border-primary-color', !isPlaylist);
                 this.dom.tabSearch.classList.toggle('border-transparent', isPlaylist);
+                this.dom.tabSearch.setAttribute('aria-selected', String(!isPlaylist));
 
                 // Update Content Visibility
                 this.dom.contentPlaylist.classList.toggle('hidden', !isPlaylist);
@@ -6055,7 +6085,7 @@ async function refreshUserPlaylistLibrary() {
 
                         div.innerHTML = `
                             <span class="text-xs font-mono opacity-50 w-6 text-center flex-none">${i + 1}</span>
-                            <img src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" class="w-10 h-10 rounded-lg object-cover bg-white/5 flex-none" loading="lazy" crossorigin="anonymous">
+                            <img src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" width="40" height="40" decoding="async" alt="${escapeHtml(song.name || '歌曲封面')}" class="w-10 h-10 rounded-lg object-cover bg-white/5 flex-none" loading="lazy" crossorigin="anonymous">
                             <div class="flex-1 min-w-0">
                                 <div class="font-bold truncate text-sm ${textClass}">${escapeHtml(song.name || '未知歌曲')}</div>
                                 <div class="text-xs truncate opacity-50">${escapeHtml(song.artist || '')}</div>
@@ -6238,7 +6268,7 @@ async function refreshUserPlaylistLibrary() {
                         div.className = 'flex items-center gap-3 p-2 rounded-xl active:bg-white/5 transition-colors cursor-pointer';
 
                         div.innerHTML = `
-                            <img src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI1MCIgaGVpZ2h0PSI1MCI+PHJlY3Qgd2lkdGg9IjEwMCUiIGhlaWdodD0iMTAwJSIgZmlsbD0iIzMzMyIvPjwvc3ZnPg==" class="w-10 h-10 rounded-lg object-cover bg-white/5 flex-none shadow-md" loading="lazy" crossorigin="anonymous">
+                            <img src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI1MCIgaGVpZ2h0PSI1MCI+PHJlY3Qgd2lkdGg9IjEwMCUiIGhlaWdodD0iMTAwJSIgZmlsbD0iIzMzMyIvPjwvc3ZnPg==" width="40" height="40" decoding="async" alt="${escapeHtml(song.name || '歌曲封面')}" class="w-10 h-10 rounded-lg object-cover bg-white/5 flex-none shadow-md" loading="lazy" crossorigin="anonymous">
                             <div class="flex-1 min-w-0">
                                 <div class="font-bold truncate text-sm text-white/90">${escapeHtml(song.name || '未知歌曲')}</div>
                                 <div class="text-xs truncate opacity-50">${escapeHtml(song.artist || '')}</div>
@@ -6927,7 +6957,7 @@ async function refreshUserPlaylistLibrary() {
         }
 
     </script>
-<div id="buildBadge" style="position:fixed;left:8px;bottom:8px;z-index:2147483002;font-size:11px;opacity:.6;background:rgba(0,0,0,.4);color:#fff;padding:2px 6px;border-radius:8px;">v31</div>
+<div id="buildBadge" style="position:fixed;left:8px;bottom:8px;z-index:2147483002;font-size:11px;opacity:.6;background:rgba(0,0,0,.4);color:#fff;padding:2px 6px;border-radius:8px;">v32</div>
 
         <!-- 音乐资料库 -->
         <div id="myPlaylistsModal" class="hidden fixed inset-0 z-[9999] flex items-end md:items-center md:justify-center bg-black/60 md:px-4"

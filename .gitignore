@@ -2,3 +2,14 @@
 .DS_Store
 *.log
 .wrangler/
+__pycache__/
+*.py[cod]
+.playwright-cli/
+_check.js
+
+# Local one-off repair/probe scripts created during manual debugging.
+/find_*.py
+/fix_*.py
+/inspect_*.py
+/patch_*.py
+/probe_*.py

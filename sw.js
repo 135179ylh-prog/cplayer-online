@@ -1,4 +1,4 @@
-const CACHE_NAME = 'cplayer5-v46-stability-hardening';
+const CACHE_NAME = 'cplayer5-v47-audit-hardening';
 const COVER_CACHE_LIMIT = 160;
 
 // 核心资源 - 安装时缓存
@@ -9,6 +9,7 @@ const CORE_ASSETS = [
   './css/noto-sans-sc.css',
   './js/tailwindcss.js',
   './js/color-thief.umd.js',
+  './js/core-utils.js',
   './img/icon.svg',
   './img/icon.png',
   './manifest.json'
