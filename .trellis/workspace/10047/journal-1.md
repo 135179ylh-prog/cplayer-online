@@ -71,3 +71,37 @@ Added user-playlist detail management with persistent move up/down and removal c
 ### Next Steps
 
 - None - task complete
+
+
+## Session 3: v31 stability hardening and deployment
+
+**Date**: 2026-07-19
+**Task**: v31 stability hardening and deployment
+**Branch**: `main`
+
+### Summary
+
+Hardened API, search, queue persistence, mobile synchronization, and PWA caching; added regression checks and verified v31 on GitHub Pages.
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `fdee705` | (see git log) |
+| `fe99c8a` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
