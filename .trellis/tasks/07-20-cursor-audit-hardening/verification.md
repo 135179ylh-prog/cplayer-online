@@ -22,6 +22,7 @@
 - `web-access` CDP 依赖检查：Node、Chrome 9222 和 proxy 均 ready。
 - 本地 `http://127.0.0.1:4173/`：页面标题为 `CPlayer 5`，正文显示 v32 和播放列表空态；`window.mobileUI` 已初始化；桌面/移动封面为 `decoding=async`，canvas 的 `aria-hidden=true`。
 - Claude peer：readiness 通过，但审阅未在窗口内返回 `<analysis_done>`，因此没有 Claude approval 结论。
+- GitHub Pages：工作流 `29698159860` 已成功完成；线上 `https://135179ylh-prog.github.io/cplayer-online/?v=32` 的真实 Chrome DOM 显示 `CPlayer 5` 与 v32，`mobileUI` 已初始化，封面/无障碍属性与本地验证一致。
 
 ## 剩余风险
 
