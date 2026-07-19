@@ -1,4 +1,4 @@
-const CACHE_NAME = 'cplayer5-v43-playlist-search-ux';
+const CACHE_NAME = 'cplayer5-v44-playlist-search-labels';
 
 // 核心资源 - 安装时缓存
 const CORE_ASSETS = [

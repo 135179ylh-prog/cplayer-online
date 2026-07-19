@@ -4419,11 +4419,11 @@ async function refreshUserPlaylistLibrary() {
                                 <div class="font-bold truncate text-sm text-white/90">${song.name}</div>
                                 <div class="text-xs truncate opacity-50">${song.artist}</div>
                             </div>
-                            <button type="button" class="js-add-queue p-2 w-8 h-8 flex items-center justify-center rounded-full border border-white/20 text-xs" title="加入播放列表（不立即播放）" aria-label="加入播放列表（不立即播放）">
-                                <i class="fas fa-plus"></i>
+                            <button type="button" class="js-add-queue p-2 w-12 h-9 gap-1 flex items-center justify-center rounded-full border border-white/20 text-xs" title="加入播放列表（不立即播放）" aria-label="加入播放列表（不立即播放）">
+                                <i class="fas fa-plus" aria-hidden="true"></i><span>加入</span>
                             </button>
-                            <button type="button" class="js-add-playlist p-2 w-8 h-8 flex items-center justify-center rounded-full border border-white/20 text-xs" title="收藏到歌单" aria-label="收藏到歌单">
-                                <i class="fas fa-folder-plus"></i>
+                            <button type="button" class="js-add-playlist p-2 w-14 h-9 gap-1 flex items-center justify-center rounded-full border border-white/20 text-xs" title="收藏到歌单" aria-label="收藏到歌单">
+                                <i class="fas fa-folder-plus" aria-hidden="true"></i><span>歌单</span>
                             </button>
                         `;
 
