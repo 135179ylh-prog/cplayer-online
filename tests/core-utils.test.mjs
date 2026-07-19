@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+    classifyPlaybackQuality,
     fetchJsonWithRetry,
     normalizeSongObject,
     shouldRetryRequest
@@ -27,6 +28,35 @@ test('normalizeSongObject handles primitive and API-shaped songs', () => {
     assert.equal(song.artist, 'A, B');
     assert.equal(song.album, 'Album');
     assert.equal(song.cover, 'https://example.test/cover.jpg');
+});
+
+test('classifyPlaybackQuality separates API labels, inference, and unknown streams', () => {
+    const master = classifyPlaybackQuality({ level: 'jymaster', bitrate: 128000 });
+    assert.equal(master.text, '标注 JyMaster');
+    assert.equal(master.source, 'api');
+    assert.equal(master.detail, '上游 API 标注为 JyMaster');
+
+    const hiRes = classifyPlaybackQuality({ level: 'hi-res', bitrate: 320000 });
+    assert.equal(hiRes.text, '标注 Hi-Res');
+    assert.equal(hiRes.source, 'api');
+
+    const high = classifyPlaybackQuality({ bitrate: 320000 });
+    assert.equal(high.text, '高音质');
+    assert.equal(high.className, 'quality-high');
+    assert.equal(high.source, 'inferred');
+
+    const ambiguous = classifyPlaybackQuality({ bitrate: 320 });
+    assert.equal(ambiguous.text, '音质未标注');
+    assert.equal(ambiguous.source, 'unknown');
+
+    const lossless = classifyPlaybackQuality({ url: 'https://example.test/track.flac' });
+    assert.equal(lossless.text, '无损');
+    assert.equal(lossless.source, 'inferred');
+
+    const unknown = classifyPlaybackQuality({});
+    assert.equal(unknown.text, '音质未标注');
+    assert.equal(unknown.className, 'quality-unknown');
+    assert.equal(unknown.source, 'unknown');
 });
 
 test('fetchJsonWithRetry retries a transient server error once', async () => {

@@ -528,6 +528,12 @@
             border: 1px solid rgba(255, 255, 255, 0.2);
         }
 
+        .quality-unknown {
+            background: rgba(148, 163, 184, 0.2);
+            color: rgba(255, 255, 255, 0.8);
+            border: 1px solid rgba(148, 163, 184, 0.35);
+        }
+
         .custom-controls-wrapper {
             width: 100%;
             max-width: 450px;
@@ -1219,7 +1225,7 @@
                         <div id="songIdTag"
                             class="text-xs font-mono px-2 py-0.5 rounded opacity-50 border border-current cursor-pointer hover:opacity-100 transition-all">
                             ID: 0413</div>
-                        <div id="qualityBadge" class="quality-badge quality-lossless">💎JyMaster</div>
+                        <div id="qualityBadge" class="quality-badge quality-unknown" title="等待上游 API 返回音质信息" aria-label="当前播放音质：等待确认" aria-live="polite">音质待确认</div>
                     </div>
                 </div>
 
@@ -1412,7 +1418,7 @@
                             class="text-xs font-mono px-2 py-0.5 rounded opacity-50 border border-current cursor-pointer hover:opacity-100 transition-all select-none"
                             title="长按复制ID">ID: 0413</div>
 
-                        <div id="mobileQualityBadge" class="quality-badge quality-lossless">💎JyMaster</div>
+                        <div id="mobileQualityBadge" class="quality-badge quality-unknown" title="等待上游 API 返回音质信息" aria-label="当前播放音质：等待确认" aria-live="polite">音质待确认</div>
                     </div>
                 </div>
 
@@ -1630,7 +1636,7 @@
                         <i class="fas fa-chevron-down text-[9px] group-open:rotate-180 transition-transform"></i>
                     </summary>
                     <div class="mt-2 p-3 rounded-xl bg-white/[0.03] border border-white/5 text-[11px] opacity-50 space-y-1">
-                        <div><strong>超清母带</strong> ChKSz API · <strong>全端适配</strong> 桌面+移动 · <strong>智能缓存</strong> IndexedDB</div>
+                        <div><strong>按上游可用音源播放</strong> ChKSz API · <strong>全端适配</strong> 桌面+移动 · <strong>智能缓存</strong> IndexedDB</div>
                         <div>侧栏搜索添加歌曲 · 搜索栏输入歌曲 ID 解析 · 移动端左右滑动切换歌词</div>
                     </div>
                 </details>
@@ -1662,7 +1668,7 @@
 
                 <!-- Title -->
                 <h2 id="welcomeModalTitle" class="text-2xl font-bold text-center mb-2">欢迎使用 CPlayer 5</h2>
-                <p class="text-center opacity-60 text-sm mb-8">输入你的网易云歌单 ID，即刻开始超清母带体验</p>
+                <p class="text-center opacity-60 text-sm mb-8">输入你的网易云歌单 ID，即刻开始在线音乐播放</p>
 
                 <!-- Input -->
                 <div class="relative mb-4">
@@ -1732,6 +1738,7 @@
             API_REQUEST_RETRIES,
             API_REQUEST_TIMEOUT_MS,
             API_RETRY_DELAY_MS,
+            classifyPlaybackQuality,
             fetchJsonWithRetry,
             normalizeSongObject
         } from './js/core-utils.js';
@@ -1825,7 +1832,7 @@
                     const d = Array.isArray(json.data) ? json.data[0] : json.data;
                     if (d && d.url) {
                         return {
-                            id: d.id, url: d.url, name: d.name, artist: d.artist, cover: d.picUrl, source: 'ChKSz', level: d.level || level, br: d.br || d.bitrate
+                            id: d.id, url: d.url, name: d.name, artist: d.artist, cover: d.picUrl, source: 'ChKSz', level: typeof d.level === 'string' ? d.level : null, br: d.br ?? d.bitrate
                         };
                     }
                 }
@@ -3472,22 +3479,16 @@ async function refreshUserPlaylistLibrary() {
         }
 
         // ================= 音质分级识别 =================
-        function getQualityBadge(url, bitrate) {
-            if (!url) return null;
-
-            // 通过 URL 或 bitrate 判断音质
-            const urlLower = url.toLowerCase();
-
-            if (urlLower.includes('flac') || bitrate >= 900000) {
-                return { text: 'JyMaster', class: 'quality-lossless', icon: '💎' };
-            } else if (urlLower.includes('320') || bitrate >= 320000) {
-                return { text: 'Hi-Res', class: 'quality-hires', icon: '✨' };
-            } else if (bitrate >= 192000) {
-                return { text: 'High', class: 'quality-high', icon: '🎵' };
-            } else if (bitrate >= 128000) {
-                return { text: 'Standard', class: 'quality-standard', icon: '🎶' };
-            }
-            return null;
+        function renderPlaybackQuality(qualityInfo) {
+            if (!qualityInfo) return;
+            const label = qualityInfo.icon ? `${qualityInfo.icon} ${qualityInfo.text}` : qualityInfo.text;
+            const ariaLabel = `当前播放音质：${qualityInfo.detail}`;
+            document.querySelectorAll('#qualityBadge, #mobileQualityBadge').forEach((element) => {
+                element.textContent = label;
+                element.className = `quality-badge ${qualityInfo.className}`;
+                element.title = qualityInfo.detail;
+                element.setAttribute('aria-label', ariaLabel);
+            });
         }
 
         // ================= 音量标准化 (ReplayGain 模拟) =================
@@ -4452,9 +4453,12 @@ async function refreshUserPlaylistLibrary() {
             dom.lyricsContainer.innerHTML = '<div class="lyric-line opacity-50 my-auto">加载中...</div>';
             dom.sourceTag.textContent = 'CHKSZ API';
             dom.songIdTag.textContent = 'ID: Load...';
-            // 加载期间保持金黄色，避免视觉降级闪烁
-            dom.qualityBadge.textContent = '💎JyMaster';
-            dom.qualityBadge.className = 'quality-badge quality-lossless';
+            renderPlaybackQuality({
+                text: '音质确认中',
+                className: 'quality-unknown',
+                icon: '',
+                detail: '正在等待上游 API 返回实际音质信息'
+            });
 
             try {
                 const data = await musicService.getSong(id);
@@ -4484,11 +4488,11 @@ async function refreshUserPlaylistLibrary() {
                 dom.artistName.textContent = song.artist;
                 dom.sourceTag.textContent = String(data.source || 'CHKSZ').toUpperCase() + ' API';
                 dom.songIdTag.textContent = 'ID: ' + song.id;
-                const qualityInfo = getQualityBadge(data.url, data.br || data.bitrate);
-                if (qualityInfo) {
-                    dom.qualityBadge.textContent = `${qualityInfo.icon} ${qualityInfo.text}`;
-                    dom.qualityBadge.className = `quality-badge ${qualityInfo.class}`;
-                }
+                renderPlaybackQuality(classifyPlaybackQuality({
+                    level: data.level,
+                    url: data.url,
+                    bitrate: data.br ?? data.bitrate
+                }));
                 updateMediaSessionMetadata(Object.assign({}, data, song));
 
                 LyricService.fetchLyrics(song.id).then(function (lyrics) {
@@ -6389,12 +6393,6 @@ async function refreshUserPlaylistLibrary() {
                     if (this.dom.songIdTag && desktopId) {
                         this.dom.songIdTag.textContent = desktopId.textContent;
                         this.dom.songIdTag.className = desktopId.className;
-                    }
-
-                    const desktopQuality = document.getElementById('qualityBadge');
-                    if (this.dom.qualityBadge && desktopQuality) {
-                        this.dom.qualityBadge.innerHTML = desktopQuality.innerHTML;
-                        this.dom.qualityBadge.className = desktopQuality.className;
                     }
 
                     // 淡入

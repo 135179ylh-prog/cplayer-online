@@ -1,4 +1,4 @@
-const CACHE_NAME = 'cplayer5-v48-static-tailwind';
+const CACHE_NAME = 'cplayer5-v49-quality-truth';
 const COVER_CACHE_LIMIT = 160;
 
 // 核心资源 - 安装时缓存

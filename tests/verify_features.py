@@ -51,7 +51,7 @@ require((ROOT / "playlist.js").is_file(), "optional playlist.js hook is missing"
 require((ROOT / "js" / "core-utils.js").is_file(), "core utility module is missing")
 require((ROOT / "tests" / "core-utils.test.mjs").is_file(), "core utility tests are missing")
 
-require("cplayer5-v48-static-tailwind" in SW, "service worker cache version is not updated")
+require("cplayer5-v49-quality-truth" in SW, "service worker cache version is not updated")
 require("./js/core-utils.js" in SW, "core utility module is not precached")
 require("./css/tailwind.css" in SW and "./js/tailwindcss.js" not in SW, "service worker Tailwind cache entry is stale")
 require("cacheCoreAssets" in SW and "new Request(new URL(asset, self.registration.scope)" in SW, "core cache refresh is not explicit")
@@ -109,6 +109,13 @@ require(all(not (ROOT / name).exists() for name in legacy_names), "legacy debug 
 badge = re.search(r'id="buildBadge"[^>]*>(v\d+)', HTML)
 require(badge, "build badge is missing or malformed")
 require("CPlayer 5 • 当前构建见左下角" in HTML, "settings version text is misleading")
+require("classifyPlaybackQuality" in HTML and "renderPlaybackQuality" in HTML, "truthful quality display is not wired")
+require("quality-unknown" in HTML and "音质确认中" in HTML, "quality loading state is missing")
+require("dom.qualityBadge.textContent = '💎JyMaster';" not in HTML, "quality badge still claims master before verification")
+require("level: typeof d.level === 'string' ? d.level : null" in HTML, "requested quality still masquerades as API metadata")
+require("document.querySelectorAll('#qualityBadge, #mobileQualityBadge')" in HTML, "quality state is not rendered to both layouts")
+require("超清母带" not in HTML, "UI still guarantees master-quality playback")
+require("音质未标注" in README, "README does not explain unverified quality metadata")
 
 print("stability checks: passed")
 print("build badge:", badge.group(1))
