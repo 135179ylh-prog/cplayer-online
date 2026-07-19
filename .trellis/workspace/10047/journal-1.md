@@ -141,3 +141,37 @@ Restricted GitHub Pages artifacts to runtime files, documented API/version bound
 ### Next Steps
 
 - None - task complete
+
+
+## Session 5: Make playback quality labels truthful
+
+**Date**: 2026-07-20
+**Task**: Make playback quality labels truthful
+**Branch**: `main`
+
+### Summary
+
+Made playback-quality badges distinguish upstream metadata from conservative inference; verified desktop/mobile state and Pages deployment.
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `1e8f991` | (see git log) |
+| `6e23f22` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
