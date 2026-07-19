@@ -23,6 +23,23 @@
             }
         }
 
+        const API_REQUEST_TIMEOUT_MS = 15000;
+
+        async function fetchJsonWithTimeout(url, timeoutMs = API_REQUEST_TIMEOUT_MS) {
+            const controller = typeof AbortController === 'function' ? new AbortController() : null;
+            const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
+            try {
+                const response = await fetch(url, controller ? { signal: controller.signal } : undefined);
+                if (!response.ok) throw new Error('网络请求失败 (' + response.status + ')');
+                return await response.json();
+            } catch (error) {
+                if (error && error.name === 'AbortError') throw new Error('网络请求超时');
+                throw error;
+            } finally {
+                if (timer) clearTimeout(timer);
+            }
+        }
+
         class MusicService {
             constructor() {
                 this.loadSettings();
@@ -44,8 +61,7 @@
             async search(query) {
                 const url = `${this.baseUrl}/163_search?keyword=${encodeURIComponent(query)}&limit=30`;
                 try {
-                    const res = await fetch(url);
-                    const json = await res.json();
+                    const json = await fetchJsonWithTimeout(url);
                     let items = [];
                     if (json.code === 200) {
                         if (Array.isArray(json.data)) items = json.data;
@@ -62,15 +78,17 @@
                             source: 'ChKSz'
                         }));
                     }
-                } catch (e) { console.error('Search API Error:', e); }
+                } catch (e) {
+                    console.error('Search API Error:', e);
+                    throw e;
+                }
                 return [];
             }
 
             async getSong(id) {
                 const level = (this.config && this.config.quality) ? this.config.quality : 'jymaster';
                 const url = `${this.baseUrl}/163_music?id=${id}&level=${level}`;
-                const res = await fetch(url);
-                const json = await res.json();
+                const json = await fetchJsonWithTimeout(url);
                 if (json.code === 200 && json.data) {
                     const d = Array.isArray(json.data) ? json.data[0] : json.data;
                     if (d && d.url) {
@@ -85,8 +103,7 @@
             async getLyric(id) {
                 const url = `${this.baseUrl}/163_lyric?id=${id}`;
                 try {
-                    const res = await fetch(url);
-                    const json = await res.json();
+                    const json = await fetchJsonWithTimeout(url);
                     if (json.code === 200 && json.data) {
                         return { lrc: json.data.lrc || '', tlrc: json.data.tlyric || '', yrc: '' };
                     }
@@ -319,11 +336,16 @@
         const PLAYLIST_BACKUP_MAX_PLAYLISTS = 500;
         const PLAYLIST_BACKUP_MAX_SONGS = 10000;
         let queueSaveTimer = null;
+        let queueSaveInFlight = null;
+        let queueSavePendingReason = '';
         let suppressQueueAutosave = false;
         let pendingSongForPlaylist = null;
 
         function normalizeSongObject(song) {
-            if (!song) return null;
+            if (song == null) return null;
+            if (typeof song !== 'object') {
+                song = { id: song, name: '歌曲 ID: ' + song };
+            }
             return {
                 id: song.id,
                 name: song.name || '未知歌曲',
@@ -390,39 +412,79 @@
 
         async function saveCurrentQueue(reason) {
             if (!db || suppressQueueAutosave) return;
-            try {
-                const payload = {
-                    id: CURRENT_QUEUE_KEY,
-                    songs: Array.isArray(playlist) ? playlist.slice() : [],
-                    currentIndex: currentIndex,
-                    playMode: playMode,
-                    timestamp: Date.now(),
-                    reason: reason || 'auto'
-                };
-                const tx = db.transaction('playlists', 'readwrite');
-                tx.objectStore('playlists').put(payload);
-                await new Promise(function (resolve, reject) {
+            if (queueSaveInFlight) {
+                queueSavePendingReason = reason || 'auto';
+                return queueSaveInFlight;
+            }
+
+            const payload = {
+                id: CURRENT_QUEUE_KEY,
+                songs: Array.isArray(playlist) ? playlist.slice() : [],
+                currentIndex: currentIndex,
+                playMode: playMode,
+                timestamp: Date.now(),
+                reason: reason || 'auto'
+            };
+            const write = new Promise(function (resolve, reject) {
+                try {
+                    const tx = db.transaction('playlists', 'readwrite');
+                    tx.objectStore('playlists').put(payload);
                     tx.oncomplete = function () { resolve(); };
-                    tx.onerror = function () { reject(tx.error); };
-                });
-                localStorage.setItem('cp_queue_dirty', '1');
+                    tx.onerror = function () { reject(tx.error || new Error('队列事务失败')); };
+                    tx.onabort = function () { reject(tx.error || new Error('队列事务中断')); };
+                } catch (error) {
+                    reject(error);
+                }
+            });
+            queueSaveInFlight = write;
+            try {
+                await write;
+                try { localStorage.setItem('cp_queue_dirty', '1'); } catch (error) {}
             } catch (e) {
                 console.warn('[queue] save failed', e);
+            } finally {
+                queueSaveInFlight = null;
+            }
+
+            if (queueSavePendingReason && !suppressQueueAutosave) {
+                const nextReason = queueSavePendingReason;
+                queueSavePendingReason = '';
+                return saveCurrentQueue(nextReason);
             }
         }
 
         function scheduleSaveCurrentQueue(reason) {
             if (queueSaveTimer) clearTimeout(queueSaveTimer);
-            queueSaveTimer = setTimeout(function () { saveCurrentQueue(reason); }, 250);
+            queueSaveTimer = setTimeout(function () {
+                queueSaveTimer = null;
+                saveCurrentQueue(reason);
+            }, 250);
         }
+
+        function flushScheduledQueueSave(reason) {
+            if (queueSaveTimer) {
+                clearTimeout(queueSaveTimer);
+                queueSaveTimer = null;
+            }
+            return saveCurrentQueue(reason || 'lifecycle');
+        }
+
+        document.addEventListener('visibilitychange', function () {
+            if (document.visibilityState === 'hidden') flushScheduledQueueSave('visibility_hidden');
+        });
+        window.addEventListener('pagehide', function () {
+            flushScheduledQueueSave('pagehide');
+        });
 
         async function restoreCurrentQueue() {
             if (!db) return false;
             try {
                 const cached = await getPlaylistFromCache(CURRENT_QUEUE_KEY);
-                if (!cached || !Array.isArray(cached.songs) || !cached.songs.length) return false;
+                if (!cached || !Array.isArray(cached.songs)) return false;
                 suppressQueueAutosave = true;
-                playlist = cached.songs;
+                playlist = cached.songs.map(normalizeSongObject).filter(function (song) {
+                    return song && song.id != null && String(song.id).trim();
+                });
                 window.playlist = playlist;
                 currentIndex = (typeof cached.currentIndex === 'number' && cached.currentIndex >= 0 && cached.currentIndex < playlist.length) ? cached.currentIndex : -1;
                 if (cached.playMode) {
@@ -437,6 +499,7 @@
                 if (playMode === 'shuffle' && typeof shufflePlaylist === 'function') shufflePlaylist();
                 if (typeof initPlaylistView === 'function') initPlaylistView();
                 if (typeof renderAllPlaylistItems === 'function') renderAllPlaylistItems();
+                if (window.mobileUI && typeof window.mobileUI.loadPlaylist === 'function') window.mobileUI.loadPlaylist();
                 suppressQueueAutosave = false;
                 return true;
             } catch (e) {
@@ -800,7 +863,12 @@
 
 
         function escapeHtml(str) {
-            return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+            return String(str == null ? '' : str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
         }
 
         async function refreshUserPlaylistModalList(statusText) {
@@ -1396,6 +1464,11 @@ async function refreshUserPlaylistLibrary() {
 
         function clearCurrentQueue() {
             if (!playlist.length) {
+                currentPlaylistId = '';
+                playlistSource = 'empty';
+                playlistSourceName = '已清空';
+                try { localStorage.removeItem('cp_playlistId'); } catch (error) {}
+                scheduleSaveCurrentQueue('clear_empty');
                 if (typeof showToast === 'function') showToast('播放列表已为空');
                 return;
             }
@@ -1406,6 +1479,10 @@ async function refreshUserPlaylistLibrary() {
             playlist = [];
             window.playlist = playlist;
             currentIndex = -1;
+            currentPlaylistId = '';
+            playlistSource = 'empty';
+            playlistSourceName = '已清空';
+            try { localStorage.removeItem('cp_playlistId'); } catch (error) {}
             shuffledOrder = [];
             playlistTotalCount = 0;
             if (typeof renderAllPlaylistItems === 'function') renderAllPlaylistItems();
@@ -1841,7 +1918,7 @@ async function refreshUserPlaylistLibrary() {
 
             // ★ PWA Service Worker 注册
             if ('serviceWorker' in navigator) {
-                navigator.serviceWorker.register('./sw.js').then(reg => {
+                navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' }).then(reg => {
                     console.log('📱 Service Worker 已注册');
                 }).catch(err => {
                     console.warn('SW 注册失败:', err);
@@ -2122,6 +2199,8 @@ async function refreshUserPlaylistLibrary() {
             el.addEventListener('touchmove', () => clearTimeout(pressTimer));
         }
 
+        let toastHideTimer = null;
+
         function showToast(msg, isError = false) {
             const toast = document.getElementById('copyToast');
             toast.querySelector('span').textContent = msg;
@@ -2135,10 +2214,11 @@ async function refreshUserPlaylistLibrary() {
                 icon.className = "fas fa-check-circle text-primary-color";
             }
 
-            // Auto hide
-            setTimeout(() => {
+            if (toastHideTimer) clearTimeout(toastHideTimer);
+            toastHideTimer = setTimeout(() => {
                 toast.classList.add('opacity-0', 'scale-90');
                 toast.classList.remove('opacity-100', 'scale-100');
+                toastHideTimer = null;
             }, 2000);
         }
 
@@ -2402,9 +2482,16 @@ async function refreshUserPlaylistLibrary() {
             });
         }
 
+        let desktopSearchRequestId = 0;
+
         async function searchSongs(query) {
-            query = query.trim();
-            if (!query) return;
+            query = String(query || '').trim();
+            const requestId = ++desktopSearchRequestId;
+            if (!query) {
+                dom.searchResults.innerHTML = '';
+                dom.searchResults.classList.add('hidden');
+                return;
+            }
 
             if (/^\d+$/.test(query)) {
                 dom.searchResults.innerHTML = Array.from({ length: 1 }).map(() => `
@@ -2420,6 +2507,7 @@ async function refreshUserPlaylistLibrary() {
 
                 try {
                     const songData = await musicService.getSong(query);
+                    if (requestId !== desktopSearchRequestId) return;
                     if (songData && songData.url) {
                         const newSong = {
                             id: songData.id,
@@ -2442,6 +2530,7 @@ async function refreshUserPlaylistLibrary() {
                         throw new Error('无效的歌曲ID');
                     }
                 } catch (e) {
+                    if (requestId !== desktopSearchRequestId) return;
                     console.error(e);
                     dom.searchResults.innerHTML = '<div class="p-4 text-center text-red-400">无效ID或加载失败</div>';
                 }
@@ -2462,6 +2551,7 @@ async function refreshUserPlaylistLibrary() {
 
             try {
                 const songs = await musicService.search(query);
+                if (requestId !== desktopSearchRequestId) return;
 
                 // [需求4] 限制显示30条结果
                 const limitedSongs = songs ? songs.slice(0, 30) : [];
@@ -2472,8 +2562,6 @@ async function refreshUserPlaylistLibrary() {
                         const div = document.createElement('div');
                         div.className = 'playlist-item p-2 rounded-xl hover:bg-surface-container-high-color cursor-pointer flex items-center gap-3 transition-all theme-text-on-surface mb-1';
 
-                        const sourceBadge = song.source ? `<span class="ml-2 text-[10px] px-1 rounded bg-primary-color/20 text-primary-color uppercase">${song.source}</span>` : '';
-
                         const coverDiv = document.createElement('div');
                         coverDiv.className = 'w-10 h-10 rounded-lg bg-surface-container-color flex-shrink-0 overflow-hidden';
                         if (song.cover) {
@@ -2482,7 +2570,7 @@ async function refreshUserPlaylistLibrary() {
                             img.loading = 'lazy';
                             img.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
                             window.getCachedImage(`${song.cover}?param=80y80`).then(cachedSrc => {
-                                img.src = cachedSrc;
+                                if (img.isConnected) img.src = cachedSrc;
                             });
                             img.alt = song.name;
                             img.onerror = () => { img.style.display = 'none'; };
@@ -2495,7 +2583,7 @@ async function refreshUserPlaylistLibrary() {
                         infoDiv.className = 'flex-1 min-w-0';
                         const titleDiv = document.createElement('div');
                         titleDiv.className = 'truncate text-sm font-medium flex items-center';
-                        titleDiv.innerHTML = `${song.name}`;
+                        titleDiv.textContent = song.name || '未知歌曲';
                         const artistDiv = document.createElement('div');
                         artistDiv.className = 'truncate text-xs opacity-50';
                         artistDiv.textContent = song.artist || '未知艺术家';
@@ -2558,6 +2646,7 @@ async function refreshUserPlaylistLibrary() {
                     dom.searchResults.innerHTML = '<div class="p-4 text-center opacity-60">未找到相关歌曲</div>';
                 }
             } catch (error) {
+                if (requestId !== desktopSearchRequestId) return;
                 console.error(error);
                 dom.searchResults.innerHTML = '<div class="p-4 text-center text-red-400">搜索服务暂不可用</div>';
             } finally {
@@ -2904,8 +2993,7 @@ async function refreshUserPlaylistLibrary() {
             static async fetchPlaylist(listId) {
                 const url = `${ChKSzAPI.baseUrl}/163_playlist?id=${listId}`;
                 try {
-                    const res = await fetch(url);
-                    const json = await res.json();
+                    const json = await fetchJsonWithTimeout(url);
 
                     let tracks = [];
                     // 兼容多种返回格式
@@ -2945,17 +3033,20 @@ async function refreshUserPlaylistLibrary() {
                 try {
                     const data = JSON.parse(e.target.result);
                     if (Array.isArray(data)) {
-                        // 支持旧格式（纯ID数组）
-                        playlist = data.map(item => {
-                            if (typeof item === 'object') return item;
-                            return { id: String(item), name: `歌曲 ID: ${item}`, artist: '' };
+                        playlist = data.map(normalizeSongObject).filter(function (song) {
+                            return song && song.id != null && String(song.id).trim();
                         });
                         currentIndex = -1;
+                        currentPlaylistId = '';
+                        try { localStorage.removeItem('cp_playlistId'); } catch (error) {}
                         playlistTotalCount = playlist.length;
                         allSongsLoaded = true;
                         playlistSource = 'import-json';
                         playlistSourceName = file.name;
+                        window.playlist = playlist;
                         initPlaylistView();
+                        if (window.mobileUI && typeof window.mobileUI.loadPlaylist === 'function') window.mobileUI.loadPlaylist();
+                        scheduleSaveCurrentQueue('import_json');
                         dom.uploadContainer.classList.add('hidden');
                         // dom.playlistInfo.classList.remove('hidden');
                     }
@@ -3939,6 +4030,7 @@ async function refreshUserPlaylistLibrary() {
                 this.isMobile = window.innerWidth < 768;
                 this.currentMode = 'cover';
                 this.activeSheetTab = 'playlist'; // playlist | search
+                this.searchRequestId = 0;
 
                 this.dom = {
                     mobileLayout: document.getElementById('mobileLayout'),
@@ -3996,8 +4088,10 @@ async function refreshUserPlaylistLibrary() {
                 window.addEventListener('resize', () => this.handleResize());
 
                 // Preload Playlist (Wait for global playlist to be ready)
+                let playlistWaitAttempts = 0;
                 const checkPlaylist = setInterval(() => {
-                    if (window.playlist && window.playlist.length > 0) {
+                    playlistWaitAttempts += 1;
+                    if (Array.isArray(window.playlist) || playlistWaitAttempts >= 40) {
                         this.loadPlaylist();
                         clearInterval(checkPlaylist);
 
@@ -4240,8 +4334,8 @@ async function refreshUserPlaylistLibrary() {
                             <span class="text-xs font-mono opacity-50 w-6 text-center flex-none">${i + 1}</span>
                             <img src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" class="w-10 h-10 rounded-lg object-cover bg-white/5 flex-none" loading="lazy" crossorigin="anonymous">
                             <div class="flex-1 min-w-0">
-                                <div class="font-bold truncate text-sm ${textClass}">${song.name}</div>
-                                <div class="text-xs truncate opacity-50">${song.artist || ''}</div>
+                                <div class="font-bold truncate text-sm ${textClass}">${escapeHtml(song.name || '未知歌曲')}</div>
+                                <div class="text-xs truncate opacity-50">${escapeHtml(song.artist || '')}</div>
                             </div>
                             <button type="button" class="js-add-playlist-item flex-none w-14 h-9 rounded-full border border-white/25 flex items-center justify-center gap-1 text-white/85 text-xs active:bg-white/10" title="收藏到歌单" aria-label="收藏到歌单" style="pointer-events:auto;z-index:5;position:relative;">
                                 <i class="fas fa-folder-plus" aria-hidden="true"></i><span>歌单</span>
@@ -4351,7 +4445,12 @@ async function refreshUserPlaylistLibrary() {
             }
 
             async handleSearch(query) {
-                if (!query.trim()) return;
+                query = String(query || '').trim();
+                const requestId = ++this.searchRequestId;
+                if (!query) {
+                    this.dom.searchResults.innerHTML = '';
+                    return;
+                }
 
                 // [紧急Fix] 纯数字ID直接添加并播放
                 if (/^\d+$/.test(query.trim())) {
@@ -4359,7 +4458,8 @@ async function refreshUserPlaylistLibrary() {
                     container.innerHTML = '<div class="p-4 text-center opacity-50 text-xs">正在加载ID歌曲...</div>';
 
                     try {
-                        const songData = await musicService.getSong(query.trim());
+                        const songData = await musicService.getSong(query);
+                        if (requestId !== this.searchRequestId) return;
                         if (songData && songData.url) {
                             const newSong = {
                                 id: songData.id,
@@ -4388,6 +4488,7 @@ async function refreshUserPlaylistLibrary() {
                             container.innerHTML = '<div class="p-4 text-center opacity-50 text-xs text-red-400">无效的ID</div>';
                         }
                     } catch (e) {
+                        if (requestId !== this.searchRequestId) return;
                         console.error(e);
                         container.innerHTML = '<div class="p-4 text-center opacity-50 text-xs text-red-400">加载失败</div>';
                     }
@@ -4400,6 +4501,7 @@ async function refreshUserPlaylistLibrary() {
                 try {
                     // Use global musicService instance
                     const results = await musicService.search(query);
+                    if (requestId !== this.searchRequestId) return;
                     container.innerHTML = '';
                     container.classList.remove('hidden');
 
@@ -4412,12 +4514,11 @@ async function refreshUserPlaylistLibrary() {
                         const div = document.createElement('div');
                         div.className = 'flex items-center gap-3 p-2 rounded-xl active:bg-white/5 transition-colors cursor-pointer';
 
-                        const searchId = `mob-search-img-${song.id}-${Math.random().toString(36).substr(2, 5)}`;
                         div.innerHTML = `
-                            <img id="${searchId}" src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI1MCIgaGVpZ2h0PSI1MCI+PHJlY3Qgd2lkdGg9IjEwMCUiIGhlaWdodD0iMTAwJSIgZmlsbD0iIzMzMyIvPjwvc3ZnPg==" class="w-10 h-10 rounded-lg object-cover bg-white/5 flex-none shadow-md" loading="lazy" crossorigin="anonymous">
+                            <img src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI1MCIgaGVpZ2h0PSI1MCI+PHJlY3Qgd2lkdGg9IjEwMCUiIGhlaWdodD0iMTAwJSIgZmlsbD0iIzMzMyIvPjwvc3ZnPg==" class="w-10 h-10 rounded-lg object-cover bg-white/5 flex-none shadow-md" loading="lazy" crossorigin="anonymous">
                             <div class="flex-1 min-w-0">
-                                <div class="font-bold truncate text-sm text-white/90">${song.name}</div>
-                                <div class="text-xs truncate opacity-50">${song.artist}</div>
+                                <div class="font-bold truncate text-sm text-white/90">${escapeHtml(song.name || '未知歌曲')}</div>
+                                <div class="text-xs truncate opacity-50">${escapeHtml(song.artist || '')}</div>
                             </div>
                             <button type="button" class="js-add-queue p-2 w-12 h-9 gap-1 flex items-center justify-center rounded-full border border-white/20 text-xs" title="加入播放列表（不立即播放）" aria-label="加入播放列表（不立即播放）">
                                 <i class="fas fa-plus" aria-hidden="true"></i><span>加入</span>
@@ -4428,9 +4529,9 @@ async function refreshUserPlaylistLibrary() {
                         `;
 
                         if (song.cover) {
+                            const image = div.querySelector('img');
                             window.getCachedImage(`${song.cover}?param=80y80`).then(cachedSrc => {
-                                const targetImg = document.getElementById(searchId);
-                                if (targetImg) targetImg.src = cachedSrc;
+                                if (image && image.isConnected) image.src = cachedSrc;
                             });
                         }
 
@@ -4444,11 +4545,11 @@ async function refreshUserPlaylistLibrary() {
                             const ap = div.querySelector('.js-add-playlist');
                             if (aq) aq.dataset.song = payload;
                             if (ap) ap.dataset.song = payload;
-                            if (aq) aq.onclick = function (e) {
+                            if (aq) aq.onclick = (e) => {
                                 e.preventDefault(); e.stopPropagation();
                                 window.addSongToQueueOnly(newSong);
                                 if (typeof renderAllPlaylistItems === 'function') renderAllPlaylistItems();
-                                self.loadPlaylist();
+                                this.loadPlaylist();
                             };
                             if (ap) ap.onclick = function (e) {
                                 e.preventDefault(); e.stopPropagation();
@@ -4467,6 +4568,7 @@ async function refreshUserPlaylistLibrary() {
                     });
 
                 } catch (e) {
+                    if (requestId !== this.searchRequestId) return;
                     console.error('Search failed', e);
                     container.innerHTML = '<div class="p-4 text-center opacity-50 text-xs text-red-400">搜索出错</div>';
                 }
@@ -5084,6 +5186,7 @@ async function refreshUserPlaylistLibrary() {
 
             // ★ Mobile UI
             mobileUI = new MobileUIManager();
+            window.mobileUI = mobileUI;
         }
 
         // 在 DOMContentLoaded 后初始化

@@ -1,9 +1,10 @@
-const CACHE_NAME = 'cplayer5-v44-playlist-search-labels';
+const CACHE_NAME = 'cplayer5-v46-stability-hardening';
+const COVER_CACHE_LIMIT = 160;
 
 // 核心资源 - 安装时缓存
 const CORE_ASSETS = [
-  './',
   './index.html',
+  './playlist.js',
   './css/all.min.css',
   './css/noto-sans-sc.css',
   './js/tailwindcss.js',
@@ -13,22 +14,58 @@ const CORE_ASSETS = [
   './manifest.json'
 ];
 
-// 字体文件
-const FONT_ASSETS = [
-  './fonts/NotoSansSC-Regular.ttf',
-  './fonts/NotoSansSC-Medium.ttf',
-  './fonts/NotoSansSC-Bold.ttf',
-  './fonts/NotoSansSC-Black.ttf'
-];
+function isAppShellNavigation(url) {
+  const scope = new URL(self.registration.scope);
+  const indexPath = new URL('./index.html', scope).pathname;
+  return url.origin === scope.origin &&
+    (url.pathname === scope.pathname || url.pathname === indexPath);
+}
+
+async function cacheCoreAssets(cache) {
+  const failedAssets = [];
+  await Promise.all(CORE_ASSETS.map(async (asset) => {
+    const request = new Request(new URL(asset, self.registration.scope), { cache: 'reload' });
+    try {
+      const response = await fetch(request);
+      if (!response.ok) throw new Error('HTTP ' + response.status);
+      await cache.put(request, response);
+    } catch (error) {
+      const previous = await caches.match(request);
+      if (previous) {
+        await cache.put(request, previous);
+      } else {
+        failedAssets.push(asset);
+      }
+    }
+  }));
+  if (failedAssets.length) {
+    throw new Error('核心资源缓存失败: ' + failedAssets.join(', '));
+  }
+}
+
+async function trimCoverCache(cache) {
+  const keys = await cache.keys();
+  const covers = keys.filter((request) => new URL(request.url).hostname.includes('music.126.net'));
+  const overflow = covers.length - COVER_CACHE_LIMIT;
+  if (overflow > 0) {
+    await Promise.all(covers.slice(0, overflow).map((request) => cache.delete(request)));
+  }
+}
+
+async function storeRuntimeResponse(request, response, trimCovers) {
+  try {
+    const cache = await caches.open(CACHE_NAME);
+    await cache.put(request, response);
+    if (trimCovers) await trimCoverCache(cache);
+  } catch (error) {
+    console.warn('SW: 运行时缓存写入失败', error);
+  }
+}
 
 // 安装：缓存核心资源
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(CORE_ASSETS).catch(err => {
-        console.warn('SW: 部分核心资源缓存失败', err);
-      });
-    })
+    caches.open(CACHE_NAME).then((cache) => cacheCoreAssets(cache))
   );
   self.skipWaiting();
 });
@@ -36,28 +73,20 @@ self.addEventListener('install', (event) => {
 // 激活：清理旧缓存
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then((keys) => {
-      return Promise.all(
-        keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k))
-      );
-    })
+    caches.keys().then((keys) => Promise.all(
+      keys.filter(k => k.startsWith('cplayer5-') && k !== CACHE_NAME).map(k => caches.delete(k))
+    )).then(() => caches.open(CACHE_NAME)).then((cache) => trimCoverCache(cache))
   );
   self.clients.claim();
 });
 
 // 请求策略
 self.addEventListener('fetch', (event) => {
+  if (event.request.method !== 'GET') return;
   const url = new URL(event.request.url);
 
   // API 请求：始终网络优先，不缓存
   if (url.hostname === 'api.chksz.top' || url.hostname === 'api.chksz.com' || url.hostname.endsWith('.chksz.top') || url.hostname.endsWith('.chksz.com')) {
-    event.respondWith(fetch(event.request));
-    return;
-  }
-
-  // 音频流：不缓存
-  if (url.pathname.match(/\.(mp3|flac|wav|ogg|m4a|aac)$/i) ||
-      url.hostname.includes('music.126.net')) {
     event.respondWith(fetch(event.request));
     return;
   }
@@ -67,10 +96,10 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(
       caches.match(event.request).then(cached => {
         if (cached) return cached;
-        return fetch(event.request).then(resp => {
+        return fetch(event.request).then(async resp => {
           if (resp.ok) {
             const clone = resp.clone();
-            caches.open(CACHE_NAME).then(c => c.put(event.request, clone));
+            await storeRuntimeResponse(event.request, clone, true);
           }
           return resp;
         }).catch(() => new Response('', { status: 404 }));
@@ -79,17 +108,43 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  // 音频流：不缓存；网易云 CDN 上没有明确图片扩展名的资源也保持网络直取
+  if (url.pathname.match(/\.(mp3|flac|wav|ogg|m4a|aac)$/i) ||
+      url.hostname.includes('music.126.net')) {
+    event.respondWith(fetch(event.request));
+    return;
+  }
+
+  // 页面导航：网络优先，断网时回退到最近一次可用页面
+  if (event.request.mode === 'navigate') {
+    event.respondWith(
+      fetch(event.request).then(async (response) => {
+        if (response.ok && isAppShellNavigation(url)) {
+          const clone = response.clone();
+          await storeRuntimeResponse('./index.html', clone, false);
+        }
+        return response;
+      }).catch(() => caches.match('./index.html'))
+    );
+    return;
+  }
+
   // 本地资源：缓存优先，回退网络
   event.respondWith(
     caches.match(event.request).then(cached => {
       if (cached) return cached;
-      return fetch(event.request).then(resp => {
+      return fetch(event.request).then(async resp => {
         // 缓存成功的本地资源
         if (resp.ok && url.origin === self.location.origin) {
           const clone = resp.clone();
-          caches.open(CACHE_NAME).then(c => c.put(event.request, clone));
+          await storeRuntimeResponse(event.request, clone, false);
         }
         return resp;
+      }).catch(() => {
+        if (event.request.mode === 'navigate') {
+          return caches.match('./index.html');
+        }
+        throw new Error('Network request failed');
       });
     })
   );
