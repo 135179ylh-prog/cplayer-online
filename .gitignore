@@ -13,3 +13,22 @@ _check.js
 /inspect_*.py
 /patch_*.py
 /probe_*.py
+
+# Local Codex and Claude configuration. The tracked trellis-start skill remains shared.
+/.agents/skills/*
+!/.agents/skills/trellis-start/
+!/.agents/skills/trellis-start/SKILL.md
+/.claude/
+/.codex/
+
+# Trellis bootstrap/runtime files. Keep workflow, get_context.py, and task documents tracked.
+/.trellis/.gitignore
+/.trellis/.template-hashes.json
+/.trellis/.version
+/.trellis/agents/
+/.trellis/config.yaml
+/.trellis/scripts/*
+!/.trellis/scripts/get_context.py
+/.trellis/spec/
+/.trellis/tasks/00-join-*/
+/.trellis/workspace/index.md

@@ -19,8 +19,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/configure-pages@v5
+      - name: Prepare Pages artifact
+        run: |
+          site_dir="$RUNNER_TEMP/cplayer-pages"
+          mkdir -p "$site_dir"
+          cp index.html manifest.json playlist.js playlist-downloader.html sw.js "$site_dir/"
+          cp -R css fonts img js webfonts "$site_dir/"
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: .
+          path: ${{ runner.temp }}/cplayer-pages
       - id: deployment
         uses: actions/deploy-pages@v4

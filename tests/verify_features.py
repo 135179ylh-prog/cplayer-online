@@ -9,6 +9,9 @@ ROOT = Path(__file__).resolve().parents[1]
 HTML = (ROOT / "index.html").read_text(encoding="utf-8")
 SW = (ROOT / "sw.js").read_text(encoding="utf-8")
 MANIFEST = json.loads((ROOT / "manifest.json").read_text(encoding="utf-8"))
+WORKFLOW = (ROOT / ".github" / "workflows" / "pages.yml").read_text(encoding="utf-8")
+GITIGNORE = (ROOT / ".gitignore").read_text(encoding="utf-8")
+README = (ROOT / "README.md").read_text(encoding="utf-8")
 
 
 def require(condition: bool, message: str) -> None:
@@ -61,6 +64,27 @@ require(image_branch >= 0 and cdn_network_branch > image_branch, "cover cache br
 require(MANIFEST.get("start_url") == "./index.html", "manifest start_url changed unexpectedly")
 require(any(icon.get("src") == "img/icon.png" for icon in MANIFEST.get("icons", [])), "PNG app icon is missing")
 
+deployment_assets = [
+    "index.html", "playlist-downloader.html", "playlist.js", "manifest.json", "sw.js",
+    "css", "fonts", "img", "js", "webfonts",
+]
+require('site_dir="$RUNNER_TEMP/cplayer-pages"' in WORKFLOW, "Pages staging directory is missing")
+require("path: ${{ runner.temp }}/cplayer-pages" in WORKFLOW, "Pages artifact does not use the staging directory")
+require(not re.search(r"^\s*path:\s+\.\s*$", WORKFLOW, flags=re.MULTILINE), "Pages still uploads the repository root")
+for asset in deployment_assets:
+    require(asset in WORKFLOW, f"Pages staging artifact is missing {asset}")
+    require((ROOT / asset).exists(), f"Pages staging source is missing {asset}")
+require(not (ROOT / "_headers").exists(), "unsupported Pages _headers file is still present")
+
+required_ignore_rules = [
+    "/.agents/skills/*", "/.claude/", "/.codex/", "/.trellis/config.yaml",
+    "/.trellis/scripts/*", "!/.trellis/scripts/get_context.py", "/.trellis/spec/",
+]
+for rule in required_ignore_rules:
+    require(rule in GITIGNORE, f"missing local runtime ignore rule: {rule}")
+require("api.chksz.top" in README, "README does not document the upstream API dependency")
+require("Service Worker 的缓存修订号" in README, "README does not explain version semantics")
+
 legacy_names = [
     "dedup_detail.py", "dedupe_recent.py", "find_cycle.py", "find_manage.py", "find_vars.py",
     "fix_dup2.py", "inspect_search.py", "patch_search_fix.py", "wire_recent_builtin.py",
@@ -68,7 +92,8 @@ legacy_names = [
 require(all(not (ROOT / name).exists() for name in legacy_names), "legacy debug scripts still pollute the root")
 
 badge = re.search(r'id="buildBadge"[^>]*>(v\d+)', HTML)
-require(badge and badge.group(1) == "v32", "build badge was not advanced")
+require(badge, "build badge is missing or malformed")
+require("CPlayer 5 • 当前构建见左下角" in HTML, "settings version text is misleading")
 
 print("stability checks: passed")
 print("build badge:", badge.group(1))
