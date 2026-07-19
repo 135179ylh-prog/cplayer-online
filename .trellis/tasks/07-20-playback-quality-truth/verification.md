@@ -18,7 +18,11 @@
 - 本地 Service Worker 更新为 `cplayer5-v49-quality-truth`。
 - 使用没有旧 Service Worker 的本地端口动态导入 `core-utils.js`：API `jymaster` 返回“标注 JyMaster”；320000 bps 返回“高音质”；无单位 `320` 返回“音质未标注”；`.flac` pathname 返回“无损”。
 - 受保护 Claude Code review：第一轮 `research/claude-review.md` 和最终轮 `research/claude-review-02.md` 都含 `<verdict>APPROVED</verdict>`；最终审阅确认请求等级不会伪装成 API 元数据、双端徽标使用同一渲染入口、未知码率保守处理符合设计。
+- 已提交并推送 `1e8f991`（`fix: make playback quality labels truthful`）。GitHub Actions 的 `Deploy GitHub Pages #46` 已成功完成。
+- 线上页面 `https://135179ylh-prog.github.io/cplayer-online/`：桌面与移动质量节点均为“音质待确认”，使用 `quality-unknown`，并具有相同的 title 与 `aria-label`。浏览器缓存仅保留 `cplayer5-v49-quality-truth`。
+- 线上 390 x 844 窄屏 iframe：桌面质量节点无布局尺寸，移动质量节点可见，文字、title 与 `aria-label` 正确。
+- 已将外部音质元数据、保守推断和双端同步的约定记录到 `.trellis/spec/frontend/quality-guidelines.md`，供后续改动复用。
 
 ## 待完成
 
-- 推送后确认 GitHub Pages 页面与新版 Service Worker。
+- 无。
