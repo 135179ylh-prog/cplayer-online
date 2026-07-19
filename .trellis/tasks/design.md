@@ -16,6 +16,8 @@
 - 失败跳过：API、URL、`play()` 与媒体错误共用 token 化失败控制器，按模式寻找未尝试索引；`NotAllowedError` 单独等待用户手势
 - 手机适配：safe-area-inset，按钮加大，布局下移
 - 模态框样式使用 cplayer-modal-backdrop 专用命名，避免浏览器扩展对通用 .modal-backdrop 注入规则造成冲突
+- 搜索连续收藏：桌面侧栏和移动底部面板共用覆盖层事件边界；弹窗内点击不触发外部关闭，收藏成功只关闭选择弹窗
+- 歌单操作：资料库使用图标加文字的播放/管理/删除按钮；移动当前播放歌曲行通过“歌单”按钮复用 `openAddToPlaylistModal`
 
 ## 文件结构
 - index.html：主页面（含所有 JS）

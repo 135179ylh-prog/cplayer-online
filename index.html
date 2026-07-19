@@ -2544,15 +2544,16 @@
                     row.type = 'button';
                     row.className = 'w-full text-left p-3 rounded-xl bg-white/5 mb-2 flex items-center justify-between gap-3';
                     row.innerHTML = '<div class="min-w-0"><div class="font-medium truncate">' + escapeHtml(pl.name) + '</div><div class="text-xs opacity-50">' + pl.songs.length + ' 首</div></div><span class="text-xs opacity-70">加入</span>';
-                    row.onclick = async function () {
+                    row.onclick = async function (event) {
+                        event.preventDefault();
+                        event.stopPropagation();
                         try {
                             if (!pendingSongForPlaylist) return;
                             const name = pendingSongForPlaylist.name || '歌曲';
                             await addSongToUserPlaylist(pl.id, pendingSongForPlaylist);
                             if (typeof showToast === 'function') showToast('已加入: ' + pl.name + '（' + name + '）');
-                            // DO NOT close modal; allow adding same song to more playlists or picking another
-                            refreshUserPlaylistModalList('已加入「' + pl.name + '」: ' + name);
-                            refreshUserPlaylistLibrary();
+                            closeAddToPlaylistModal();
+                            await refreshMyPlaylists();
                         } catch (e) {
                             console.error(e);
                             if (typeof showToast === 'function') showToast('加入失败', true);
@@ -2608,14 +2609,28 @@ async function refreshUserPlaylistLibrary() {
         let activeLibraryTab = 'playlists';
         let musicLibraryReturnFocus = null;
 
-        function makeLibraryActionButton(label, icon, className) {
+        function makeLibraryActionButton(label, icon, className, visibleText) {
             const button = document.createElement('button');
             button.type = 'button';
             button.className = className || 'music-library-icon-button';
             button.title = label;
             button.setAttribute('aria-label', label);
-            button.innerHTML = '<i class="fas ' + icon + '" aria-hidden="true"></i>';
+            const iconElement = document.createElement('i');
+            iconElement.className = 'fas ' + icon;
+            iconElement.setAttribute('aria-hidden', 'true');
+            button.appendChild(iconElement);
+            if (visibleText) {
+                const textElement = document.createElement('span');
+                textElement.textContent = visibleText;
+                button.appendChild(textElement);
+            }
             return button;
+        }
+
+        function isOverlayInteractionTarget(target) {
+            return !!(target && target.closest && target.closest(
+                '#userPlaylistModal, #myPlaylistsModal, #playlistDetailModal, #settingsModal, #welcomeModal'
+            ));
         }
 
         async function refreshMyPlaylists() {
@@ -2651,16 +2666,27 @@ async function refreshUserPlaylistLibrary() {
 
                     const actions = document.createElement('div');
                     actions.className = 'music-library-row-actions flex items-center gap-2';
-                    const playButton = makeLibraryActionButton('播放歌单「' + pl.name + '」', 'fa-play');
-                    playButton.onclick = async function () {
+                    const playButton = makeLibraryActionButton('播放歌单「' + pl.name + '」', 'fa-play', 'music-library-action-button', '播放');
+                    playButton.onclick = async function (event) {
+                        event.preventDefault();
+                        event.stopPropagation();
                         await loadUserPlaylistIntoQueue(pl.id, true);
                         closeMyPlaylists();
                     };
-                    const manageButton = makeLibraryActionButton('管理歌单「' + pl.name + '」', 'fa-sliders-h');
-                    manageButton.onclick = function () { openPlaylistDetail(pl.id); };
-                    const deleteButton = makeLibraryActionButton('删除歌单「' + pl.name + '」', 'fa-trash');
+                    const manageButton = makeLibraryActionButton('管理歌单「' + pl.name + '」', 'fa-sliders-h', 'music-library-action-button', '管理');
+                    manageButton.onclick = function (event) {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        Promise.resolve(openPlaylistDetail(pl.id)).catch(function (error) {
+                            console.error('[library] detail open failed', error);
+                            if (typeof showToast === 'function') showToast('歌单详情打开失败', true);
+                        });
+                    };
+                    const deleteButton = makeLibraryActionButton('删除歌单「' + pl.name + '」', 'fa-trash', 'music-library-action-button', '删除');
                     deleteButton.style.color = '#ffb5b5';
-                    deleteButton.onclick = async function () {
+                    deleteButton.onclick = async function (event) {
+                        event.preventDefault();
+                        event.stopPropagation();
                         if (!confirm('删除歌单「' + pl.name + '」？')) return;
                         await deleteUserPlaylist(pl.id);
                         await refreshMyPlaylists();
@@ -3614,7 +3640,7 @@ async function refreshUserPlaylistLibrary() {
             document.addEventListener('click', (e) => {
                 const popover = document.getElementById('volumePopover');
                 const btn = document.getElementById('volumeBtn');
-                if (popover && !popover.contains(e.target) && !btn.contains(e.target)) {
+                if (popover && btn && !popover.contains(e.target) && !btn.contains(e.target)) {
                     popover.classList.remove('show');
                 }
 
@@ -3622,7 +3648,8 @@ async function refreshUserPlaylistLibrary() {
                 const playlistPanel = document.getElementById('floatingPlaylistPanel');
                 const playlistBtn = document.getElementById('togglePlaylistBtn');
                 if (playlistPanel && !playlistPanel.classList.contains('translate-x-full') &&
-                    !playlistPanel.contains(e.target) && !playlistBtn.contains(e.target)) {
+                    !playlistPanel.contains(e.target) && (!playlistBtn || !playlistBtn.contains(e.target)) &&
+                    !isOverlayInteractionTarget(e.target)) {
                     togglePlaylistPanel(false);
                 }
             });
@@ -4205,12 +4232,16 @@ async function refreshUserPlaylistLibrary() {
                         actions.className = 'flex items-center gap-1 flex-shrink-0';
                         const addBtn = document.createElement('button');
                         addBtn.type = 'button';
-                        addBtn.className = 'js-add-queue px-2 h-8 rounded-full border border-white/30 text-xs';
-                        addBtn.textContent = '+列表';
+                        addBtn.className = 'js-add-queue px-3 h-9 rounded-full border border-white/30 text-xs whitespace-nowrap';
+                        addBtn.textContent = '加入播放列表';
+                        addBtn.title = '加入播放列表（不立即播放）';
+                        addBtn.setAttribute('aria-label', '加入播放列表（不立即播放）');
                         const plBtn = document.createElement('button');
                         plBtn.type = 'button';
-                        plBtn.className = 'js-add-playlist px-2 h-8 rounded-full border border-white/30 text-xs';
-                        plBtn.textContent = '歌单';
+                        plBtn.className = 'js-add-playlist px-3 h-9 rounded-full border border-white/30 text-xs whitespace-nowrap';
+                        plBtn.textContent = '收藏到歌单';
+                        plBtn.title = '收藏到歌单';
+                        plBtn.setAttribute('aria-label', '收藏到歌单');
                         actions.appendChild(addBtn);
                         actions.appendChild(plBtn);
                         div.appendChild(actions);
@@ -5750,7 +5781,8 @@ async function refreshUserPlaylistLibrary() {
                     // If sheet is open (translate-y-0)
                     if (sheet.classList.contains('translate-y-0')) {
                         // If click is OUTSIDE sheet and NOT on toggle button
-                        if (!sheet.contains(e.target) && !toggleBtn.contains(e.target)) {
+                        if (!sheet.contains(e.target) && (!toggleBtn || !toggleBtn.contains(e.target)) &&
+                            !isOverlayInteractionTarget(e.target)) {
                             this.closeSheet();
                         }
                     }
@@ -5933,13 +5965,21 @@ async function refreshUserPlaylistLibrary() {
                                 <div class="font-bold truncate text-sm ${textClass}">${song.name}</div>
                                 <div class="text-xs truncate opacity-50">${song.artist || ''}</div>
                             </div>
-                            <button type="button" class="js-add-playlist-item flex-none w-10 h-9 rounded-full border border-white/25 flex items-center justify-center text-white/85 text-xs active:bg-white/10" title="歌单" aria-label="歌单" style="pointer-events:auto;z-index:5;position:relative;">
-                                +
+                            <button type="button" class="js-add-playlist-item flex-none w-14 h-9 rounded-full border border-white/25 flex items-center justify-center gap-1 text-white/85 text-xs active:bg-white/10" title="收藏到歌单" aria-label="收藏到歌单" style="pointer-events:auto;z-index:5;position:relative;">
+                                <i class="fas fa-folder-plus" aria-hidden="true"></i><span>歌单</span>
                             </button>
-                            <button type="button" class="js-remove-queue flex-none w-12 h-9 rounded-full border border-white/25 flex items-center justify-center text-white/85 text-xs active:bg-red-500/40" title="删除" aria-label="删除" style="pointer-events:auto;z-index:5;position:relative;">
-                                删
+                            <button type="button" class="js-remove-queue flex-none w-14 h-9 rounded-full border border-white/25 flex items-center justify-center text-white/85 text-xs active:bg-red-500/40" title="从播放列表移除" aria-label="从播放列表移除" style="pointer-events:auto;z-index:5;position:relative;">
+                                移除
                             </button>
                         `;
+                        const addPlaylistBtn = div.querySelector('.js-add-playlist-item');
+                        if (addPlaylistBtn) {
+                            addPlaylistBtn.onclick = (e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                window.openAddToPlaylistModal(song);
+                            };
+                        }
                         const removeBtn = div.querySelector('.js-remove-queue');
                         if (removeBtn) {
                             removeBtn.onclick = (e) => {
@@ -6101,10 +6141,10 @@ async function refreshUserPlaylistLibrary() {
                                 <div class="font-bold truncate text-sm text-white/90">${song.name}</div>
                                 <div class="text-xs truncate opacity-50">${song.artist}</div>
                             </div>
-                            <button type="button" class="js-add-queue p-2 w-8 h-8 flex items-center justify-center rounded-full border border-white/20 text-xs" title="加入播放列表">
+                            <button type="button" class="js-add-queue p-2 w-8 h-8 flex items-center justify-center rounded-full border border-white/20 text-xs" title="加入播放列表（不立即播放）" aria-label="加入播放列表（不立即播放）">
                                 <i class="fas fa-plus"></i>
                             </button>
-                            <button type="button" class="js-add-playlist p-2 w-8 h-8 flex items-center justify-center rounded-full border border-white/20 text-xs" title="加入歌单">
+                            <button type="button" class="js-add-playlist p-2 w-8 h-8 flex items-center justify-center rounded-full border border-white/20 text-xs" title="收藏到歌单" aria-label="收藏到歌单">
                                 <i class="fas fa-folder-plus"></i>
                             </button>
                         `;
@@ -6783,7 +6823,7 @@ async function refreshUserPlaylistLibrary() {
         }
 
     </script>
-<div id="buildBadge" style="position:fixed;left:8px;bottom:8px;z-index:2147483002;font-size:11px;opacity:.6;background:rgba(0,0,0,.4);color:#fff;padding:2px 6px;border-radius:8px;">v28</div>
+<div id="buildBadge" style="position:fixed;left:8px;bottom:8px;z-index:2147483002;font-size:11px;opacity:.6;background:rgba(0,0,0,.4);color:#fff;padding:2px 6px;border-radius:8px;">v29</div>
 
         <!-- 音乐资料库 -->
         <div id="myPlaylistsModal" class="hidden fixed inset-0 z-[9999] flex items-end md:items-center md:justify-center bg-black/60 md:px-4"
