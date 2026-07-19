@@ -7,8 +7,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 HTML = (ROOT / "index.html").read_text(encoding="utf-8")
+DOWNLOADER = (ROOT / "playlist-downloader.html").read_text(encoding="utf-8")
 SW = (ROOT / "sw.js").read_text(encoding="utf-8")
 MANIFEST = json.loads((ROOT / "manifest.json").read_text(encoding="utf-8"))
+PACKAGE = json.loads((ROOT / "package.json").read_text(encoding="utf-8"))
 WORKFLOW = (ROOT / ".github" / "workflows" / "pages.yml").read_text(encoding="utf-8")
 GITIGNORE = (ROOT / ".gitignore").read_text(encoding="utf-8")
 README = (ROOT / "README.md").read_text(encoding="utf-8")
@@ -49,8 +51,9 @@ require((ROOT / "playlist.js").is_file(), "optional playlist.js hook is missing"
 require((ROOT / "js" / "core-utils.js").is_file(), "core utility module is missing")
 require((ROOT / "tests" / "core-utils.test.mjs").is_file(), "core utility tests are missing")
 
-require("cplayer5-v47-audit-hardening" in SW, "service worker cache version is not updated")
+require("cplayer5-v48-static-tailwind" in SW, "service worker cache version is not updated")
 require("./js/core-utils.js" in SW, "core utility module is not precached")
+require("./css/tailwind.css" in SW and "./js/tailwindcss.js" not in SW, "service worker Tailwind cache entry is stale")
 require("cacheCoreAssets" in SW and "new Request(new URL(asset, self.registration.scope)" in SW, "core cache refresh is not explicit")
 require("const COVER_CACHE_LIMIT = 160;" in SW, "cover cache has no bounded limit")
 require("k.startsWith('cplayer5-') && k !== CACHE_NAME" in SW, "cache cleanup is not scoped to this app")
@@ -63,6 +66,18 @@ require(image_branch >= 0 and cdn_network_branch > image_branch, "cover cache br
 
 require(MANIFEST.get("start_url") == "./index.html", "manifest start_url changed unexpectedly")
 require(any(icon.get("src") == "img/icon.png" for icon in MANIFEST.get("icons", [])), "PNG app icon is missing")
+require(PACKAGE.get("scripts", {}).get("build:css") == "tailwindcss -c tailwind.config.cjs -i css/tailwind.input.css -o css/tailwind.css --minify", "Tailwind build script changed unexpectedly")
+require(PACKAGE.get("devDependencies", {}).get("tailwindcss") == "3.4.17", "Tailwind version is not pinned")
+require((ROOT / "tailwind.config.cjs").is_file(), "Tailwind config is missing")
+require((ROOT / "css" / "tailwind.input.css").is_file(), "Tailwind source CSS is missing")
+tailwind_css = ROOT / "css" / "tailwind.css"
+require(tailwind_css.is_file() and tailwind_css.stat().st_size > 0, "generated Tailwind CSS is missing")
+tailwind_config = (ROOT / "tailwind.config.cjs").read_text(encoding="utf-8")
+tailwind_input = (ROOT / "css" / "tailwind.input.css").read_text(encoding="utf-8")
+require("'./index.html'" in tailwind_config and "'./playlist-downloader.html'" in tailwind_config, "Tailwind content scan is incomplete")
+require("@tailwind base;" in tailwind_input and "@tailwind utilities;" in tailwind_input, "Tailwind source directives are incomplete")
+require('href="css/tailwind.css"' in HTML and 'js/tailwindcss.js' not in HTML, "main page still uses runtime Tailwind")
+require('href="css/tailwind.css"' in DOWNLOADER and 'cdn.tailwindcss.com' not in DOWNLOADER, "downloader still uses Play CDN")
 
 deployment_assets = [
     "index.html", "playlist-downloader.html", "playlist.js", "manifest.json", "sw.js",
