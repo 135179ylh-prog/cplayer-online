@@ -6,6 +6,8 @@
 export const API_REQUEST_TIMEOUT_MS = 15000;
 export const API_REQUEST_RETRIES = 1;
 export const API_RETRY_DELAY_MS = 350;
+export const PLAYBACK_SESSION_VERSION = 1;
+export const PLAYBACK_SESSION_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 
 function wait(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
@@ -99,6 +101,78 @@ export function classifyPlaybackQuality({ level, url, bitrate } = {}) {
         return qualityResult('标准', 'quality-standard', '🎶', `依据 ${bitrateLabel(normalizedBitrate)} 码率推断为标准`, 'inferred');
     }
     return qualityResult('音质未标注', 'quality-unknown', '？', '上游 API 未提供可信的音质等级或码率', 'unknown');
+}
+
+/** Return a seek position only when at least five seconds remain in the track. */
+export function getSafePlaybackResumeTime(currentTime, duration) {
+    const position = Number(currentTime);
+    const total = Number(duration);
+    if (!Number.isFinite(position) || !Number.isFinite(total) || total <= 0) return 0;
+    if (position < 5 || position >= total - 5) return 0;
+    return position;
+}
+
+/** Validate the small localStorage record used for click-to-resume playback. */
+export function normalizePlaybackSession(value, options = {}) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+    if (value.version !== PLAYBACK_SESSION_VERSION) return null;
+
+    const now = Number.isFinite(options.now) ? options.now : Date.now();
+    const maxAgeMs = Number.isFinite(options.maxAgeMs)
+        ? Math.max(0, options.maxAgeMs)
+        : PLAYBACK_SESSION_MAX_AGE_MS;
+    const updatedAt = Number(value.updatedAt);
+    const currentTime = Number(value.currentTime);
+    const duration = Number(value.duration);
+    const rawSongId = value.songId;
+    const songId = typeof rawSongId === 'string' || typeof rawSongId === 'number'
+        ? String(rawSongId).trim()
+        : '';
+    const currentIndex = Number(value.currentIndex);
+
+    if (!songId || !Number.isInteger(currentIndex) || currentIndex < 0) return null;
+    if (!Number.isFinite(updatedAt) || updatedAt <= 0 || updatedAt > now + 5 * 60 * 1000) return null;
+    if (now - updatedAt > maxAgeMs) return null;
+    if (!getSafePlaybackResumeTime(currentTime, duration)) return null;
+
+    return {
+        version: PLAYBACK_SESSION_VERSION,
+        songId,
+        currentIndex,
+        currentTime,
+        duration,
+        wasPlaying: value.wasPlaying === true,
+        updatedAt
+    };
+}
+
+/** Return zero for missing, invalid, or expired sleep deadlines. */
+export function getSleepTimerRemainingMs(endAt, now = Date.now()) {
+    const deadline = Number(endAt);
+    const current = Number(now);
+    if (!Number.isFinite(deadline) || !Number.isFinite(current) || deadline <= current) return 0;
+    return deadline - current;
+}
+
+/** Turn low-level request/media errors into stable user-facing categories. */
+export function classifyPlaybackFailure(error, online = true) {
+    if (online === false) return { kind: 'offline', message: '当前已断网' };
+
+    const name = error && error.name ? String(error.name) : '';
+    const message = error && error.message ? String(error.message).toLowerCase() : '';
+    const status = error && Number.isFinite(Number(error.status)) ? Number(error.status) : 0;
+    const networkFailure = name === 'TimeoutError' || error instanceof TypeError ||
+        status === 429 || status >= 500 || message.includes('network') ||
+        message.includes('网络请求') || message.includes('fetch');
+    if (networkFailure) return { kind: 'service', message: '音乐服务暂时不可用' };
+
+    const unavailable = status === 404 || message.includes('getsong failed') ||
+        message.includes('no data') || message.includes('no playable') ||
+        message.includes('unsupported') || message.includes('decode error') ||
+        message.includes('invalid media url');
+    if (unavailable) return { kind: 'unavailable', message: '这首歌暂时没有可用音源' };
+
+    return { kind: 'unknown', message: '这首歌播放失败' };
 }
 
 /** Return true only for failures where another request can plausibly help. */

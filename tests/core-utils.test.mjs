@@ -1,8 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+    classifyPlaybackFailure,
     classifyPlaybackQuality,
     fetchJsonWithRetry,
+    getSafePlaybackResumeTime,
+    getSleepTimerRemainingMs,
+    normalizePlaybackSession,
     normalizeSongObject,
     shouldRetryRequest
 } from '../js/core-utils.js';
@@ -57,6 +61,50 @@ test('classifyPlaybackQuality separates API labels, inference, and unknown strea
     assert.equal(unknown.text, '音质未标注');
     assert.equal(unknown.className, 'quality-unknown');
     assert.equal(unknown.source, 'unknown');
+});
+
+test('normalizePlaybackSession accepts only useful recent progress', () => {
+    const now = 2_000_000;
+    const valid = normalizePlaybackSession({
+        version: 1,
+        songId: 123,
+        currentIndex: 2,
+        currentTime: 42.5,
+        duration: 200,
+        wasPlaying: true,
+        updatedAt: now - 1000
+    }, { now });
+    assert.equal(valid.songId, '123');
+    assert.equal(valid.currentTime, 42.5);
+    assert.equal(valid.wasPlaying, true);
+
+    assert.equal(normalizePlaybackSession({ ...valid, currentTime: 3 }, { now }), null);
+    assert.equal(normalizePlaybackSession({ ...valid, currentTime: 198 }, { now }), null);
+    assert.equal(normalizePlaybackSession({ ...valid, updatedAt: now - 31 * 24 * 60 * 60 * 1000 }, { now }), null);
+    assert.equal(normalizePlaybackSession({ ...valid, songId: '' }, { now }), null);
+    assert.equal(normalizePlaybackSession({ ...valid, songId: {} }, { now }), null);
+});
+
+test('getSafePlaybackResumeTime rejects progress near the actual media end', () => {
+    assert.equal(getSafePlaybackResumeTime(42, 200), 42);
+    assert.equal(getSafePlaybackResumeTime(42, 45), 0);
+    assert.equal(getSafePlaybackResumeTime(3, 200), 0);
+    assert.equal(getSafePlaybackResumeTime(198, 200), 0);
+});
+
+test('sleep timer remaining time is deterministic and never negative', () => {
+    assert.equal(getSleepTimerRemainingMs(70_000, 10_000), 60_000);
+    assert.equal(getSleepTimerRemainingMs(10_000, 10_000), 0);
+    assert.equal(getSleepTimerRemainingMs('invalid', 10_000), 0);
+});
+
+test('classifyPlaybackFailure distinguishes offline, service, and missing source', () => {
+    assert.deepEqual(classifyPlaybackFailure(new TypeError('fetch failed'), false), {
+        kind: 'offline', message: '当前已断网'
+    });
+    assert.equal(classifyPlaybackFailure(Object.assign(new Error('网络请求超时'), { name: 'TimeoutError' })).kind, 'service');
+    assert.equal(classifyPlaybackFailure(new Error('ChKSz GetSong Failed')).kind, 'unavailable');
+    assert.equal(classifyPlaybackFailure(new Error('unexpected')).kind, 'unknown');
 });
 
 test('fetchJsonWithRetry retries a transient server error once', async () => {

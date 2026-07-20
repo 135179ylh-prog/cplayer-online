@@ -1147,7 +1147,7 @@
     <!-- 复制成功 Toast -->
     <div id="copyToast"
         role="status" aria-live="polite" aria-atomic="true"
-        class="fixed top-20 left-1/2 transform -translate-x-1/2 bg-surface-container-high-color text-on-surface-color px-6 py-3 rounded-full shadow-xl z-[100] opacity-0 pointer-events-none transition-all duration-300 scale-90 flex items-center gap-2 border border-primary-color/20 backdrop-blur-md">
+        class="fixed top-20 left-1/2 transform -translate-x-1/2 max-w-[calc(100vw-2rem)] bg-surface-container-high-color text-on-surface-color px-6 py-3 rounded-full shadow-xl z-[100] opacity-0 pointer-events-none transition-all duration-300 scale-90 flex items-center gap-2 border border-primary-color/20 backdrop-blur-md text-center break-words">
         <i class="fas fa-check-circle text-primary-color"></i>
         <span class="font-bold text-sm">已复制到剪贴板</span>
     </div>
@@ -1600,6 +1600,33 @@
                     </div>
                 </div>
 
+                <div class="p-4 rounded-2xl border border-white/10 bg-white/[0.04]">
+                    <div class="flex items-center justify-between gap-3 mb-3">
+                        <div class="flex items-center gap-2 text-sm font-semibold">
+                            <i class="fas fa-moon opacity-60" aria-hidden="true"></i>
+                            睡眠定时
+                        </div>
+                        <div id="sleepTimerStatus" role="status" aria-live="polite" class="text-xs opacity-50">未设置</div>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <select id="sleepTimerSelect" aria-label="选择睡眠定时时长"
+                            class="flex-1 min-w-0 bg-white/[0.06] border border-white/[0.12] rounded-xl px-3 py-2.5 text-sm outline-none focus:border-primary-color/60">
+                            <option value="0">关闭</option>
+                            <option value="15">15 分钟</option>
+                            <option value="30">30 分钟</option>
+                            <option value="45">45 分钟</option>
+                            <option value="60">60 分钟</option>
+                            <option value="90">90 分钟</option>
+                            <option value="120">120 分钟</option>
+                        </select>
+                        <button id="sleepTimerBtn" type="button"
+                            class="px-4 py-2.5 rounded-xl bg-white/10 text-sm font-semibold hover:bg-white/15 active:scale-[0.97] transition-all">
+                            设置
+                        </button>
+                    </div>
+                    <p class="mt-2 text-[11px] opacity-35">到点后暂停播放；刷新页面不会丢失计时。</p>
+                </div>
+
                 <!-- 在线歌单 ID 输入 -->
                 <div class="bg-white/5 p-4 rounded-2xl border border-white/10">
                     <div class="flex gap-2">
@@ -1738,8 +1765,13 @@
             API_REQUEST_RETRIES,
             API_REQUEST_TIMEOUT_MS,
             API_RETRY_DELAY_MS,
+            PLAYBACK_SESSION_VERSION,
+            classifyPlaybackFailure,
             classifyPlaybackQuality,
             fetchJsonWithRetry,
+            getSafePlaybackResumeTime,
+            getSleepTimerRemainingMs,
+            normalizePlaybackSession,
             normalizeSongObject
         } from './js/core-utils.js';
 
@@ -2068,6 +2100,8 @@
         const CURRENT_QUEUE_KEY = 'current_queue';
         const USER_PL_PREFIX = 'user_pl_';
         const RECENT_HISTORY_KEY = 'cp_recent_history';
+        const PLAYBACK_SESSION_KEY = 'cp_playback_session';
+        const SLEEP_TIMER_KEY = 'cp_sleep_timer_end_at';
         const RECENT_HISTORY_LIMIT = 50;
         const PLAYLIST_BACKUP_FORMAT = 'cplayer-playlists-backup';
         const PLAYLIST_BACKUP_VERSION = 1;
@@ -2079,6 +2113,188 @@
         let queueSavePendingReason = '';
         let suppressQueueAutosave = false;
         let pendingSongForPlaylist = null;
+        let pendingPlaybackSession = null;
+        let playbackSessionLastSavedAt = 0;
+        let sleepTimerEndAt = 0;
+        let sleepTimerTimeout = null;
+        let sleepTimerInterval = null;
+
+        function readPlaybackSession() {
+            try {
+                const raw = localStorage.getItem(PLAYBACK_SESSION_KEY);
+                if (!raw) return null;
+                const normalized = normalizePlaybackSession(JSON.parse(raw));
+                if (!normalized) localStorage.removeItem(PLAYBACK_SESSION_KEY);
+                return normalized;
+            } catch (error) {
+                try { localStorage.removeItem(PLAYBACK_SESSION_KEY); } catch (removeError) {}
+                console.warn('[resume] invalid playback session ignored', error);
+                return null;
+            }
+        }
+
+        function clearPlaybackSession() {
+            pendingPlaybackSession = null;
+            try { localStorage.removeItem(PLAYBACK_SESSION_KEY); } catch (error) {
+                console.warn('[resume] clear failed', error);
+            }
+        }
+
+        function getQueueSongId(index) {
+            if (!Number.isInteger(index) || index < 0 || index >= playlist.length) return '';
+            const song = playlist[index];
+            const songId = typeof song === 'object' ? song.id : song;
+            return songId == null ? '' : String(songId);
+        }
+
+        function savePlaybackSession(reason, force) {
+            const now = Date.now();
+            if (!force && now - playbackSessionLastSavedAt < 5000) return false;
+            const songId = activePlaybackAttempt && activePlaybackAttempt.songId
+                ? String(activePlaybackAttempt.songId)
+                : getQueueSongId(currentIndex);
+            const currentTime = Number(audio.currentTime);
+            const duration = Number(audio.duration);
+            const safeCurrentTime = getSafePlaybackResumeTime(currentTime, duration);
+            if (!songId || !Number.isInteger(currentIndex) || currentIndex < 0 ||
+                !safeCurrentTime) {
+                return false;
+            }
+            const payload = {
+                version: PLAYBACK_SESSION_VERSION,
+                songId,
+                currentIndex,
+                currentTime: safeCurrentTime,
+                duration,
+                wasPlaying: !audio.paused && !audio.ended,
+                updatedAt: now,
+                reason: reason || 'auto'
+            };
+            try {
+                localStorage.setItem(PLAYBACK_SESSION_KEY, JSON.stringify(payload));
+                playbackSessionLastSavedAt = now;
+                return true;
+            } catch (error) {
+                console.warn('[resume] save failed', error);
+                return false;
+            }
+        }
+
+        function preparePlaybackResume() {
+            pendingPlaybackSession = readPlaybackSession();
+            if (!pendingPlaybackSession || !playlist.length) return false;
+            const matchIndex = playlist.findIndex(function (song) {
+                const songId = typeof song === 'object' ? song.id : song;
+                return String(songId) === pendingPlaybackSession.songId;
+            });
+            if (matchIndex < 0) {
+                clearPlaybackSession();
+                return false;
+            }
+            currentIndex = matchIndex;
+            scheduleSaveCurrentQueue('resume_prepare');
+            if (typeof renderAllPlaylistItems === 'function') renderAllPlaylistItems();
+            if (window.mobileUI && typeof window.mobileUI.loadPlaylist === 'function') window.mobileUI.loadPlaylist();
+            if (typeof showToast === 'function') {
+                showToast('已找回上次进度 ' + formatTime(pendingPlaybackSession.currentTime) + '，点击播放继续');
+            }
+            return true;
+        }
+
+        function getPlaybackResumeTime(index) {
+            if (!pendingPlaybackSession) return 0;
+            return getQueueSongId(index) === pendingPlaybackSession.songId
+                ? pendingPlaybackSession.currentTime
+                : 0;
+        }
+
+        function formatSleepTimerRemaining(remainingMs) {
+            const totalMinutes = Math.max(1, Math.ceil(remainingMs / 60000));
+            if (totalMinutes < 60) return totalMinutes + ' 分钟';
+            const hours = Math.floor(totalMinutes / 60);
+            const minutes = totalMinutes % 60;
+            return minutes ? hours + ' 小时 ' + minutes + ' 分钟' : hours + ' 小时';
+        }
+
+        function updateSleepTimerUI() {
+            const status = document.getElementById('sleepTimerStatus');
+            const select = document.getElementById('sleepTimerSelect');
+            const button = document.getElementById('sleepTimerBtn');
+            const remaining = getSleepTimerRemainingMs(sleepTimerEndAt);
+            if (status) status.textContent = remaining ? '剩余 ' + formatSleepTimerRemaining(remaining) : '未设置';
+            if (button) button.textContent = remaining ? '取消' : '设置';
+            if (!remaining && select) select.value = '0';
+        }
+
+        function clearSleepTimer(options) {
+            options = options || {};
+            if (sleepTimerTimeout) clearTimeout(sleepTimerTimeout);
+            if (sleepTimerInterval) clearInterval(sleepTimerInterval);
+            sleepTimerTimeout = null;
+            sleepTimerInterval = null;
+            sleepTimerEndAt = 0;
+            try { localStorage.removeItem(SLEEP_TIMER_KEY); } catch (error) {
+                console.warn('[sleep] clear failed', error);
+            }
+            updateSleepTimerUI();
+            if (options.notify && typeof showToast === 'function') showToast('睡眠定时已取消');
+        }
+
+        function handleSleepTimerExpired() {
+            try { audio.pause(); } catch (error) {}
+            savePlaybackSession('sleep_timer', true);
+            clearSleepTimer();
+            if (typeof showToast === 'function') showToast('睡眠定时到点，已暂停播放');
+        }
+
+        function scheduleSleepTimer() {
+            if (sleepTimerTimeout) clearTimeout(sleepTimerTimeout);
+            if (sleepTimerInterval) clearInterval(sleepTimerInterval);
+            const remaining = getSleepTimerRemainingMs(sleepTimerEndAt);
+            if (!remaining) {
+                clearSleepTimer();
+                return false;
+            }
+            sleepTimerTimeout = setTimeout(handleSleepTimerExpired, remaining);
+            sleepTimerInterval = setInterval(updateSleepTimerUI, 1000);
+            updateSleepTimerUI();
+            return true;
+        }
+
+        function setSleepTimer(minutes) {
+            const value = Number(minutes);
+            if (!Number.isFinite(value) || value <= 0) {
+                clearSleepTimer({ notify: true });
+                return;
+            }
+            sleepTimerEndAt = Date.now() + value * 60000;
+            try { localStorage.setItem(SLEEP_TIMER_KEY, String(sleepTimerEndAt)); } catch (error) {
+                console.warn('[sleep] persist failed', error);
+            }
+            scheduleSleepTimer();
+            if (typeof showToast === 'function') showToast('睡眠定时已设置：' + value + ' 分钟');
+        }
+
+        function setupSleepTimerUI() {
+            const select = document.getElementById('sleepTimerSelect');
+            const button = document.getElementById('sleepTimerBtn');
+            if (!select || !button || button.dataset.bound === '1') return;
+            button.dataset.bound = '1';
+            button.addEventListener('click', function () {
+                if (getSleepTimerRemainingMs(sleepTimerEndAt)) {
+                    clearSleepTimer({ notify: true });
+                    return;
+                }
+                if (Number(select.value) <= 0) {
+                    if (typeof showToast === 'function') showToast('请先选择定时时长', true);
+                    return;
+                }
+                setSleepTimer(select.value);
+            });
+            try { sleepTimerEndAt = Number(localStorage.getItem(SLEEP_TIMER_KEY)) || 0; } catch (error) {}
+            if (getSleepTimerRemainingMs(sleepTimerEndAt)) scheduleSleepTimer();
+            else clearSleepTimer();
+        }
 
         function readRecentHistory() {
             try {
@@ -2194,10 +2410,14 @@
         }
 
         document.addEventListener('visibilitychange', function () {
-            if (document.visibilityState === 'hidden') flushScheduledQueueSave('visibility_hidden');
+            if (document.visibilityState === 'hidden') {
+                flushScheduledQueueSave('visibility_hidden');
+                savePlaybackSession('visibility_hidden', true);
+            }
         });
         window.addEventListener('pagehide', function () {
             flushScheduledQueueSave('pagehide');
+            savePlaybackSession('pagehide', true);
         });
 
         async function restoreCurrentQueue() {
@@ -2268,8 +2488,10 @@
             playlistTotalCount = playlist.length;
             if (playlist.length === 0) {
                 currentIndex = -1;
+                clearPlaybackSession();
                 try { audio.pause(); } catch (e) {}
             } else if (currentIndex === index) {
+                clearPlaybackSession();
                 if (currentIndex >= playlist.length) currentIndex = playlist.length - 1;
                 const next = playlist[currentIndex];
                 const nextId = typeof next === 'object' ? next.id : next;
@@ -3196,6 +3418,7 @@ async function refreshUserPlaylistLibrary() {
 
         function clearCurrentQueue() {
             if (!playlist.length) {
+                clearPlaybackSession();
                 currentPlaylistId = '';
                 playlistSource = 'empty';
                 playlistSourceName = '已清空';
@@ -3211,6 +3434,7 @@ async function refreshUserPlaylistLibrary() {
             playlist = [];
             window.playlist = playlist;
             currentIndex = -1;
+            clearPlaybackSession();
             currentPlaylistId = '';
             playlistSource = 'empty';
             playlistSourceName = '已清空';
@@ -3604,6 +3828,7 @@ async function refreshUserPlaylistLibrary() {
             }
             if (typeof updatePlayModeUI === 'function') updatePlayModeUI();
             initSettingsUI();
+            setupSleepTimerUI();
             setupPlaylistIdLoader();
             if (typeof bindUserPlaylistUI === 'function') bindUserPlaylistUI();  // 初始化歌单ID加载按钮
             loadDefaultPlaylist();
@@ -4095,13 +4320,14 @@ async function refreshUserPlaylistLibrary() {
                 failedIndexes: Array.from(attempt.failedIndexes),
                 error: error
             });
+            const failure = classifyPlaybackFailure(error, navigator.onLine !== false);
 
             const nextIndex = getFailureCandidateIndex(attempt);
             if (nextIndex < 0) {
                 try { audio.pause(); } catch (pauseError) {}
                 setPlayerLoading(false);
                 dom.lyricsContainer.innerHTML = '<div class="lyric-line opacity-50 my-auto">当前范围内没有可播放歌曲</div>';
-                if (typeof showToast === 'function') showToast('当前范围内的歌曲均播放失败', true);
+                if (typeof showToast === 'function') showToast(failure.message + '；当前范围内没有可播放歌曲', true);
                 return false;
             }
 
@@ -4111,7 +4337,7 @@ async function refreshUserPlaylistLibrary() {
             if (typeof mobileUI !== 'undefined' && mobileUI && typeof mobileUI.loadPlaylist === 'function') mobileUI.loadPlaylist();
             const nextSong = playlist[nextIndex];
             const nextSongId = typeof nextSong === 'object' ? nextSong.id : nextSong;
-            if (typeof showToast === 'function') showToast('播放失败，正在尝试下一首');
+            if (typeof showToast === 'function') showToast(failure.message + '，正在尝试下一首');
             loadAndPlaySong(nextSongId, {
                 index: nextIndex,
                 failedIndexes: attempt.failedIndexes,
@@ -4169,10 +4395,12 @@ async function refreshUserPlaylistLibrary() {
                 navigator.mediaSession.playbackState = 'playing';
             }
             recordRecentPlayForActiveAttempt();
+            savePlaybackSession('play', true);
         }
 
         function onPlayPause() {
             isPlaying = false;
+            savePlaybackSession('pause', true);
             dom.playPauseBtn.innerHTML = '<i class="fas fa-play text-2xl ml-1 text-on-primary-color"></i>';
             dom.albumArtWrapper.classList.remove('playing');
             if (mobileUI) mobileUI.updatePlayState(false); // ★ Mobile
@@ -4435,6 +4663,9 @@ async function refreshUserPlaylistLibrary() {
                 const currentSongId = typeof currentSong === 'object' ? currentSong.id : currentSong;
                 if (String(currentSongId) === String(id)) index = currentIndex;
             }
+            let resumeTime = Number(options.resumeTime);
+            if (!Number.isFinite(resumeTime) || resumeTime < 5) resumeTime = getPlaybackResumeTime(index);
+            if (pendingPlaybackSession && String(id) !== pendingPlaybackSession.songId) clearPlaybackSession();
             const attempt = {
                 token: token,
                 index: index,
@@ -4444,6 +4675,7 @@ async function refreshUserPlaylistLibrary() {
                 recentRecorded: false,
                 mediaUrl: '',
                 song: null,
+                resumeTime: Number.isFinite(resumeTime) ? resumeTime : 0,
                 reason: options.reason || 'user'
             };
             activePlaybackAttempt = attempt;
@@ -4483,6 +4715,20 @@ async function refreshUserPlaylistLibrary() {
                     scheduleSaveCurrentQueue('play_song');
                 }
 
+                if (attempt.resumeTime >= 5) {
+                    audio.addEventListener('loadedmetadata', function applySavedPlaybackPosition() {
+                        if (!activePlaybackAttempt || activePlaybackAttempt.token !== token) return;
+                        const target = getSafePlaybackResumeTime(attempt.resumeTime, audio.duration);
+                        if (!target) {
+                            clearPlaybackSession();
+                            return;
+                        }
+                        audio.currentTime = target;
+                        pendingPlaybackSession = null;
+                        savePlaybackSession('resume_applied', true);
+                        if (typeof showToast === 'function') showToast('已从 ' + formatTime(target) + ' 继续播放');
+                    }, { once: true });
+                }
                 audio.src = mediaUrl;
                 dom.songTitle.textContent = song.name;
                 dom.artistName.textContent = song.artist;
@@ -4553,6 +4799,7 @@ async function refreshUserPlaylistLibrary() {
             if (mobileUI) mobileUI.updateProgress(audio.currentTime, audio.duration, pct);
 
             updateLyrics(audio.currentTime);
+            savePlaybackSession('timeupdate', false);
         }
 
         function seekAudio(e) {
@@ -4955,6 +5202,8 @@ async function refreshUserPlaylistLibrary() {
                 if (typeof initPlaylistView === 'function') initPlaylistView();
             } catch (e) {
                 console.error('[boot]', e);
+            } finally {
+                preparePlaybackResume();
             }
         }
 
@@ -5456,7 +5705,8 @@ async function refreshUserPlaylistLibrary() {
         }
 
         // Expose functions globally for Mobile UI
-        window.playSongAtIndex = (index) => {
+        window.playSongAtIndex = (index, options) => {
+            options = options || {};
             if (index < 0 || index >= playlist.length) return;
             currentIndex = index;
             scheduleSaveCurrentQueue('play_index'); // Sync with global variable
@@ -5465,7 +5715,11 @@ async function refreshUserPlaylistLibrary() {
             const song = playlist[index];
             const songId = typeof song === 'object' ? song.id : song;
 
-            loadAndPlaySong(songId, { index: index, reason: 'play_index' });
+            loadAndPlaySong(songId, {
+                index: index,
+                reason: options.reason || 'play_index',
+                resumeTime: options.useSavedResume === false ? 0 : getPlaybackResumeTime(index)
+            });
 
             // Sync mobile playlist view if active
             if (mobileUI && mobileUI.activeSheetTab === 'playlist') {
@@ -5521,6 +5775,7 @@ async function refreshUserPlaylistLibrary() {
         }
 
         function handleSongEnd() {
+            clearPlaybackSession();
             if (playMode === 'repeat_one') {
                 audio.currentTime = 0;
                 if (activePlaybackAttempt) tryPlayAttempt(activePlaybackAttempt, 'repeat_one');

@@ -51,7 +51,7 @@ require((ROOT / "playlist.js").is_file(), "optional playlist.js hook is missing"
 require((ROOT / "js" / "core-utils.js").is_file(), "core utility module is missing")
 require((ROOT / "tests" / "core-utils.test.mjs").is_file(), "core utility tests are missing")
 
-require("cplayer5-v49-quality-truth" in SW, "service worker cache version is not updated")
+require("cplayer5-v50-playback-comfort" in SW, "service worker cache version is not updated")
 require("./js/core-utils.js" in SW, "core utility module is not precached")
 require("./css/tailwind.css" in SW and "./js/tailwindcss.js" not in SW, "service worker Tailwind cache entry is stale")
 require("cacheCoreAssets" in SW and "new Request(new URL(asset, self.registration.scope)" in SW, "core cache refresh is not explicit")
@@ -116,6 +116,13 @@ require("level: typeof d.level === 'string' ? d.level : null" in HTML, "requeste
 require("document.querySelectorAll('#qualityBadge, #mobileQualityBadge')" in HTML, "quality state is not rendered to both layouts")
 require("超清母带" not in HTML, "UI still guarantees master-quality playback")
 require("音质未标注" in README, "README does not explain unverified quality metadata")
+require("const PLAYBACK_SESSION_KEY = 'cp_playback_session';" in HTML, "playback resume storage is missing")
+require("normalizePlaybackSession" in HTML and "preparePlaybackResume" in HTML, "playback resume is not wired")
+require("getSafePlaybackResumeTime" in HTML, "safe playback resume boundary is not wired")
+require("savePlaybackSession('timeupdate', false)" in HTML, "playback progress is not throttled through the shared saver")
+require('id="sleepTimerSelect"' in HTML and "setupSleepTimerUI" in HTML, "sleep timer controls are missing")
+require("classifyPlaybackFailure(error, navigator.onLine !== false)" in HTML, "playback failure feedback is not classified")
+require("播放器不会绕过浏览器限制自动发声" in README, "resume autoplay limitation is undocumented")
 
 print("stability checks: passed")
 print("build badge:", badge.group(1))
