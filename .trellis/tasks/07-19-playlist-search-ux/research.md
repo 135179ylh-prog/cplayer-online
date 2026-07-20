@@ -25,3 +25,5 @@
 - `research/queue-mobile-390.png`
 - `research/search-mobile-355.png`
 - `research/search-desktop-1280.png`
+- `research/mobile-after.png`（v29 响应式主界面补充证据）
+- `research/search-mobile-v30-355.png`（v30 移动搜索空结果状态补充证据）
