@@ -175,3 +175,36 @@ Made playback-quality badges distinguish upstream metadata from conservative inf
 ### Next Steps
 
 - None - task complete
+
+
+## Session 6: Playback recovery and sleep timer
+
+**Date**: 2026-07-21
+**Task**: Playback recovery and sleep timer
+**Branch**: `main`
+
+### Summary
+
+Added click-to-resume playback progress, persistent sleep timer controls, classified playback failures, shared resume-boundary validation, tests, browser verification, and Service Worker cache bump.
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `3cd4c86` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
