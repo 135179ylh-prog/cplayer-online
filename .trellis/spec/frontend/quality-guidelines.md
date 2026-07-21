@@ -256,3 +256,94 @@ test('search recovery', async ({ page }) => {
     await page.route(/163_search/, mockSearch);
 });
 ```
+
+## User-Configured ChKSz API Contract
+
+### 1. Scope / Trigger
+
+This contract applies whenever a ChKSz endpoint, API base URL, API credential,
+request retry rule, or auth-related UI feedback changes. The app is a public
+static site, so it cannot hide a shared secret in shipped HTML or JavaScript.
+
+### 2. Signatures
+
+```js
+ChKSzAPI.normalizeBaseUrl(value)
+// -> normalized absolute HTTP(S) base without trailing slash, or ''
+
+ChKSzAPI.buildUrl(path, params = {})
+// -> URL using the effective base and optional runtime `apikey`
+
+fetchJsonWithTimeout(url, timeoutMs)
+// -> parsed JSON, or throws an error with status 401/403 for auth failures
+```
+
+The browser-owned storage keys are `cp_api_key` and `cp_api_base`. The default
+base remains the value of `meta[name="cplayer-api-base-url"]`.
+
+### 3. Contracts
+
+- Read the key only from `localStorage`. Never place a real or fixed key in
+  source, tests, documentation, build configuration, or committed artifacts.
+- Search, song URL, lyric, and remote-playlist requests must all call
+  `ChKSzAPI.buildUrl`; no endpoint may append `apikey` independently.
+- `buildUrl` uses `URLSearchParams`, includes a trimmed non-empty key as the
+  query parameter named exactly `apikey`, and omits it when the key is empty.
+- A custom base must be an absolute HTTP(S) URL with a hostname and without
+  credentials, query, or fragment. Invalid stored data falls back to the
+  default base; saving the default removes the redundant `cp_api_base` key.
+- Normalize both HTTP 401/403 and HTTP 200 JSON `{ code: 401|403 }` into the
+  same auth failure. Auth failures are not retried and must not make playback
+  skip otherwise playable queue entries.
+- The UI message is `API 密钥无效或额度已用完，请在设置中检查密钥`. Search keeps
+  its query and recovery control; remote-playlist and lyric paths must not
+  replace this message with a generic empty-result or ID error.
+- The settings copy must say that the value stays in this browser but is sent
+  to the selected API in the request URL. Do not describe localStorage as
+  network secrecy.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required result |
+| --- | --- |
+| No stored key or base | Use the `.top` default and send no `apikey`. |
+| Key contains reserved URL characters | Preserve the value through URL encoding and decoding. |
+| Custom base is malformed or has credentials/query/fragment | Reject save; do not partially persist the key or base. |
+| Stored custom base is invalid | Ignore it and display/use the default base. |
+| HTTP status is 401 or 403 | Throw a non-retryable auth error and show the actionable message. |
+| HTTP is 200 and JSON code is 401 or 403 | Produce the same auth behavior as an HTTP auth status. |
+| Playback gets an auth error | Pause/stop recovery; do not request the next queue item. |
+| Settings reset | Remove both storage keys; subsequent requests use the default without `apikey`. |
+
+### 5. Good / Base / Bad Cases
+
+- Good: a runtime-generated test key containing `+`, `/`, and `?` is saved,
+  then a routed search request decodes to the identical `apikey` value.
+- Base: with no saved settings, search still targets the existing `.top` base
+  exactly as before and has no `apikey` query parameter.
+- Bad: one caller builds `${base}/163_music?...&apikey=${key}` directly, or an
+  auth error is treated as an empty playlist and replaced by an ID error.
+
+### 6. Tests Required
+
+- Unit: classify 401/403 and key-related upstream messages as `auth`; assert
+  that 401/403 is not retryable.
+- Feature contract: assert all four endpoint paths use `ChKSzAPI.buildUrl`, the
+  storage keys are runtime reads/writes, and no production source has a fixed
+  `apikey` literal value.
+- Browser, desktop `1280x800` and mobile `390x844`: save a runtime-generated
+  key and custom base, inspect the routed request URL, cover HTTP and JSON auth
+  responses, reject an invalid base atomically, verify remote-playlist auth
+  feedback, and reset to a key-free default request.
+- Route-mocked tests set `serviceWorkers: 'block'`; generated keys and route
+  payloads must not use a real credential or call the live service.
+
+### 7. Wrong vs Correct
+
+```js
+// Wrong: leaks a fixed value and lets endpoint behavior drift.
+const url = base + '/163_music?id=' + id + '&apikey=fixed-value';
+
+// Correct: the centralized builder reads optional runtime browser state.
+const url = ChKSzAPI.buildUrl('/163_music', { id, level });
+```

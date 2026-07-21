@@ -1564,7 +1564,7 @@
             <div class="flex justify-between items-center mb-6">
                 <h2 id="settingsModalTitle" class="text-xl font-bold flex items-center">
                     <i class="fas fa-sliders-h mr-2 theme-text-primary"></i>
-                    歌单设置
+                    播放器设置
                 </h2>
                 <button id="closeSettingsBtn" aria-label="关闭设置"
                     class="w-8 h-8 rounded-full flex items-center justify-center hover:bg-black/10 transition-colors">
@@ -1653,6 +1653,41 @@
                             </span>
                         </div>
                     </div>
+                </div>
+
+                <!-- API 设置（密钥与地址，存在本机浏览器，不写入代码） -->
+                <div class="p-4 rounded-2xl border border-white/10 bg-white/[0.04]">
+                    <div class="flex items-center gap-2 text-sm font-semibold mb-3">
+                        <i class="fas fa-key opacity-60" aria-hidden="true"></i>
+                        API 设置
+                    </div>
+                    <div class="space-y-3">
+                        <div>
+                            <label for="settingsApiKeyInput" class="block text-[11px] opacity-50 mb-1">个人密钥（apikey）</label>
+                            <input type="password" id="settingsApiKeyInput" autocomplete="new-password"
+                                placeholder="留空则不带密钥"
+                                class="w-full min-w-0 min-h-[44px] bg-white/[0.06] border border-white/[0.12] rounded-xl px-3 py-2.5 text-sm outline-none focus:border-primary-color/60" />
+                        </div>
+                        <div>
+                            <label for="settingsApiBaseInput" class="block text-[11px] opacity-50 mb-1">API 地址</label>
+                            <input type="text" id="settingsApiBaseInput" autocomplete="off" spellcheck="false"
+                                placeholder="https://api.chksz.top/api"
+                                class="w-full min-w-0 min-h-[44px] bg-white/[0.06] border border-white/[0.12] rounded-xl px-3 py-2.5 text-sm outline-none focus:border-primary-color/60" />
+                        </div>
+                        <div class="flex flex-wrap items-center gap-2">
+                            <button id="settingsApiSaveBtn" type="button"
+                                class="px-4 min-h-[44px] rounded-xl bg-primary-color text-on-primary-color text-sm font-bold hover:opacity-90 active:scale-[0.97] transition-opacity">
+                                保存
+                            </button>
+                            <button id="settingsApiResetBtn" type="button"
+                                class="px-4 min-h-[44px] rounded-xl bg-white/10 text-sm hover:bg-white/15 active:scale-[0.97] transition-all">
+                                恢复默认
+                            </button>
+                            <div id="settingsApiStatus" role="status" aria-live="polite"
+                                class="w-full sm:w-auto sm:flex-1 min-w-0 text-xs opacity-50 break-all sm:truncate"></div>
+                        </div>
+                    </div>
+                    <p class="mt-2 text-[11px] opacity-35">密钥只保存在本机浏览器；请求音乐服务时会随 URL 发送，不会写入网页代码。默认地址目前无需密钥。</p>
                 </div>
 
                 <!-- 关于折叠 -->
@@ -1796,25 +1831,74 @@
         const apiBaseMeta = document.querySelector('meta[name="cplayer-api-base-url"]');
 
         class ChKSzAPI {
-            static get baseUrl() {
+            // 默认地址来自页面 meta，用户可在设置里覆盖（存 localStorage）。
+            static get defaultBaseUrl() {
                 const value = apiBaseMeta && apiBaseMeta.content ? apiBaseMeta.content.trim() : '';
                 if (!value) throw new Error('API 地址未配置');
                 return value.replace(/\/+$/, '');
             }
+
+            static get baseUrl() {
+                let stored = '';
+                try { stored = (localStorage.getItem('cp_api_base') || '').trim(); } catch (e) {}
+                return ChKSzAPI.normalizeBaseUrl(stored) || ChKSzAPI.defaultBaseUrl;
+            }
+
+            // 用户的个人密钥，只从 localStorage 读取，绝不写入代码。
+            static get apiKey() {
+                try { return (localStorage.getItem('cp_api_key') || '').trim(); } catch (e) { return ''; }
+            }
+
+            static normalizeBaseUrl(value) {
+                const raw = String(value || '').trim();
+                if (!raw) return '';
+                try {
+                    const parsed = new URL(raw);
+                    if ((parsed.protocol !== 'http:' && parsed.protocol !== 'https:') ||
+                        !parsed.hostname || parsed.username || parsed.password ||
+                        parsed.search || parsed.hash) return '';
+                    return parsed.href.replace(/\/+$/, '');
+                } catch (e) {
+                    return '';
+                }
+            }
+
+            // 统一拼接请求地址：给定端点路径与查询参数，按需附加 apikey。
+            static buildUrl(path, params = {}) {
+                const search = new URLSearchParams();
+                Object.keys(params).forEach((k) => {
+                    const v = params[k];
+                    if (v !== undefined && v !== null && v !== '') search.set(k, String(v));
+                });
+                const key = ChKSzAPI.apiKey;
+                if (key) search.set('apikey', key);
+                const query = search.toString();
+                const endpoint = '/' + String(path || '').replace(/^\/+/, '');
+                return `${ChKSzAPI.baseUrl}${endpoint}${query ? '?' + query : ''}`;
+            }
         }
 
         async function fetchJsonWithTimeout(url, timeoutMs = API_REQUEST_TIMEOUT_MS) {
-            return fetchJsonWithRetry(url, {
+            const json = await fetchJsonWithRetry(url, {
                 timeoutMs,
                 retries: API_REQUEST_RETRIES,
                 retryDelayMs: API_RETRY_DELAY_MS
             });
+            const apiStatus = json && typeof json === 'object' ? Number(json.code) : 0;
+            if (apiStatus === 401 || apiStatus === 403) {
+                const upstreamMessage = json.msg || json.message || 'API authentication failed';
+                const error = new Error(String(upstreamMessage));
+                error.name = 'ApiAuthError';
+                error.status = apiStatus;
+                error.retryable = false;
+                throw error;
+            }
+            return json;
         }
 
         class MusicService {
             constructor() {
                 this.loadSettings();
-                this.baseUrl = ChKSzAPI.baseUrl;
             }
 
             loadSettings() {
@@ -1830,7 +1914,7 @@
             }
 
             async search(query) {
-                const url = `${this.baseUrl}/163_search?keyword=${encodeURIComponent(query)}&limit=30`;
+                const url = ChKSzAPI.buildUrl('/163_search', { keyword: query, limit: 30 });
                 try {
                     const json = await fetchJsonWithTimeout(url);
                     let items = [];
@@ -1858,7 +1942,7 @@
 
             async getSong(id) {
                 const level = (this.config && this.config.quality) ? this.config.quality : 'jymaster';
-                const url = `${this.baseUrl}/163_music?id=${id}&level=${level}`;
+                const url = ChKSzAPI.buildUrl('/163_music', { id, level });
                 const json = await fetchJsonWithTimeout(url);
                 if (json.code === 200 && json.data) {
                     const d = Array.isArray(json.data) ? json.data[0] : json.data;
@@ -1872,13 +1956,17 @@
             }
 
             async getLyric(id) {
-                const url = `${this.baseUrl}/163_lyric?id=${id}`;
+                const url = ChKSzAPI.buildUrl('/163_lyric', { id });
                 try {
                     const json = await fetchJsonWithTimeout(url);
                     if (json.code === 200 && json.data) {
                         return { lrc: json.data.lrc || '', tlrc: json.data.tlyric || '', yrc: '' };
                     }
-                } catch (e) { console.warn('ChKSz Lyric Failed:', e); }
+                } catch (e) {
+                    const failure = classifyPlaybackFailure(e, navigator.onLine !== false);
+                    if (failure.kind === 'auth' && typeof showToast === 'function') showToast(failure.message, true);
+                    console.warn('ChKSz Lyric Failed:', e);
+                }
                 return null;
             }
         }
@@ -2294,6 +2382,23 @@
             try { sleepTimerEndAt = Number(localStorage.getItem(SLEEP_TIMER_KEY)) || 0; } catch (error) {}
             if (getSleepTimerRemainingMs(sleepTimerEndAt)) scheduleSleepTimer();
             else clearSleepTimer();
+        }
+
+        // API 密钥/地址设置：只绑定按钮到 saveApiSettings/resetApiSettings。
+        // 实际读写逻辑集中在那两个函数里（含地址校验与本地存储）。
+        function setupApiSettingsUI() {
+            const saveBtn = document.getElementById('settingsApiSaveBtn');
+            const resetBtn = document.getElementById('settingsApiResetBtn');
+            if (!saveBtn || saveBtn.dataset.bound === '1') return;
+            saveBtn.dataset.bound = '1';
+            saveBtn.addEventListener('click', function () {
+                if (typeof saveApiSettings === 'function') saveApiSettings();
+            });
+            if (resetBtn) {
+                resetBtn.addEventListener('click', function () {
+                    if (typeof resetApiSettings === 'function') resetApiSettings();
+                });
+            }
         }
 
         function readRecentHistory() {
@@ -3829,6 +3934,7 @@ async function refreshUserPlaylistLibrary() {
             if (typeof updatePlayModeUI === 'function') updatePlayModeUI();
             initSettingsUI();
             setupSleepTimerUI();
+            setupApiSettingsUI();
             setupPlaylistIdLoader();
             if (typeof bindUserPlaylistUI === 'function') bindUserPlaylistUI();  // 初始化歌单ID加载按钮
             loadDefaultPlaylist();
@@ -4210,8 +4316,71 @@ async function refreshUserPlaylistLibrary() {
             const savedId = localStorage.getItem('cp_playlistId');
             if (idInput && savedId) idInput.value = savedId;
 
+            // 回显 API 设置（密钥与地址，均只存在本机浏览器）
+            refreshApiSettingsUI();
+
             // 刷新歌单来源状态
             updateSourceDisplay();
+        }
+
+        // 把已保存的密钥/地址回显到设置输入框，并显示当前生效状态。
+        function refreshApiSettingsUI() {
+            const keyInput = document.getElementById('settingsApiKeyInput');
+            const baseInput = document.getElementById('settingsApiBaseInput');
+            const status = document.getElementById('settingsApiStatus');
+            let savedKey = '';
+            let savedBase = '';
+            try { savedKey = (localStorage.getItem('cp_api_key') || '').trim(); } catch (e) {}
+            try { savedBase = (localStorage.getItem('cp_api_base') || '').trim(); } catch (e) {}
+            let defaultBase = '';
+            try { defaultBase = ChKSzAPI.defaultBaseUrl; } catch (e) { defaultBase = ''; }
+            const effectiveBase = ChKSzAPI.normalizeBaseUrl(savedBase) || defaultBase;
+            if (keyInput) keyInput.value = savedKey;
+            if (baseInput) baseInput.value = effectiveBase;
+            if (status) {
+                const statusBase = effectiveBase || '未配置';
+                status.textContent = (savedKey ? '已配置密钥' : '未配置密钥') + ' · 地址 ' + statusBase;
+                status.title = status.textContent;
+            }
+        }
+
+        // 保存 API 设置：写入 localStorage；后续请求会从统一构造器读取最新值。
+        function saveApiSettings() {
+            const keyInput = document.getElementById('settingsApiKeyInput');
+            const baseInput = document.getElementById('settingsApiBaseInput');
+            const key = keyInput ? keyInput.value.trim() : '';
+            const rawBase = baseInput ? baseInput.value.trim() : '';
+            const base = ChKSzAPI.normalizeBaseUrl(rawBase);
+            if (rawBase && !base) {
+                if (typeof showToast === 'function') showToast('请输入有效的 HTTP(S) API 地址', true);
+                return;
+            }
+            let defaultBase = '';
+            try { defaultBase = ChKSzAPI.defaultBaseUrl; } catch (e) {}
+            try {
+                if (key) localStorage.setItem('cp_api_key', key);
+                else localStorage.removeItem('cp_api_key');
+                if (base && base !== defaultBase) localStorage.setItem('cp_api_base', base);
+                else localStorage.removeItem('cp_api_base');
+            } catch (e) {
+                if (typeof showToast === 'function') showToast('无法保存设置（浏览器存储不可用）', true);
+                return;
+            }
+            refreshApiSettingsUI();
+            if (typeof showToast === 'function') showToast('API 设置已保存');
+        }
+
+        // 恢复默认：清空密钥与自定义地址，回到页面 meta 的默认地址。
+        function resetApiSettings() {
+            try {
+                localStorage.removeItem('cp_api_key');
+                localStorage.removeItem('cp_api_base');
+            } catch (e) {
+                if (typeof showToast === 'function') showToast('无法恢复默认设置（浏览器存储不可用）', true);
+                return;
+            }
+            refreshApiSettingsUI();
+            if (typeof showToast === 'function') showToast('已恢复默认 API 设置');
         }
 
         function updateSourceDisplay() {
@@ -4321,6 +4490,14 @@ async function refreshUserPlaylistLibrary() {
                 error: error
             });
             const failure = classifyPlaybackFailure(error, navigator.onLine !== false);
+
+            if (failure.kind === 'auth') {
+                try { audio.pause(); } catch (pauseError) {}
+                setPlayerLoading(false);
+                dom.lyricsContainer.innerHTML = '<div class="lyric-line opacity-50 my-auto">请在设置中检查 API 密钥</div>';
+                if (typeof showToast === 'function') showToast(failure.message, true);
+                return false;
+            }
 
             const nextIndex = getFailureCandidateIndex(attempt);
             if (nextIndex < 0) {
@@ -4461,7 +4638,11 @@ async function refreshUserPlaylistLibrary() {
             options = options || {};
             const query = String(options.query || '').trim();
             const compact = options.compact === true;
-            const message = navigator.onLine === false ? '当前已离线' : '搜索服务暂不可用';
+            let message = navigator.onLine === false ? '当前已离线' : '搜索服务暂不可用';
+            if (navigator.onLine !== false && options.error) {
+                const failure = classifyPlaybackFailure(options.error, true);
+                if (failure.kind === 'auth') message = failure.message;
+            }
             const state = document.createElement('div');
             state.className = compact
                 ? 'p-4 text-center opacity-80 text-xs'
@@ -4534,7 +4715,16 @@ async function refreshUserPlaylistLibrary() {
                 } catch (e) {
                     if (requestId !== desktopSearchRequestId) return;
                     console.error(e);
-                    dom.searchResults.innerHTML = '<div class="p-4 text-center text-red-400">无效ID或加载失败</div>';
+                    const failure = classifyPlaybackFailure(e, navigator.onLine !== false);
+                    if (failure.kind === 'auth') {
+                        renderSearchRecoveryState(dom.searchResults, {
+                            query: query,
+                            error: e,
+                            onRetry: function (retryQuery) { searchSongs(retryQuery); }
+                        });
+                    } else {
+                        dom.searchResults.innerHTML = '<div class="p-4 text-center text-red-400">无效ID或加载失败</div>';
+                    }
                 }
                 return;
             }
@@ -4655,6 +4845,7 @@ async function refreshUserPlaylistLibrary() {
                 console.error(error);
                 renderSearchRecoveryState(dom.searchResults, {
                     query: query,
+                    error: error,
                     onRetry: function (retryQuery) {
                         if (dom.searchInput) dom.searchInput.value = retryQuery;
                         searchSongs(retryQuery);
@@ -5024,7 +5215,7 @@ async function refreshUserPlaylistLibrary() {
         // 歌单服务 - ChKSz API（无分页，一次获取全部）
         class PlaylistService {
             static async fetchPlaylist(listId) {
-                const url = `${ChKSzAPI.baseUrl}/163_playlist?id=${listId}`;
+                const url = ChKSzAPI.buildUrl('/163_playlist', { id: listId });
                 try {
                     const json = await fetchJsonWithTimeout(url);
 
@@ -5049,7 +5240,9 @@ async function refreshUserPlaylistLibrary() {
                         cover: item.picUrl || (item.al ? item.al.picUrl : '') || ''
                     }));
                 } catch (e) {
+                    const failure = classifyPlaybackFailure(e, navigator.onLine !== false);
                     console.warn('Playlist fetch failed:', e);
+                    if (failure.kind === 'auth') throw e;
                 }
                 return [];
             }
@@ -5149,6 +5342,10 @@ async function refreshUserPlaylistLibrary() {
                     }
                 }
             } catch (e) {
+                const failure = classifyPlaybackFailure(e, navigator.onLine !== false);
+                if (failure.kind === 'auth' && typeof showToast === 'function') {
+                    showToast(failure.message, true);
+                }
                 console.warn('后台更新失败:', e);
             }
         }
@@ -5180,7 +5377,13 @@ async function refreshUserPlaylistLibrary() {
 
             } catch (e) {
                 console.error('播放列表加载失败:', e);
-                showToast('播放列表加载失败，请检查歌单ID是否正确', true);
+                const failure = classifyPlaybackFailure(e, navigator.onLine !== false);
+                showToast(
+                    failure.kind === 'auth'
+                        ? failure.message
+                        : '播放列表加载失败，请检查歌单ID是否正确',
+                    true
+                );
                 throw e;
             } finally {
                 isLoadingPlaylist = false;
@@ -5322,7 +5525,9 @@ async function refreshUserPlaylistLibrary() {
                 btn.onclick = () => {
                     const id = extractPlaylistId(input.value);
                     if (id) {
-                        loadPlaylistById(id);
+                        loadPlaylistById(id).catch(function () {
+                            // fetchAndLoadPlaylist already reports the actionable error.
+                        });
                         closeSettings();
                     } else {
                         showToast('请输入有效的歌单 ID（至少5位数字）', true);
@@ -6538,7 +6743,17 @@ async function refreshUserPlaylistLibrary() {
                     } catch (e) {
                         if (requestId !== this.searchRequestId) return;
                         console.error(e);
-                        container.innerHTML = '<div class="p-4 text-center opacity-50 text-xs text-red-400">加载失败</div>';
+                        const failure = classifyPlaybackFailure(e, navigator.onLine !== false);
+                        if (failure.kind === 'auth') {
+                            renderSearchRecoveryState(container, {
+                                query: query,
+                                error: e,
+                                compact: true,
+                                onRetry: (retryQuery) => this.handleSearch(retryQuery)
+                            });
+                        } else {
+                            container.innerHTML = '<div class="p-4 text-center opacity-50 text-xs text-red-400">加载失败</div>';
+                        }
                     }
                     return;
                 }
@@ -6620,6 +6835,7 @@ async function refreshUserPlaylistLibrary() {
                     console.error('Search failed', e);
                     renderSearchRecoveryState(container, {
                         query: query,
+                        error: e,
                         compact: true,
                         onRetry: (retryQuery) => this.handleSearch(retryQuery)
                     });

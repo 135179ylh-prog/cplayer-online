@@ -107,6 +107,17 @@ test('classifyPlaybackFailure distinguishes offline, service, and missing source
     assert.equal(classifyPlaybackFailure(new Error('unexpected')).kind, 'unknown');
 });
 
+test('classifyPlaybackFailure flags missing/invalid API key or exhausted quota', () => {
+    // A 401/403 comes from a bad key or a used-up daily quota; retrying cannot help.
+    assert.equal(classifyPlaybackFailure(Object.assign(new Error('网络请求失败 (401)'), { status: 401 })).kind, 'auth');
+    assert.equal(classifyPlaybackFailure(Object.assign(new Error('网络请求失败 (403)'), { status: 403 })).kind, 'auth');
+    assert.equal(classifyPlaybackFailure(new Error('缺少 apikey 参数')).kind, 'auth');
+    // Auth must win over the generic service branch even though 401 is not 5xx.
+    assert.match(classifyPlaybackFailure(Object.assign(new Error('x'), { status: 401 })).message, /密钥/);
+    // A quota/auth failure is not retryable.
+    assert.equal(shouldRetryRequest(Object.assign(new Error('x'), { status: 401 })), false);
+});
+
 test('fetchJsonWithRetry retries a transient server error once', async () => {
     let calls = 0;
     const delays = [];

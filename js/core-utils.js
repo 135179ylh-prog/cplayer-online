@@ -161,6 +161,13 @@ export function classifyPlaybackFailure(error, online = true) {
     const name = error && error.name ? String(error.name) : '';
     const message = error && error.message ? String(error.message).toLowerCase() : '';
     const status = error && Number.isFinite(Number(error.status)) ? Number(error.status) : 0;
+    // 401/403 means the API key is missing/invalid or the daily quota is used up.
+    // Retrying will not help, so surface a distinct, actionable message.
+    const authFailure = status === 401 || status === 403 ||
+        message.includes('apikey') || message.includes('api key') ||
+        message.includes('未授权') || message.includes('密钥');
+    if (authFailure) return { kind: 'auth', message: 'API 密钥无效或额度已用完，请在设置中检查密钥' };
+
     const networkFailure = name === 'TimeoutError' || error instanceof TypeError ||
         status === 429 || status >= 500 || message.includes('network') ||
         message.includes('网络请求') || message.includes('fetch');

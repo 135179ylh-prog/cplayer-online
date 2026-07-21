@@ -1,0 +1,2 @@
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Defines the browser-storage, centralized URL-builder, auth normalization, deterministic test, and release-gate contracts for this cross-layer API change."}
+{"file":".trellis/tasks/07-21-api-key-config/research.md","reason":"Records the verified upstream behavior, local implementation boundaries, and review findings without containing a credential."}

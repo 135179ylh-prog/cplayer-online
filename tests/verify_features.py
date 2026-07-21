@@ -18,6 +18,8 @@ PLAYWRIGHT = (ROOT / "playwright.config.mjs").read_text(encoding="utf-8")
 QUALITY_GATE = (ROOT / "scripts" / "run-quality-gate.mjs").read_text(encoding="utf-8")
 SEARCH_E2E = (ROOT / "tests" / "e2e" / "search-recovery.spec.mjs").read_text(encoding="utf-8")
 SHELL_E2E = (ROOT / "tests" / "e2e" / "app-shell.spec.mjs").read_text(encoding="utf-8")
+API_CONFIG_E2E = (ROOT / "tests" / "e2e" / "api-config.spec.mjs").read_text(encoding="utf-8")
+CORE_UTILS = (ROOT / "js" / "core-utils.js").read_text(encoding="utf-8")
 
 
 def require(condition: bool, message: str) -> None:
@@ -34,6 +36,11 @@ required_html = {
     "API timeout wrapper": "async function fetchJsonWithTimeout",
     "API retry primitive": "fetchJsonWithRetry",
     "central API config": "meta[name=\"cplayer-api-base-url\"]",
+    "central API URL builder": "static buildUrl(path, params = {})",
+    "API auth response normalization": "apiStatus === 401 || apiStatus === 403",
+    "API key storage read": "localStorage.getItem('cp_api_key')",
+    "API base storage read": "localStorage.getItem('cp_api_base')",
+    "API settings password input": 'type="password" id="settingsApiKeyInput"',
     "offline feedback": "window.addEventListener('offline'",
     "safe search title": "titleDiv.textContent = song.name ||",
     "mobile instance export": "window.mobileUI = mobileUI;",
@@ -55,7 +62,7 @@ require((ROOT / "playlist.js").is_file(), "optional playlist.js hook is missing"
 require((ROOT / "js" / "core-utils.js").is_file(), "core utility module is missing")
 require((ROOT / "tests" / "core-utils.test.mjs").is_file(), "core utility tests are missing")
 
-require("cplayer5-v51-search-retry" in SW, "service worker cache version is not updated")
+require("cplayer5-v52-api-key-config" in SW, "service worker cache version is not updated")
 require("./js/core-utils.js" in SW, "core utility module is not precached")
 require("./css/tailwind.css" in SW and "./js/tailwindcss.js" not in SW, "service worker Tailwind cache entry is stale")
 require("cacheCoreAssets" in SW and "new Request(new URL(asset, self.registration.scope)" in SW, "core cache refresh is not explicit")
@@ -112,6 +119,17 @@ for rule in required_ignore_rules:
 require("api.chksz.top" in README, "README does not document the upstream API dependency")
 require("Service Worker 的缓存修订号" in README, "README does not explain version semantics")
 require("npm run verify" in README, "README does not document the release quality gate")
+require("apikey" in README and "localStorage" in README, "README does not explain API key storage and transport")
+
+api_endpoints = set(re.findall(r"ChKSzAPI\.buildUrl\('(/163_[a-z]+)'", HTML))
+require(api_endpoints == {"/163_search", "/163_music", "/163_lyric", "/163_playlist"}, "not every ChKSz endpoint uses the central URL builder")
+require("search.set('apikey', key)" in HTML, "API key is not appended through URLSearchParams")
+require("localStorage.setItem('cp_api_key', key)" in HTML, "API key is not persisted from runtime input")
+require("localStorage.removeItem('cp_api_key')" in HTML, "API key reset is missing")
+production_source = "\n".join((HTML, DOWNLOADER, SW, CORE_UTILS))
+require(not re.search(r"apikey\s*=\s*['\"][^'\"]{8,}['\"]", production_source, flags=re.IGNORECASE), "a literal API key appears to be hard-coded")
+require("serviceWorkers: 'block'" in API_CONFIG_E2E and "randomUUID" in API_CONFIG_E2E, "API config browser test is not deterministic or uses a fixed key")
+require("searchParams.has('apikey')" in API_CONFIG_E2E, "browser test does not prove key-free compatibility")
 
 require("name: 'desktop-chromium'" in PLAYWRIGHT and "name: 'mobile-chromium'" in PLAYWRIGHT, "desktop/mobile browser projects are incomplete")
 require("viewport: { width: 1280, height: 800 }" in PLAYWRIGHT, "desktop quality viewport changed unexpectedly")

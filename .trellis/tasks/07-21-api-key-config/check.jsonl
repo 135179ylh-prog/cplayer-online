@@ -1,0 +1,2 @@
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Review every changed endpoint, storage action, error path, browser test, and cache revision against the executable API configuration contract."}
+{"file":".trellis/tasks/07-21-api-key-config/research.md","reason":"Use the upstream HTTP-vs-JSON auth behavior and playlist error-propagation finding when checking regression coverage."}

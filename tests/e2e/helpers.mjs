@@ -65,9 +65,10 @@ export async function submitSearch(page, projectName, input) {
 // Route the third-party search endpoint to a deterministic success payload.
 // Returns a counter object so callers can assert the boundary was exercised.
 export function mockSearchSuccess(page, results = [SEARCH_RESULT]) {
-    const state = { requestCount: 0 };
+    const state = { requestCount: 0, urls: [] };
     page.route(/\/163_search\?/, async (route) => {
         state.requestCount += 1;
+        state.urls.push(route.request().url());
         await route.fulfill({
             status: 200,
             contentType: 'application/json',
@@ -123,4 +124,15 @@ export async function readUserPlaylists(page) {
 export async function openLibrary(page) {
     await page.evaluate(() => window.openMyPlaylists());
     await expect(page.locator('#myPlaylistsModal')).toBeVisible();
+}
+
+export async function openSettings(page) {
+    await waitForAppReady(page);
+    await page.getByRole('button', { name: '打开设置' }).click();
+    await expect(page.locator('#settingsModal')).toBeVisible();
+}
+
+export async function closeSettings(page) {
+    await page.getByRole('button', { name: '关闭设置' }).click();
+    await expect(page.locator('#settingsModal')).toBeHidden();
 }

@@ -4,7 +4,7 @@
 
 | Guide | Scope | Status |
 | --- | --- | --- |
-| [Quality Guidelines](./quality-guidelines.md) | Release gate, browser regression, PWA checks, and playback metadata | Maintained |
+| [Quality Guidelines](./quality-guidelines.md) | Release gate, browser regression, PWA checks, playback metadata, and API configuration | Maintained |
 
 ## Pre-Development Checklist
 
