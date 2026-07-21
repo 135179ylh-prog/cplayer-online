@@ -273,3 +273,36 @@ Added deterministic Playwright storage tests for queue round-trip, backup atomic
 ### Next Steps
 
 - None - task complete
+
+
+## Session 9: ChKSz API configuration
+
+**Date**: 2026-07-22
+**Task**: ChKSz API configuration
+**Branch**: `main`
+
+### Summary
+
+Added browser-only API key/base settings, centralized auth handling, and desktop/mobile regression coverage.
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `83d381c` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
