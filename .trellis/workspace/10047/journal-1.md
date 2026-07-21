@@ -208,3 +208,37 @@ Added click-to-resume playback progress, persistent sleep timer controls, classi
 ### Next Steps
 
 - None - task complete
+
+
+## Session 7: Search retry and recovery
+
+**Date**: 2026-07-21
+**Task**: Search retry and recovery
+**Branch**: `main`
+
+### Summary
+
+Finished playlist UX evidence and added desktop/mobile search retry recovery with offline messaging.
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `e86b91f` | (see git log) |
+| `a7eef41` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
