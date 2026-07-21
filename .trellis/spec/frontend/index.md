@@ -4,7 +4,7 @@
 
 | Guide | Scope | Status |
 | --- | --- | --- |
-| [Quality Guidelines](./quality-guidelines.md) | Release gate, browser regression, PWA install/update checks, playback metadata, and API configuration | Maintained |
+| [Quality Guidelines](./quality-guidelines.md) | Release gate, browser regression, responsive accessibility, PWA install/update checks, playback metadata, and API configuration | Maintained |
 
 ## Pre-Development Checklist
 
@@ -13,6 +13,8 @@
   Pages workflow.
 - Search the current implementation and archived task evidence before adding a
   second helper, constant, cache rule, or test-only network path.
+- Read the responsive accessibility contract before changing dialogs, drawers,
+  tabs, player controls, dynamic song rows, or mobile control geometry.
 - Keep live third-party availability outside deterministic pass/fail tests.
 
 ## Quality Check

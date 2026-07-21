@@ -20,6 +20,7 @@ SEARCH_E2E = (ROOT / "tests" / "e2e" / "search-recovery.spec.mjs").read_text(enc
 SHELL_E2E = (ROOT / "tests" / "e2e" / "app-shell.spec.mjs").read_text(encoding="utf-8")
 API_CONFIG_E2E = (ROOT / "tests" / "e2e" / "api-config.spec.mjs").read_text(encoding="utf-8")
 SW_UPDATE_E2E = (ROOT / "tests" / "e2e" / "service-worker-update.spec.mjs").read_text(encoding="utf-8")
+RESPONSIVE_E2E = (ROOT / "tests" / "e2e" / "responsive-accessibility.spec.mjs").read_text(encoding="utf-8")
 TEST_SERVER = (ROOT / "tests" / "e2e" / "server.mjs").read_text(encoding="utf-8")
 OLD_SW_FIXTURE = (ROOT / "tests" / "e2e" / "fixtures" / "sw-old.js").read_text(encoding="utf-8")
 CORE_UTILS = (ROOT / "js" / "core-utils.js").read_text(encoding="utf-8")
@@ -57,6 +58,11 @@ required_html = {
     "desktop cover sizing": 'width="300" height="300" decoding="async"',
     "dynamic cover sizing": 'width="40" height="40" decoding="async"',
     "decorative canvas semantics": 'id="fluidBg" class="fixed inset-0 w-full h-full -z-10 pointer-events-none" aria-hidden="true"',
+    "accessible overlay stack": "const accessibleOverlayStack = [];",
+    "focus-safe overlay manager": "function openAccessibleOverlay(modal, options)",
+    "keyboard progress control": "function handleProgressKeydown(event)",
+    "explicit mobile view toggle": 'id="mobileViewToggle"',
+    "closed mobile sheet isolation": 'id="mobilePlaylistSheet" role="region" aria-label="移动播放列表和搜索" aria-hidden="true" inert',
 }
 
 for label, snippet in required_html.items():
@@ -68,8 +74,9 @@ require(HTML.count("const RECENT_HISTORY_KEY = 'cp_recent_history';") == 1, "rec
 require((ROOT / "playlist.js").is_file(), "optional playlist.js hook is missing")
 require((ROOT / "js" / "core-utils.js").is_file(), "core utility module is missing")
 require((ROOT / "tests" / "core-utils.test.mjs").is_file(), "core utility tests are missing")
+require("user-scalable=no" not in HTML and "maximum-scale" not in HTML, "viewport still blocks browser zoom")
 
-require("cplayer5-v54-pwa-update-recovery" in SW, "service worker cache version is not updated")
+require("cplayer5-v55-responsive-accessibility" in SW, "service worker cache version is not updated")
 require("./js/core-utils.js" in SW, "core utility module is not precached")
 require("./css/tailwind.css" in SW and "./js/tailwindcss.js" not in SW, "service worker Tailwind cache entry is stale")
 require("cacheCoreAssets" in SW and "new Request(new URL(asset, self.registration.scope)" in SW, "core cache refresh is not explicit")
@@ -90,6 +97,7 @@ require(PACKAGE.get("scripts", {}).get("verify") == "node scripts/run-quality-ga
 require(PACKAGE.get("scripts", {}).get("test:e2e") == "playwright test", "browser regression command is missing")
 playwright_version = PACKAGE.get("devDependencies", {}).get("@playwright/test", "")
 require(bool(re.fullmatch(r"\d+\.\d+\.\d+", playwright_version)), "Playwright must use an exact pinned version")
+require(PACKAGE.get("devDependencies", {}).get("@axe-core/playwright") == "4.10.2", "Axe Playwright version is not pinned")
 require((ROOT / "tailwind.config.cjs").is_file(), "Tailwind config is missing")
 require((ROOT / "css" / "tailwind.input.css").is_file(), "Tailwind source CSS is missing")
 tailwind_css = ROOT / "css" / "tailwind.css"
@@ -141,6 +149,9 @@ require("searchParams.has('apikey')" in API_CONFIG_E2E, "browser test does not p
 require("name: 'desktop-chromium'" in PLAYWRIGHT and "name: 'mobile-chromium'" in PLAYWRIGHT, "desktop/mobile browser projects are incomplete")
 require("viewport: { width: 1280, height: 800 }" in PLAYWRIGHT, "desktop quality viewport changed unexpectedly")
 require("viewport: { width: 390, height: 844 }" in PLAYWRIGHT, "mobile quality viewport changed unexpectedly")
+require("viewport: { width: 355, height: 800 }" in PLAYWRIGHT, "narrow mobile quality viewport is missing")
+require("viewport: { width: 440, height: 707 }" in PLAYWRIGHT, "wide foldable quality viewport is missing")
+require(PLAYWRIGHT.count("testMatch: /responsive-accessibility") == 2, "specialized responsive projects must run only the accessibility spec")
 require("workers: 1" in PLAYWRIGHT and "serviceWorkers: 'allow'" in PLAYWRIGHT, "PWA browser tests are not isolated deterministically")
 require("output/playwright/" in PLAYWRIGHT, "browser artifacts are not kept under output/playwright")
 require("node tests/e2e/server.mjs" in PLAYWRIGHT and "reuseExistingServer: false" in PLAYWRIGHT, "Playwright does not own the deterministic test server")
@@ -150,6 +161,8 @@ require("Service-Worker-Allowed" in TEST_SERVER and "tests/e2e/fixtures/sw-old.j
 require("cplayer5-test-old" in OLD_SW_FIXTURE and "self.clients.claim()" in OLD_SW_FIXTURE, "old Worker fixture does not establish an active prior installation")
 for snippet in ["OLD_WORKER_PATH", "controller?.scriptURL", "UNRELATED_CACHE_NAME", "setOffline(true)", "readQueueRecord"]:
     require(snippet in SW_UPDATE_E2E, f"service worker upgrade browser contract is missing: {snippet}")
+for snippet in ["AxeBuilder", "element.inert", "ArrowRight", "keyboard-progress.wav", "songRequests"]:
+    require(snippet in RESPONSIVE_E2E, f"responsive accessibility browser contract is missing: {snippet}")
 require("tests/e2e" not in WORKFLOW, "test-only Worker/server files must not enter the Pages artifact")
 for gate_step in ["build:css", "test:unit", "check:module", "check:sw", "check:features", "audit", "test:e2e", "diff', '--check"]:
     require(gate_step in QUALITY_GATE, f"quality gate is missing step: {gate_step}")

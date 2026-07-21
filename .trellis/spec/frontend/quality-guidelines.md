@@ -457,3 +457,112 @@ event.waitUntil(
     .then(() => self.clients.claim())
 );
 ```
+
+## Responsive Accessibility Contract
+
+### 1. Scope / Trigger
+
+This applies whenever a dialog, drawer/sheet, tab set, player control, dynamic
+song row, viewport breakpoint, or focus behavior changes. Visual presence is
+not proof of operability: touch, keyboard, and accessibility-tree state must be
+verified independently.
+
+### 2. Signatures
+
+```js
+openAccessibleOverlay(modal, { close, initialFocus, closeOnEscape = true })
+closeAccessibleOverlay(modal)
+
+setAccessibleTabState(tab, panel, isActive)
+bindArrowTabNavigation(tabList, tabs, activate)
+
+syncProgressAccessibility(element, currentTime, duration)
+handleProgressKeydown(event)
+```
+
+The browser matrix is desktop `1280x800`, mobile `390x844`, narrow mobile
+`355x800`, and wide foldable `440x707`. The last two projects run only
+`responsive-accessibility.spec.mjs`; they do not multiply storage and PWA
+flows that are already covered by desktop/mobile.
+
+### 3. Contracts
+
+- Dialogs form one LIFO stack. Opening records the current focus, moves focus
+  inside, and makes every unrelated body child `inert`. Tab/Shift+Tab stay in
+  the top dialog; Escape closes only that dialog; closing restores its opener.
+- Animated dialogs remain on the stack until they are actually hidden. Do not
+  restore background focus at the start of a fade-out.
+- Closed desktop/mobile panels have `aria-hidden="true"` and `inert=true`;
+  their trigger has `aria-expanded="false"`. Opening reverses all three and
+  focuses the active tab. Escape closes the panel only when no dialog is open.
+- Tabs use `tablist`/`tab`/`tabpanel`, roving `tabindex`, `aria-selected`, and
+  left/right/Home/End navigation. Inactive panels are hidden and inert.
+- Playback progress uses slider semantics and exposes percent plus readable
+  elapsed/total time. Arrow keys seek five seconds; Home/End seek to the media
+  boundaries. No duration means `aria-disabled="true"`.
+- Mobile cover/lyrics views have an explicit 44px toggle. The inactive view is
+  `aria-hidden` and inert; swipe/click shortcuts are additional, not exclusive.
+- A song row with secondary actions uses a native primary play button plus
+  sibling action buttons. Never put nested buttons inside a click-only row.
+- Visible mobile buttons, tabs, and row actions are at least `44x44` CSS px.
+  All four target viewports have no document-level horizontal overflow or
+  clipped interactive targets.
+- The viewport meta must allow browser zoom. Never add `user-scalable=no` or a
+  restrictive `maximum-scale`.
+- Delayed focus must not steal focus after the user moves elsewhere. Prefer the
+  next animation frame and re-check active tab/panel/focus ownership first.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required result |
+| --- | --- |
+| Playlist detail opens above the library | One Escape closes detail only; library remains and regains focus. |
+| Dialog is open | Background layouts/panels are inert and cannot receive Tab or pointer input. |
+| Drawer/sheet is translated off-screen | It is also aria-hidden and inert; transform alone is insufficient. |
+| Tab changes | Old panel becomes hidden/inert; new panel and tab attributes change together. |
+| Media duration is unavailable | Slider stays at zero and reports disabled; keyboard seek is a no-op. |
+| Mobile autoplay is blocked | Progress keyboard test accepts the already-paused state and still uses real metadata. |
+| Dialog opacity is transitioning | Axe scan waits for final opacity `1`; final state must have no serious/critical violation. |
+| Viewport is 355, 390, or 440px wide | No visible interactive target is below 44px or outside the viewport. |
+
+### 5. Good / Base / Bad Cases
+
+- Good: the user opens Library, opens playlist detail, presses Escape once,
+  continues in Library, then presses Escape again and returns to the opener.
+- Base: a closed mobile sheet is visually off-screen, inert, aria-hidden, and
+  its trigger reports collapsed.
+- Bad: each dialog owns a document Escape listener, a delayed search focus
+  overrides a result button, or a 44px `min-width` is added to eight controls
+  still squeezed into one 355px row.
+
+### 6. Tests Required
+
+- Axe Playwright: shell and open Settings have zero critical/serious violations
+  in all four viewport projects.
+- Geometry: root width does not overflow; visible mobile interactive targets
+  are at least 44px and remain inside the viewport.
+- Focus: Settings contains Tab, Escape hides it after animation, and focus
+  returns to the desktop/mobile opener.
+- Layers: nested playlist detail closes one level at a time.
+- Panels/tabs: hidden/inert/expanded states round-trip; ArrowRight changes the
+  selected tab; Escape returns focus to the trigger.
+- Progress: a Range-capable mocked audio boundary supplies real metadata;
+  ArrowRight/Home/End update slider time and percent.
+- Dynamic songs: the primary search result is a native button and Enter reaches
+  the mocked song API boundary. External ChKSz availability is never used.
+
+### 7. Wrong vs Correct
+
+```js
+// Wrong: visually hidden but still keyboard-accessible; delayed focus can win later.
+panel.classList.add('translate-x-full');
+setTimeout(() => searchInput.focus(), 100);
+
+// Correct: visual and accessibility state move together; focus ownership is re-checked.
+panel.classList.add('translate-x-full');
+panel.inert = true;
+panel.setAttribute('aria-hidden', 'true');
+requestAnimationFrame(() => {
+  if (activeTab === 'search' && document.activeElement === searchTab) searchInput.focus();
+});
+```

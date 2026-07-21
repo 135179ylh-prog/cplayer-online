@@ -1,4 +1,4 @@
-const CACHE_NAME = 'cplayer5-v54-pwa-update-recovery';
+const CACHE_NAME = 'cplayer5-v55-responsive-accessibility';
 const COVER_CACHE_LIMIT = 160;
 
 // 核心资源 - 安装时缓存

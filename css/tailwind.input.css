@@ -1,3 +1,10 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  :where(button, [role="button"], [role="tab"], [role="slider"], input, select, textarea, summary):focus-visible {
+    outline: 3px solid var(--primary-color, #00c853) !important;
+    outline-offset: 3px;
+  }
+}

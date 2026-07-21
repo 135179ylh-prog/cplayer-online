@@ -3,7 +3,7 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="cplayer-api-base-url" content="https://api.chksz.top/api">
     <title>CPlayer 5</title>
 
@@ -598,7 +598,7 @@
         /* [已清理] 重复的 @keyframes spin 已移除，保留下方的同名定义 */
 
         .progress-bar-container {
-            height: 24px;
+            height: 44px;
             cursor: pointer;
             display: flex;
             align-items: center;
@@ -965,7 +965,7 @@
             body { padding-top: env(safe-area-inset-top); }
             #mobileUI { padding-bottom: calc(env(safe-area-inset-bottom) + 12px); }
             .mobile-controls { padding-bottom: calc(env(safe-area-inset-bottom) + 20px); }
-            #mobilePlaylistToggleBtn, #mPlayModeBtn, #mClearQueueBtnBar, #myPlaylistsBtn { min-height: 44px; min-width: 44px; }
+            #mobilePlaylistToggleBtn, #mClearQueueBtnBar, #myPlaylistsBtn { min-height: 44px; min-width: 44px; }
             #mobilePlaylistToggleBtn { font-size: 14px; }
         }
 
@@ -1004,9 +1004,9 @@
         .playlist-detail-cover img { width: 100%; height: 100%; object-fit: cover; }
         .playlist-detail-actions { display: flex; align-items: center; gap: 4px; }
         .playlist-detail-icon-button {
-            width: 36px;
-            height: 36px;
-            min-width: 36px;
+            width: 44px;
+            height: 44px;
+            min-width: 44px;
             display: inline-flex;
             align-items: center;
             justify-content: center;
@@ -1023,7 +1023,7 @@
             .playlist-detail-row { grid-template-columns: 40px minmax(0, 1fr); gap: 8px; }
             .playlist-detail-cover { width: 40px; height: 40px; }
             .playlist-detail-actions { grid-column: 2; justify-content: flex-end; }
-            .playlist-detail-icon-button { width: 42px; height: 42px; min-width: 42px; }
+            .playlist-detail-icon-button { width: 44px; height: 44px; min-width: 44px; }
         }
 
         /* Music library: shared desktop/mobile modal with stable touch targets. */
@@ -1121,16 +1121,16 @@
 
 <body class="bg-bg-color text-on-bg-color font-sans transition-colors duration-300">
 
-    <div id="userPlaylistModal" class="fixed inset-0 hidden" style="z-index:2147483000;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.55);"
+    <div id="userPlaylistModal" class="fixed inset-0 hidden" inert style="z-index:2147483000;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.55);"
         role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="userPlaylistModalTitle">
       <div style="background:#1a1a1f;color:#fff;border-radius:16px;max-width:420px;width:92%;overflow:hidden;border:1px solid rgba(255,255,255,.15);">
         <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 16px;border-bottom:1px solid rgba(255,255,255,.1);">
           <b id="userPlaylistModalTitle">加入歌单</b>
-          <button id="closeUserPlaylistModal" type="button" aria-label="关闭加入歌单窗口" style="background:transparent;border:0;color:#fff;font-size:18px;cursor:pointer;">×</button>
+          <button id="closeUserPlaylistModal" type="button" aria-label="关闭加入歌单窗口" style="width:44px;height:44px;display:flex;align-items:center;justify-content:center;background:transparent;border:0;color:#fff;font-size:18px;cursor:pointer;">×</button>
         </div>
         <div style="display:flex;gap:8px;padding:12px 16px;border-bottom:1px solid rgba(255,255,255,.1);">
-          <input id="modalNewPlaylistName" placeholder="新建歌单名称" style="flex:1;padding:8px 10px;border-radius:10px;border:1px solid rgba(255,255,255,.15);background:rgba(255,255,255,.06);color:#fff;">
-          <button id="createPlaylistInModalBtn" type="button" style="padding:8px 12px;border-radius:10px;border:0;background:#fff;color:#000;cursor:pointer;">新建</button>
+          <input id="modalNewPlaylistName" aria-label="新建歌单名称" placeholder="新建歌单名称" style="flex:1;min-width:0;min-height:44px;padding:8px 10px;border-radius:10px;border:1px solid rgba(255,255,255,.15);background:rgba(255,255,255,.06);color:#fff;">
+          <button id="createPlaylistInModalBtn" type="button" style="min-height:44px;padding:8px 12px;border-radius:10px;border:0;background:#fff;color:#000;cursor:pointer;">新建</button>
         </div>
         <div id="userPlaylistList" style="max-height:45vh;overflow:auto;padding:12px;"></div>
       </div>
@@ -1193,15 +1193,15 @@
                 <!-- 资料库、设置与全屏按钮 -->
                 <div class="flex items-center gap-2">
                     <button id="musicLibraryBtn" title="音乐资料库" aria-label="打开音乐资料库"
-                        class="top-btn w-10 h-10 rounded-full shadow-lg flex items-center justify-center transition-all duration-300 hover:scale-110">
+                        class="top-btn w-11 h-11 rounded-full shadow-lg flex items-center justify-center transition-all duration-300 hover:scale-110">
                         <i class="fas fa-folder-open text-sm opacity-70" aria-hidden="true"></i>
                     </button>
                     <button id="settingsBtn" title="设置" aria-label="打开设置"
-                        class="top-btn w-10 h-10 rounded-full shadow-lg flex items-center justify-center transition-all duration-300 hover:scale-110">
+                        class="top-btn w-11 h-11 rounded-full shadow-lg flex items-center justify-center transition-all duration-300 hover:scale-110">
                         <i class="fas fa-cog text-sm opacity-70" aria-hidden="true"></i>
                     </button>
                     <button id="fullscreenBtn" title="全屏模式" aria-label="切换全屏模式"
-                        class="top-btn mobile-hide w-10 h-10 rounded-full shadow-lg flex items-center justify-center transition-all duration-300 hover:scale-110">
+                        class="top-btn mobile-hide w-11 h-11 rounded-full shadow-lg flex items-center justify-center transition-all duration-300 hover:scale-110">
                         <i class="fas fa-expand text-sm opacity-70" aria-hidden="true"></i>
                     </button>
                 </div>
@@ -1253,7 +1253,9 @@
                         <span id="currentTime">0:00</span>
                         <span id="totalTime">0:00</span>
                     </div>
-                    <div class="progress-bar-container group mb-4 px-2">
+                    <div id="progressBarContainer" class="progress-bar-container group mb-4 px-2"
+                        role="slider" tabindex="0" aria-label="播放进度" aria-valuemin="0" aria-valuemax="100"
+                        aria-valuenow="0" aria-valuetext="0:00 / 0:00" aria-disabled="true">
                         <div class="progress-track bg-white/10">
                             <div id="progressBar" style="width: 0%;"></div>
                         </div>
@@ -1261,7 +1263,7 @@
 
                     <div class="control-buttons-row justify-center gap-6">
                         <button id="playModeBtn" title="播放模式" aria-label="切换播放模式"
-                            class="w-9 h-9 flex items-center justify-center rounded-full hover:bg-white/10 transition-colors opacity-80 hover:opacity-100">
+                            class="w-11 h-11 flex items-center justify-center rounded-full hover:bg-white/10 transition-colors opacity-80 hover:opacity-100">
                             <i class="fas fa-random text-lg" aria-hidden="true"></i>
                         </button>
 
@@ -1283,12 +1285,12 @@
                         </div>
 
                         <div class="volume-control-group">
-                            <button id="volumeBtn" aria-label="调节音量" title="音量"
-                                class="w-9 h-9 flex items-center justify-center rounded-full hover:bg-white/10 transition-colors opacity-80 hover:opacity-100">
+                            <button id="volumeBtn" aria-label="调节音量" title="音量" aria-controls="volumePopover" aria-expanded="false"
+                                class="w-11 h-11 flex items-center justify-center rounded-full hover:bg-white/10 transition-colors opacity-80 hover:opacity-100">
                                 <i id="volumeIcon" class="fas fa-volume-up text-lg" aria-hidden="true"></i>
                             </button>
-                            <div id="volumePopover" class="volume-popup">
-                                <input type="range" id="volumeSlider" class="volume-slider-vertical" min="0" max="1"
+                            <div id="volumePopover" class="volume-popup" aria-hidden="true" inert>
+                                <input type="range" id="volumeSlider" aria-label="音量" class="volume-slider-vertical" min="0" max="1"
                                     step="0.01" value="0.5">
                             </div>
                         </div>
@@ -1303,7 +1305,7 @@
         <div class="flex-1 h-full relative z-10 flex flex-col justify-center overflow-hidden min-w-[300px]">
             <div class="lyrics-card w-full h-full bg-transparent relative">
                 <!-- DOM Scroller (Plan B) -->
-                <div id="lyricsScroller" class="lyrics-scroller">
+                <div id="lyricsScroller" class="lyrics-scroller" role="region" aria-label="歌词" tabindex="0">
                     <div class="lrc-line active">
                         <span class="lrc-text">CPlayer 5</span>
                         <span class="lrc-trans">Music for Everyone</span>
@@ -1321,7 +1323,7 @@
 
         <!-- 右下角浮动按钮 - 统一侧边栏 -->
         <div class="fixed bottom-8 right-8 z-50 flex flex-col gap-4 items-end">
-            <button id="togglePlaylistBtn" aria-label="打开播放列表和搜索"
+            <button id="togglePlaylistBtn" aria-label="打开播放列表和搜索" aria-controls="floatingPlaylistPanel" aria-expanded="false"
                 class="w-14 h-14 rounded-full bg-primary-color text-on-primary-color shadow-xl flex items-center justify-center hover:scale-110 transition-all z-50"
                 title="播放列表 / 搜索">
                 <i class="fas fa-list-ul text-xl"></i>
@@ -1329,7 +1331,7 @@
         </div>
 
         <!-- ★ 统一侧边栏 (播放列表 + 搜索) -->
-        <div id="floatingPlaylistPanel"
+        <div id="floatingPlaylistPanel" role="region" aria-label="播放列表和搜索" aria-hidden="true" inert
             class="fixed top-0 right-0 bottom-0 h-screen w-[400px] bg-black/40 backdrop-blur-md shadow-2xl transition-transform duration-300 translate-x-full z-40 flex flex-col border-l border-white/10"
             style="isolation: isolate;">
 
@@ -1337,18 +1339,18 @@
 
             <!-- Tab 切换头部 -->
             <div class="flex-none pt-5 pb-0 px-5">
-                <div class="flex items-center gap-5 border-b border-white/10 pb-3">
+                <div class="flex items-center gap-5 border-b border-white/10 pb-3" role="tablist" aria-label="播放列表和搜索视图">
                     <button id="desktopTabPlaylist" role="tab" aria-selected="true" aria-controls="desktopContentPlaylist"
-                        class="text-base font-bold border-b-2 border-primary-color pb-1 transition-all opacity-100">
+                        class="min-h-[44px] text-base font-bold border-b-2 border-primary-color pb-1 transition-all opacity-100">
                         <i class="fas fa-list-ul mr-1.5 text-primary-color"></i>当前播放
                         <span id="playlistCount" class="text-xs opacity-50 font-normal ml-1"></span>
                     </button>
                     <button id="desktopTabSearch" role="tab" aria-selected="false" aria-controls="desktopContentSearch"
-                        class="text-base font-bold border-b-2 border-transparent pb-1 transition-all opacity-50">
+                        class="min-h-[44px] text-base font-bold border-b-2 border-transparent pb-1 transition-all opacity-50">
                         <i class="fas fa-search mr-1.5"></i>搜索添加
                     </button>
                     <button id="clearQueueBtn" type="button"
-                        class="ml-auto px-3 min-h-[36px] rounded-lg bg-red-500/20 text-red-200 text-xs font-medium hover:bg-red-500/30 border border-red-400/30"
+                        class="ml-auto px-3 min-h-[44px] rounded-lg bg-red-500/20 text-red-200 text-xs font-medium hover:bg-red-500/30 border border-red-400/30"
                         title="清空播放列表" aria-label="清空当前播放列表">清空</button>
                     <!-- Upload Area hidden by default -->
                     <div class="upload-container soft-upload-area hidden ml-auto">
@@ -1358,7 +1360,7 @@
             </div>
 
             <!-- Content: 播放列表 -->
-            <div id="desktopContentPlaylist" class="flex-1 min-h-0 flex flex-col overflow-hidden">
+            <div id="desktopContentPlaylist" role="tabpanel" aria-labelledby="desktopTabPlaylist" class="flex-1 min-h-0 flex flex-col overflow-hidden">
                 <div class="playlist-songs custom-scrollbar flex-1 overflow-y-auto px-4 pb-4 pt-2"
                     id="playlistContainer">
                     <div id="playlistContent"></div>
@@ -1367,7 +1369,7 @@
             </div>
 
             <!-- Content: 搜索 -->
-            <div id="desktopContentSearch" class="flex-1 min-h-0 hidden flex-col overflow-hidden p-4 pt-2">
+            <div id="desktopContentSearch" role="tabpanel" aria-labelledby="desktopTabSearch" aria-hidden="true" inert class="flex-1 min-h-0 hidden flex-col overflow-hidden p-4 pt-2">
                 <div class="relative flex items-center group mb-3 flex-none">
                     <input type="text" id="searchInput" placeholder="搜索歌曲、歌手..."
                         class="w-full pl-10 pr-14 py-2.5 rounded-full bg-white/10 border-transparent focus:border-primary-color outline-none transition-all text-sm font-medium">
@@ -1389,9 +1391,13 @@
     <div id="mobileLayout" class="md:hidden flex flex-col h-[100dvh] w-full overflow-hidden relative z-10">
         <!-- 1. Header -->
         <header class="flex-none h-14 flex items-center justify-center relative z-20">
+            <button id="mobileViewToggle" type="button" class="absolute left-4 w-11 h-11 flex items-center justify-center rounded-full opacity-70 hover:bg-white/10 active:scale-95 transition-transform"
+                aria-label="查看歌词" title="查看歌词" aria-pressed="false">
+                <i class="fas fa-align-left" aria-hidden="true"></i>
+            </button>
             <h1 class="text-lg font-bold tracking-wider opacity-90">CPlayer 5</h1>
             <!-- 设置按钮 (移动端) -->
-            <button id="mobileSettingsBtn" class="absolute right-4 p-2 opacity-70 active:opacity-100" aria-label="打开设置">
+            <button id="mobileSettingsBtn" class="absolute right-4 w-11 h-11 flex items-center justify-center rounded-full opacity-70 active:opacity-100" aria-label="打开设置">
                 <i class="fas fa-cog" aria-hidden="true"></i>
             </button>
         </header>
@@ -1400,7 +1406,7 @@
         <div id="mobileMainView" class="flex-1 relative w-full overflow-hidden transition-all duration-500">
 
             <!-- A. Cover Mode (Default) -->
-            <div id="mobileCoverContainer"
+            <div id="mobileCoverContainer" aria-hidden="false"
                 class="absolute inset-0 flex flex-col items-center justify-center pb-10 px-4 transition-all duration-500 opacity-100 z-10 overflow-hidden transform translate-x-0">
 
                 <!-- Vinyl Record (Unified Style) -->
@@ -1447,12 +1453,12 @@
             </div>
 
             <!-- B. Lyrics Mode (Separate Page) -->
-            <div id="mobileLyricsPage"
+            <div id="mobileLyricsPage" aria-hidden="true" inert
                 class="absolute inset-0 flex flex-col items-center justify-start pt-8 pb-4 px-4 transition-all duration-500 opacity-0 z-10 overflow-hidden transform translate-x-full pointer-events-none">
 
                 <!-- Lyrics Scroller -->
                 <div class="w-full h-full overflow-hidden relative mask-gradient-vertical">
-                    <div id="mobileLyricsScroller"
+                    <div id="mobileLyricsScroller" role="region" aria-label="歌词" tabindex="0"
                         class="w-full h-full overflow-y-auto text-center py-4 custom-scrollbar">
                         <div class="text-white/30 text-sm py-8">暂无歌词</div>
                     </div>
@@ -1471,7 +1477,8 @@
             <div class="flex items-center gap-2 mb-4">
                 <span id="mobileCurrentTime" class="text-xs font-mono opacity-70 w-10 text-right">0:00</span>
                 <div class="flex-1 h-12 flex items-center group relative cursor-pointer"
-                    id="mobileProgressBarContainer">
+                    id="mobileProgressBarContainer" role="slider" tabindex="0" aria-label="播放进度"
+                    aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-valuetext="0:00 / 0:00" aria-disabled="true">
                     <div class="w-full h-1.5 bg-white/20 rounded-full overflow-hidden transition-all group-active:h-3">
                         <div id="mobileProgressBar" class="h-full bg-primary-color w-0 relative">
                             <div
@@ -1484,15 +1491,15 @@
             </div>
 
             <!-- Main Buttons -->
-            <div class="flex items-center justify-between px-6 mb-6">
-                <!-- Mode Toggle (Random/Loop) -->
-                <button id="mobileModeBtn" class="p-3 opacity-70 active:scale-95 transition-transform"
+            <div id="mobileControlBar" class="flex flex-col gap-3 px-2 mb-4">
+                <div id="mobilePrimaryControls" class="flex items-center justify-center gap-2">
+                <button id="mobileModeBtn" class="w-11 h-11 flex items-center justify-center rounded-full opacity-70 active:scale-95 transition-transform"
                     aria-label="切换播放模式">
                     <i class="fas fa-random text-xl" aria-hidden="true"></i>
                 </button>
 
                 <!-- Prev -->
-                <button id="mobilePrevBtn" class="p-3 active:scale-90 transition-transform text-2xl" aria-label="上一曲">
+                <button id="mobilePrevBtn" class="w-11 h-11 flex items-center justify-center rounded-full active:scale-90 transition-transform text-2xl" aria-label="上一曲">
                     <i class="fas fa-step-backward" aria-hidden="true"></i>
                 </button>
 
@@ -1503,23 +1510,23 @@
                 </button>
 
                 <!-- Next -->
-<button id="mPlayModeBtn" type="button" class="px-4 h-11 rounded-full bg-white/10 text-sm flex items-center justify-center">模式</button>
-                <button id="mobileNextBtn" class="p-3 active:scale-90 transition-transform text-2xl" aria-label="下一曲">
+                <button id="mobileNextBtn" class="w-11 h-11 flex items-center justify-center rounded-full active:scale-90 transition-transform text-2xl" aria-label="下一曲">
                     <i class="fas fa-step-forward" aria-hidden="true"></i>
                 </button>
 
-                <!-- Like/Menu -->
-                <!-- Playlist/Search Toggle (Replaces Volume) -->
-<button id="mClearQueueBtnBar" type="button" class="px-4 h-11 rounded-full bg-red-500/20 text-red-200 text-sm border border-red-400/30">清空</button>
-<button id="myPlaylistsBtn" type="button" aria-label="打开音乐资料库" title="音乐资料库" class="px-4 h-11 rounded-full bg-white/10 text-sm flex items-center justify-center">歌单</button>
-                <button id="mobilePlaylistToggleBtn" class="p-3 opacity-90 active:scale-95 transition-transform text-sm"
-                    aria-label="打开播放列表">
+                <button id="mobilePlaylistToggleBtn" class="w-11 h-11 flex items-center justify-center rounded-full opacity-90 active:scale-95 transition-transform text-sm"
+                    aria-label="打开播放列表" aria-controls="mobilePlaylistSheet" aria-expanded="false">
                     <i class="fas fa-list-ul text-xl" aria-hidden="true"></i>
                 </button>
+                </div>
+                <div id="mobileSecondaryControls" class="flex items-center gap-2">
+                    <button id="mClearQueueBtnBar" type="button" class="flex-1 min-w-0 min-h-[44px] px-4 rounded-full bg-red-500/20 text-red-200 text-sm border border-red-400/30">清空队列</button>
+                    <button id="myPlaylistsBtn" type="button" aria-label="打开音乐资料库" title="音乐资料库" class="flex-1 min-w-0 min-h-[44px] px-4 rounded-full bg-white/10 text-sm flex items-center justify-center">音乐资料库</button>
+                </div>
             </div>
 
             <!-- ★ Mobile Playlist/Search Bottom Sheet - Fixed 定位 + 拖拽手柄 -->
-            <div id="mobilePlaylistSheet"
+            <div id="mobilePlaylistSheet" role="region" aria-label="移动播放列表和搜索" aria-hidden="true" inert
                 class="fixed inset-x-0 bottom-0 h-[70vh] bg-black/60 backdrop-blur-lg rounded-t-3xl z-[60] transform translate-y-[110%] transition-transform duration-300 flex flex-col shadow-2xl border-t border-white/10"
                 style="isolation: isolate;">
 
@@ -1533,25 +1540,25 @@
                 <!-- Header / Tabs -->
                 <div class="flex-none px-4 pb-2 relative">
                     <!-- Close Button -->
-                    <button id="closeSheetBtn" class="absolute right-4 top-1 opacity-50 p-2" aria-label="关闭播放列表面板">
+                    <button id="closeSheetBtn" class="absolute right-4 top-0 w-11 h-11 flex items-center justify-center rounded-full opacity-50" aria-label="关闭播放列表面板">
                         <i class="fas fa-chevron-down" aria-hidden="true"></i>
                     </button>
 
                     <!-- Tab Switcher -->
-                    <div class="flex justify-center gap-6 text-lg font-bold">
+                    <div class="flex justify-center gap-6 text-lg font-bold" role="tablist" aria-label="移动播放列表和搜索视图">
                         <button id="sheetTabPlaylist" role="tab" aria-selected="true" aria-controls="sheetContentPlaylist"
-                            class="opacity-100 border-b-2 border-primary-color pb-1 transition-all">
+                            class="min-h-[44px] opacity-100 border-b-2 border-primary-color pb-1 transition-all">
                             当前播放
                         </button>
                         <button id="sheetTabSearch" role="tab" aria-selected="false" aria-controls="sheetContentSearch"
-                            class="opacity-50 border-b-2 border-transparent pb-1 transition-all">
+                            class="min-h-[44px] opacity-50 border-b-2 border-transparent pb-1 transition-all">
                             搜索添加
                         </button>
                     </div>
                 </div>
 
                 <!-- Content: Playlist -->
-                <div id="sheetContentPlaylist" class="flex-1 overflow-y-auto p-0 custom-scrollbar">
+                <div id="sheetContentPlaylist" role="tabpanel" aria-labelledby="sheetTabPlaylist" class="flex-1 overflow-y-auto p-0 custom-scrollbar">
                     <div id="mobilePlaylistContainer" class="pb-20">
                         <!-- Items will be injected here -->
                         <div class="p-8 text-center opacity-50 text-sm">加载中...</div>
@@ -1559,7 +1566,7 @@
                 </div>
 
                 <!-- Content: Search -->
-                <div id="sheetContentSearch" class="flex-1 overflow-hidden p-4 hidden flex-col">
+                <div id="sheetContentSearch" role="tabpanel" aria-labelledby="sheetTabSearch" aria-hidden="true" inert class="flex-1 overflow-hidden p-4 hidden flex-col">
                     <div class="relative mb-4 flex-none">
                         <input type="text" id="mobileSearchInput" placeholder="搜索歌曲、歌手..."
                             class="w-full bg-white/10 rounded-full px-4 py-3 pl-11 outline-none focus:bg-white/20 transition-all text-sm font-medium">
@@ -1574,7 +1581,7 @@
     </div>
 
     <!-- 设置模态框 -->
-    <div id="settingsModal"
+    <div id="settingsModal" inert
         class="fixed inset-0 z-[100] flex items-center justify-center cplayer-modal-backdrop hidden opacity-0 transition-opacity duration-300"
         role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="settingsModalTitle">
         <div class="modal-card w-full max-w-sm md:max-w-2xl mx-4 p-6 rounded-3xl shadow-2xl transform scale-95 transition-transform duration-300"
@@ -1585,7 +1592,7 @@
                     播放器设置
                 </h2>
                 <button id="closeSettingsBtn" aria-label="关闭设置"
-                    class="w-8 h-8 rounded-full flex items-center justify-center hover:bg-black/10 transition-colors">
+                    class="w-11 h-11 rounded-full flex items-center justify-center hover:bg-black/10 transition-colors">
                     <i class="fas fa-times" aria-hidden="true"></i>
                 </button>
             </div>
@@ -1597,8 +1604,8 @@
                 <div class="p-4 rounded-2xl border border-white/10 bg-white/[0.04] mb-3">
                     <div class="text-sm font-semibold mb-2">新建歌单</div>
                     <div class="flex items-center gap-2">
-                        <input id="settingsCreatePlaylistName" type="text" placeholder="歌单名称" class="flex-1 bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm outline-none" />
-                        <button id="settingsCreatePlaylistBtn" type="button" class="px-3 py-2 rounded-xl bg-white/10 text-sm">新建</button>
+                        <input id="settingsCreatePlaylistName" type="text" aria-label="歌单名称" placeholder="歌单名称" class="flex-1 min-w-0 min-h-[44px] bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm outline-none" />
+                        <button id="settingsCreatePlaylistBtn" type="button" class="px-3 min-h-[44px] rounded-xl bg-white/10 text-sm">新建</button>
                     </div>
                 </div>
 
@@ -1628,7 +1635,7 @@
                     </div>
                     <div class="flex items-center gap-2">
                         <select id="sleepTimerSelect" aria-label="选择睡眠定时时长"
-                            class="flex-1 min-w-0 bg-white/[0.06] border border-white/[0.12] rounded-xl px-3 py-2.5 text-sm outline-none focus:border-primary-color/60">
+                            class="flex-1 min-w-0 min-h-[44px] bg-white/[0.06] border border-white/[0.12] rounded-xl px-3 py-2.5 text-sm outline-none focus:border-primary-color/60">
                             <option value="0">关闭</option>
                             <option value="15">15 分钟</option>
                             <option value="30">30 分钟</option>
@@ -1638,7 +1645,7 @@
                             <option value="120">120 分钟</option>
                         </select>
                         <button id="sleepTimerBtn" type="button"
-                            class="px-4 py-2.5 rounded-xl bg-white/10 text-sm font-semibold hover:bg-white/15 active:scale-[0.97] transition-all">
+                            class="px-4 min-h-[44px] rounded-xl bg-white/10 text-sm font-semibold hover:bg-white/15 active:scale-[0.97] transition-all">
                             设置
                         </button>
                     </div>
@@ -1650,10 +1657,10 @@
                     <div class="flex gap-2">
                         <input type="text" id="playlistIdInput"
                             placeholder="网易云歌单 ID 或链接"
-                            class="flex-1 min-w-0 bg-white/[0.06] border border-white/[0.12] rounded-xl px-4 py-2.5 text-sm outline-none focus:border-primary-color/60 focus:bg-white/[0.1] transition-colors placeholder:opacity-30"
+                            class="flex-1 min-w-0 min-h-[44px] bg-white/[0.06] border border-white/[0.12] rounded-xl px-4 py-2.5 text-sm outline-none focus:border-primary-color/60 focus:bg-white/[0.1] transition-colors placeholder:opacity-30"
                             autocomplete="off">
                         <button id="loadPlaylistBtn"
-                            class="px-4 py-2.5 rounded-xl bg-primary-color text-on-primary-color text-sm font-bold hover:opacity-90 active:scale-[0.97] transition-opacity flex-shrink-0">
+                            class="px-4 min-h-[44px] rounded-xl bg-white text-black text-sm font-bold hover:bg-white/90 active:scale-[0.97] transition-colors flex-shrink-0">
                             <i class="fas fa-download mr-1"></i>加载
                         </button>
                     </div>
@@ -1661,7 +1668,7 @@
 
                 <!-- 本地播放列表文件导入（桌面端） -->
                 <div id="fileImportSection" class="hidden md:block">
-                    <div id="settingsDropZone"
+                    <div id="settingsDropZone" role="button" tabindex="0" aria-label="选择 playlist.js 或 JSON 歌单文件"
                         class="p-5 rounded-2xl border-2 border-dashed border-white/10 hover:border-primary-color/40 hover:bg-white/[0.03] cursor-pointer text-center group transition-colors">
                         <input type="file" id="settingsFileInput" accept=".js,.json" class="hidden">
                         <div class="flex items-center justify-center gap-3 pointer-events-none">
@@ -1694,7 +1701,7 @@
                         </div>
                         <div class="flex flex-wrap items-center gap-2">
                             <button id="settingsApiSaveBtn" type="button"
-                                class="px-4 min-h-[44px] rounded-xl bg-primary-color text-on-primary-color text-sm font-bold hover:opacity-90 active:scale-[0.97] transition-opacity">
+                                class="px-4 min-h-[44px] rounded-xl bg-white text-black text-sm font-bold hover:bg-white/90 active:scale-[0.97] transition-colors">
                                 保存
                             </button>
                             <button id="settingsApiResetBtn" type="button"
@@ -1729,7 +1736,7 @@
     </div>
 
     <!-- ★ 欢迎/歌单引导模态框 -->
-    <div id="welcomeModal"
+    <div id="welcomeModal" inert
         class="fixed inset-0 z-[110] flex items-center justify-center cplayer-modal-backdrop hidden opacity-0 transition-opacity duration-500"
         role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="welcomeModalTitle">
         <div class="w-full max-w-md mx-4 rounded-3xl shadow-2xl transform scale-95 transition-all duration-500 overflow-hidden"
@@ -2018,7 +2025,6 @@
         // Canonical play modes. Legacy values are migrated when read.
         const PLAY_MODES = ['sequence', 'repeat_one', 'repeat_all', 'shuffle'];
         const PLAY_MODE_LABELS = { sequence: '顺序播放', repeat_one: '单曲循环', repeat_all: '列表循环', shuffle: '随机播放' };
-        const PLAY_MODE_SHORT_LABELS = { sequence: '顺序', repeat_one: '单曲', repeat_all: '循环', shuffle: '随机' };
         const PLAY_MODE_ICONS = { sequence: 'fa-list-ol', repeat_one: 'fa-repeat', repeat_all: 'fa-sync-alt', shuffle: 'fa-random' };
 
         function normalizePlayMode(value) {
@@ -2031,12 +2037,6 @@
             playMode = normalizePlayMode(playMode);
             const label = PLAY_MODE_LABELS[playMode];
             const icon = PLAY_MODE_ICONS[playMode];
-            const mBtn = document.getElementById('mPlayModeBtn');
-            if (mBtn) {
-                mBtn.textContent = PLAY_MODE_SHORT_LABELS[playMode];
-                mBtn.title = label;
-                mBtn.setAttribute('aria-label', '切换播放模式，当前' + label);
-            }
             const btn = document.getElementById('playModeBtn');
             if (btn) {
                 btn.innerHTML = '<i class="fas ' + icon + ' text-lg" aria-hidden="true"></i>';
@@ -2900,6 +2900,199 @@
             if (autoPlay && playlist.length && typeof window.playSongAtIndex === 'function') window.playSongAtIndex(0);
         }
 
+        const accessibleOverlayStack = [];
+        let accessibleOverlayBackgroundState = null;
+        let accessibleOverlayManagerBound = false;
+
+        function getFocusableElements(root) {
+            if (!root) return [];
+            const selector = [
+                'a[href]', 'button:not([disabled])', 'input:not([disabled])',
+                'select:not([disabled])', 'textarea:not([disabled])', 'summary',
+                '[tabindex]:not([tabindex="-1"])'
+            ].join(',');
+            return Array.from(root.querySelectorAll(selector)).filter(function (element) {
+                if (element.inert || element.closest('[inert]')) return false;
+                const style = window.getComputedStyle(element);
+                return style.display !== 'none' && style.visibility !== 'hidden' && element.getClientRects().length > 0;
+            });
+        }
+
+        function getTopAccessibleOverlay() {
+            return accessibleOverlayStack[accessibleOverlayStack.length - 1] || null;
+        }
+
+        function syncAccessibleOverlayBackground() {
+            const top = getTopAccessibleOverlay();
+            if (!top) {
+                if (accessibleOverlayBackgroundState) {
+                    accessibleOverlayBackgroundState.forEach(function (wasInert, element) {
+                        if (element.isConnected) element.inert = wasInert;
+                    });
+                }
+                accessibleOverlayBackgroundState = null;
+                return;
+            }
+
+            if (!accessibleOverlayBackgroundState) {
+                accessibleOverlayBackgroundState = new Map();
+                Array.from(document.body.children).forEach(function (element) {
+                    accessibleOverlayBackgroundState.set(element, Boolean(element.inert));
+                });
+            }
+
+            Array.from(document.body.children).forEach(function (element) {
+                const original = accessibleOverlayBackgroundState.get(element) || false;
+                const ownsTopOverlay = element === top.modal || element.contains(top.modal);
+                element.inert = original || !ownsTopOverlay;
+            });
+            top.modal.inert = false;
+        }
+
+        function focusAccessibleOverlay(entry) {
+            if (!entry || !entry.modal.isConnected) return;
+            let target = null;
+            if (typeof entry.initialFocus === 'function') target = entry.initialFocus();
+            else if (typeof entry.initialFocus === 'string') target = entry.modal.querySelector(entry.initialFocus);
+            else target = entry.initialFocus;
+            if (!target) target = getFocusableElements(entry.modal)[0] || entry.modal;
+            if (target === entry.modal && !entry.modal.hasAttribute('tabindex')) entry.modal.setAttribute('tabindex', '-1');
+            requestAnimationFrame(function () {
+                if (getTopAccessibleOverlay() === entry && target && target.isConnected) target.focus();
+            });
+        }
+
+        function openAccessibleOverlay(modal, options) {
+            if (!modal) return;
+            const existing = accessibleOverlayStack.find(function (entry) { return entry.modal === modal; });
+            if (existing) {
+                focusAccessibleOverlay(existing);
+                return;
+            }
+            const config = options || {};
+            const active = document.activeElement;
+            const entry = {
+                modal: modal,
+                close: typeof config.close === 'function' ? config.close : null,
+                closeOnEscape: config.closeOnEscape !== false,
+                initialFocus: config.initialFocus || null,
+                returnFocus: active instanceof HTMLElement ? active : null
+            };
+            modal.inert = false;
+            modal.setAttribute('aria-hidden', 'false');
+            accessibleOverlayStack.push(entry);
+            syncAccessibleOverlayBackground();
+            focusAccessibleOverlay(entry);
+        }
+
+        function closeAccessibleOverlay(modal) {
+            const index = accessibleOverlayStack.findIndex(function (entry) { return entry.modal === modal; });
+            if (index < 0) return;
+            const entry = accessibleOverlayStack[index];
+            const wasTop = index === accessibleOverlayStack.length - 1;
+            accessibleOverlayStack.splice(index, 1);
+            modal.setAttribute('aria-hidden', 'true');
+            modal.inert = true;
+            syncAccessibleOverlayBackground();
+            if (!wasTop) return;
+            const target = entry.returnFocus;
+            requestAnimationFrame(function () {
+                const currentTop = getTopAccessibleOverlay();
+                if (target && target.isConnected && !target.closest('[inert]')) target.focus();
+                else if (currentTop) focusAccessibleOverlay(currentTop);
+            });
+        }
+
+        function initAccessibleOverlayManager() {
+            if (accessibleOverlayManagerBound) return;
+            accessibleOverlayManagerBound = true;
+            document.addEventListener('keydown', function (event) {
+                const top = getTopAccessibleOverlay();
+                if (top) {
+                    if (event.key === 'Escape' && top.closeOnEscape && top.close) {
+                        event.preventDefault();
+                        event.stopImmediatePropagation();
+                        top.close();
+                        return;
+                    }
+                    if (event.key !== 'Tab') return;
+                    const focusable = getFocusableElements(top.modal);
+                    if (!focusable.length) {
+                        event.preventDefault();
+                        top.modal.focus();
+                        return;
+                    }
+                    const first = focusable[0];
+                    const last = focusable[focusable.length - 1];
+                    const active = document.activeElement;
+                    if (event.shiftKey && (active === first || !top.modal.contains(active))) {
+                        event.preventDefault();
+                        last.focus();
+                    } else if (!event.shiftKey && (active === last || !top.modal.contains(active))) {
+                        event.preventDefault();
+                        first.focus();
+                    }
+                    return;
+                }
+
+                if (event.key !== 'Escape') return;
+                const volumePopover = document.getElementById('volumePopover');
+                const volumeButton = document.getElementById('volumeBtn');
+                if (volumePopover && volumePopover.classList.contains('show')) {
+                    event.preventDefault();
+                    volumePopover.classList.remove('show');
+                    volumePopover.setAttribute('aria-hidden', 'true');
+                    volumePopover.inert = true;
+                    if (volumeButton) {
+                        volumeButton.setAttribute('aria-expanded', 'false');
+                        volumeButton.focus();
+                    }
+                    return;
+                }
+                const sheet = document.getElementById('mobilePlaylistSheet');
+                if (sheet && !sheet.inert && window.mobileUI) {
+                    event.preventDefault();
+                    window.mobileUI.closeSheet(true);
+                    return;
+                }
+                const panel = document.getElementById('floatingPlaylistPanel');
+                if (panel && !panel.inert) {
+                    event.preventDefault();
+                    togglePlaylistPanel(false, true);
+                }
+            }, true);
+        }
+
+        function setAccessibleTabState(tab, panel, isActive) {
+            if (tab) {
+                tab.setAttribute('aria-selected', String(isActive));
+                tab.tabIndex = isActive ? 0 : -1;
+            }
+            if (panel) {
+                panel.setAttribute('aria-hidden', String(!isActive));
+                panel.inert = !isActive;
+            }
+        }
+
+        function bindArrowTabNavigation(tabList, tabs, activate) {
+            if (!tabList || tabList.dataset.keyboardBound === '1') return;
+            const items = tabs.filter(Boolean);
+            if (!items.length) return;
+            tabList.dataset.keyboardBound = '1';
+            tabList.addEventListener('keydown', function (event) {
+                if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+                event.preventDefault();
+                const current = Math.max(0, items.indexOf(document.activeElement));
+                let next = current;
+                if (event.key === 'Home') next = 0;
+                else if (event.key === 'End') next = items.length - 1;
+                else if (event.key === 'ArrowRight') next = (current + 1) % items.length;
+                else next = (current - 1 + items.length) % items.length;
+                activate(items[next]);
+                items[next].focus();
+            });
+        }
+
         function openAddToPlaylistModal(song) {
             try {
                 pendingSongForPlaylist = normalizeSongObject(song);
@@ -2912,6 +3105,10 @@
                 modal.setAttribute('aria-hidden', 'false');
                 modal.style.cssText = 'position:fixed;inset:0;z-index:2147483000;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.55);';
                 refreshUserPlaylistModalList();
+                openAccessibleOverlay(modal, {
+                    close: closeAddToPlaylistModal,
+                    initialFocus: '#modalNewPlaylistName'
+                });
             } catch (e) {
                 console.error(e);
                 alert('打开歌单失败');
@@ -2924,8 +3121,8 @@
             if (!modal) return;
             modal.style.display = 'none';
             modal.classList.add('hidden');
-            modal.setAttribute('aria-hidden', 'true');
             pendingSongForPlaylist = null;
+            closeAccessibleOverlay(modal);
         }
         window.closeAddToPlaylistModal = closeAddToPlaylistModal;
 
@@ -3024,7 +3221,6 @@ async function refreshUserPlaylistLibrary() {
 
 
         let activeLibraryTab = 'playlists';
-        let musicLibraryReturnFocus = null;
 
         function makeLibraryActionButton(label, icon, className, visibleText) {
             const button = document.createElement('button');
@@ -3208,10 +3404,10 @@ async function refreshUserPlaylistLibrary() {
             const recentTab = document.getElementById('libraryRecentTab');
             const playlistPanel = document.getElementById('libraryPlaylistsPanel');
             const recentPanel = document.getElementById('libraryRecentPanel');
-            if (playlistTab) playlistTab.setAttribute('aria-selected', String(isPlaylists));
-            if (recentTab) recentTab.setAttribute('aria-selected', String(!isPlaylists));
             if (playlistPanel) playlistPanel.classList.toggle('hidden', !isPlaylists);
             if (recentPanel) recentPanel.classList.toggle('hidden', isPlaylists);
+            setAccessibleTabState(playlistTab, playlistPanel, isPlaylists);
+            setAccessibleTabState(recentTab, recentPanel, !isPlaylists);
             if (isPlaylists) refreshMyPlaylists();
             else refreshRecentHistory();
         }
@@ -3234,23 +3430,20 @@ async function refreshUserPlaylistLibrary() {
         function openMyPlaylists(tab) {
             const modal = document.getElementById('myPlaylistsModal');
             if (!modal) return;
-            musicLibraryReturnFocus = document.activeElement;
             modal.classList.remove('hidden');
-            modal.setAttribute('aria-hidden', 'false');
             switchLibraryTab(tab || activeLibraryTab);
             refreshRecentHistory();
-            const closeButton = document.getElementById('closeMyPlaylistsBtn');
-            if (closeButton) closeButton.focus();
+            openAccessibleOverlay(modal, {
+                close: closeMyPlaylists,
+                initialFocus: '#closeMyPlaylistsBtn'
+            });
         }
 
         function closeMyPlaylists() {
             const modal = document.getElementById('myPlaylistsModal');
             if (!modal) return;
             modal.classList.add('hidden');
-            modal.setAttribute('aria-hidden', 'true');
-            const returnTarget = musicLibraryReturnFocus;
-            musicLibraryReturnFocus = null;
-            if (returnTarget && returnTarget.isConnected && typeof returnTarget.focus === 'function') returnTarget.focus();
+            closeAccessibleOverlay(modal);
         }
         window.openMyPlaylists = openMyPlaylists;
         window.closeMyPlaylists = closeMyPlaylists;
@@ -3260,7 +3453,6 @@ async function refreshUserPlaylistLibrary() {
         // ===== User playlist detail management =====
         let currentDetailPlaylistId = '';
         let playlistDetailBusy = false;
-        let playlistDetailReturnFocus = null;
 
         async function getUserPlaylistById(playlistId) {
             const list = await listUserPlaylists();
@@ -3498,13 +3690,13 @@ async function refreshUserPlaylistLibrary() {
             const modal = document.getElementById('playlistDetailModal');
             if (!modal || !playlistId) return;
             currentDetailPlaylistId = playlistId;
-            playlistDetailReturnFocus = document.activeElement;
             modal.classList.remove('hidden');
-            modal.setAttribute('aria-hidden', 'false');
             modal.style.display = 'flex';
             await refreshPlaylistDetailList();
-            const closeButton = document.getElementById('closePlaylistDetailBtn');
-            if (closeButton) closeButton.focus();
+            openAccessibleOverlay(modal, {
+                close: closePlaylistDetail,
+                initialFocus: '#closePlaylistDetailBtn'
+            });
         }
 
         function closePlaylistDetail() {
@@ -3512,11 +3704,8 @@ async function refreshUserPlaylistLibrary() {
             if (!modal) return;
             modal.style.display = 'none';
             modal.classList.add('hidden');
-            modal.setAttribute('aria-hidden', 'true');
             currentDetailPlaylistId = '';
-            const returnTarget = playlistDetailReturnFocus;
-            playlistDetailReturnFocus = null;
-            if (returnTarget && returnTarget.isConnected && typeof returnTarget.focus === 'function') returnTarget.focus();
+            closeAccessibleOverlay(modal);
         }
 
         function bindPlaylistDetailUI() {
@@ -3529,9 +3718,6 @@ async function refreshUserPlaylistLibrary() {
             if (playButton) playButton.addEventListener('click', playCurrentDetailPlaylist);
             modal.addEventListener('click', function (event) {
                 if (event.target === modal) closePlaylistDetail();
-            });
-            document.addEventListener('keydown', function (event) {
-                if (event.key === 'Escape' && currentDetailPlaylistId) closePlaylistDetail();
             });
         }
 
@@ -3601,11 +3787,6 @@ async function refreshUserPlaylistLibrary() {
                         console.error('[playlist] create failed', error);
                         if (typeof showToast === 'function') showToast('创建失败', true);
                     }
-                    return;
-                }
-                if (target.closest('#mPlayModeBtn')) {
-                    event.preventDefault();
-                    cyclePlayMode();
                     return;
                 }
                 if (target.closest('#mClearQueueBtn, #mClearQueueBtnBar, #clearQueueBtn')) {
@@ -3727,19 +3908,10 @@ async function refreshUserPlaylistLibrary() {
                 });
             });
             const libraryTabList = document.querySelector('[aria-label="音乐资料库视图"]');
-            if (libraryTabList) {
-                libraryTabList.addEventListener('keydown', function (event) {
-                    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
-                    event.preventDefault();
-                    const nextTab = activeLibraryTab === 'playlists' ? 'recent' : 'playlists';
-                    switchLibraryTab(nextTab);
-                    const target = document.getElementById(nextTab === 'recent' ? 'libraryRecentTab' : 'libraryPlaylistsTab');
-                    if (target) target.focus();
-                });
-            }
-            document.addEventListener('keydown', function (event) {
-                const modal = document.getElementById('myPlaylistsModal');
-                if (event.key === 'Escape' && modal && !modal.classList.contains('hidden')) closeMyPlaylists();
+            const libraryPlaylistsTab = document.getElementById('libraryPlaylistsTab');
+            const libraryRecentTab = document.getElementById('libraryRecentTab');
+            bindArrowTabNavigation(libraryTabList, [libraryPlaylistsTab, libraryRecentTab], function (tab) {
+                switchLibraryTab(tab === libraryRecentTab ? 'recent' : 'playlists');
             });
             bindPlaylistDetailUI();
             refreshMyPlaylists();
@@ -4008,6 +4180,7 @@ async function refreshUserPlaylistLibrary() {
         });
 
         function initEventListeners() {
+            initAccessibleOverlayManager();
             dom.searchButton.addEventListener('click', () => { if (window.innerWidth >= 768 && typeof switchDesktopTab === 'function') switchDesktopTab('search'); searchSongs(dom.searchInput.value); });
             dom.searchInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') { if (window.innerWidth >= 768 && typeof switchDesktopTab === 'function') switchDesktopTab('search'); searchSongs(dom.searchInput.value); } });
 
@@ -4026,6 +4199,11 @@ async function refreshUserPlaylistLibrary() {
             if (desktopTabSearch) {
                 desktopTabSearch.addEventListener('click', () => switchDesktopTab('search'));
             }
+            bindArrowTabNavigation(desktopTabPlaylist && desktopTabPlaylist.parentElement,
+                [desktopTabPlaylist, desktopTabSearch], function (tab) {
+                    switchDesktopTab(tab === desktopTabSearch ? 'search' : 'playlist', false);
+                });
+            switchDesktopTab(desktopActiveTab);
 
             dom.playPauseBtn.addEventListener('click', togglePlayPause);
             dom.prevBtn.addEventListener('click', playPreviousSong);
@@ -4033,6 +4211,7 @@ async function refreshUserPlaylistLibrary() {
             dom.playModeBtn.addEventListener('click', cyclePlayMode);
 
             dom.progressBar.parentElement.parentElement.addEventListener('click', seekAudio);
+            if (dom.progressBarContainer) dom.progressBarContainer.addEventListener('keydown', handleProgressKeydown);
 
             audio.addEventListener('timeupdate', updatePlayerState);
             audio.addEventListener('play', onPlayStart);
@@ -4041,6 +4220,7 @@ async function refreshUserPlaylistLibrary() {
             audio.addEventListener('error', handleAudioError);
             audio.addEventListener('loadedmetadata', () => {
                 dom.totalTime.textContent = formatTime(audio.duration);
+                updatePlayerState();
             });
 
             dom.volumeSlider.addEventListener('input', (e) => {
@@ -4057,6 +4237,9 @@ async function refreshUserPlaylistLibrary() {
                     updateVolumeIcon(audio.muted ? 0 : audio.volume);
                 } else {
                     popover.classList.add('show');
+                    popover.inert = false;
+                    popover.setAttribute('aria-hidden', 'false');
+                    dom.volumeBtn.setAttribute('aria-expanded', 'true');
                 }
             });
 
@@ -4065,6 +4248,9 @@ async function refreshUserPlaylistLibrary() {
                 const btn = document.getElementById('volumeBtn');
                 if (popover && btn && !popover.contains(e.target) && !btn.contains(e.target)) {
                     popover.classList.remove('show');
+                    popover.setAttribute('aria-hidden', 'true');
+                    popover.inert = true;
+                    btn.setAttribute('aria-expanded', 'false');
                 }
 
                 // Close unified Sidebar
@@ -4155,25 +4341,41 @@ async function refreshUserPlaylistLibrary() {
             window.addEventListener('resize', updateMobileButtonsVisibility);
         }
 
+        function focusDesktopSearchInput() {
+            requestAnimationFrame(function () {
+                const panel = document.getElementById('floatingPlaylistPanel');
+                const tab = document.getElementById('desktopTabSearch');
+                const input = document.getElementById('searchInput');
+                if (desktopActiveTab !== 'search' || !panel || panel.inert || !input) return;
+                const active = document.activeElement;
+                if (active === tab || !panel.contains(active)) input.focus();
+            });
+        }
+
         function toggleSearchPanel(forceState) {
             // Now just opens the sidebar and switches to search tab
             const shouldOpen = forceState !== undefined ? forceState : true;
             if (shouldOpen) {
                 togglePlaylistPanel(true);
                 switchDesktopTab('search');
-                setTimeout(() => document.getElementById('searchInput')?.focus(), 200);
             } else {
                 // no-op, closing is handled by togglePlaylistPanel
             }
         }
 
-        function togglePlaylistPanel(forceState) {
+        function togglePlaylistPanel(forceState, restoreFocus) {
             const panel = document.getElementById('floatingPlaylistPanel');
+            const trigger = document.getElementById('togglePlaylistBtn');
             const isOpen = !panel.classList.contains('translate-x-full');
             const shouldOpen = forceState !== undefined ? forceState : !isOpen;
 
             if (shouldOpen) {
                 panel.classList.remove('translate-x-full');
+                panel.inert = false;
+                panel.setAttribute('aria-hidden', 'false');
+                if (trigger) trigger.setAttribute('aria-expanded', 'true');
+                const activeTab = document.getElementById(desktopActiveTab === 'search' ? 'desktopTabSearch' : 'desktopTabPlaylist');
+                requestAnimationFrame(function () { if (activeTab) activeTab.focus(); });
                 // 自动定位到正在播放的歌曲
                 setTimeout(() => {
                     if (desktopActiveTab === 'playlist' && currentIndex !== -1) {
@@ -4182,12 +4384,16 @@ async function refreshUserPlaylistLibrary() {
                 }, 300);
             } else {
                 panel.classList.add('translate-x-full');
+                panel.setAttribute('aria-hidden', 'true');
+                panel.inert = true;
+                if (trigger) trigger.setAttribute('aria-expanded', 'false');
+                if (restoreFocus && trigger) requestAnimationFrame(function () { trigger.focus(); });
             }
         }
 
         // Desktop sidebar tab switching (mirroring mobile UX)
         let desktopActiveTab = 'playlist';
-        function switchDesktopTab(tab) {
+        function switchDesktopTab(tab, focusSearchInput) {
             desktopActiveTab = tab;
             const isPlaylist = tab === 'playlist';
 
@@ -4201,14 +4407,12 @@ async function refreshUserPlaylistLibrary() {
                 tabPlaylist.classList.toggle('opacity-50', !isPlaylist);
                 tabPlaylist.classList.toggle('border-primary-color', isPlaylist);
                 tabPlaylist.classList.toggle('border-transparent', !isPlaylist);
-                tabPlaylist.setAttribute('aria-selected', String(isPlaylist));
             }
             if (tabSearch) {
                 tabSearch.classList.toggle('opacity-100', !isPlaylist);
                 tabSearch.classList.toggle('opacity-50', isPlaylist);
                 tabSearch.classList.toggle('border-primary-color', !isPlaylist);
                 tabSearch.classList.toggle('border-transparent', isPlaylist);
-                tabSearch.setAttribute('aria-selected', String(!isPlaylist));
             }
             if (contentPlaylist) {
                 contentPlaylist.classList.toggle('hidden', !isPlaylist);
@@ -4218,10 +4422,12 @@ async function refreshUserPlaylistLibrary() {
                 contentSearch.classList.toggle('hidden', isPlaylist);
                 contentSearch.classList.toggle('flex', !isPlaylist);
             }
+            setAccessibleTabState(tabPlaylist, contentPlaylist, isPlaylist);
+            setAccessibleTabState(tabSearch, contentSearch, !isPlaylist);
 
             // Auto-focus search input
-            if (!isPlaylist) {
-                setTimeout(() => document.getElementById('searchInput')?.focus(), 100);
+            if (!isPlaylist && focusSearchInput !== false) {
+                focusDesktopSearchInput();
             }
         }
 
@@ -4372,6 +4578,7 @@ async function refreshUserPlaylistLibrary() {
         function openSettings() {
             try { if (typeof bindUserPlaylistUI === 'function') bindUserPlaylistUI(); if (typeof refreshUserPlaylistLibrary === 'function') refreshUserPlaylistLibrary(); } catch (e) {}
 
+            delete dom.settingsModal.dataset.closing;
             dom.settingsModal.classList.remove('hidden');
             dom.settingsModal.setAttribute('aria-hidden', 'false');
             // Allow reflow
@@ -4390,6 +4597,10 @@ async function refreshUserPlaylistLibrary() {
 
             // 刷新歌单来源状态
             updateSourceDisplay();
+            openAccessibleOverlay(dom.settingsModal, {
+                close: closeSettings,
+                initialFocus: '#closeSettingsBtn'
+            });
         }
 
         // 把已保存的密钥/地址回显到设置输入框，并显示当前生效状态。
@@ -4478,12 +4689,15 @@ async function refreshUserPlaylistLibrary() {
         }
 
         function closeSettings() {
+            if (dom.settingsModal.dataset.closing === '1') return;
+            dom.settingsModal.dataset.closing = '1';
             dom.settingsModal.classList.add('opacity-0');
             dom.settingsModal.querySelector('.modal-card').classList.add('scale-95');
             dom.settingsModal.querySelector('.modal-card').classList.remove('scale-100');
             setTimeout(() => {
                 dom.settingsModal.classList.add('hidden');
-                dom.settingsModal.setAttribute('aria-hidden', 'true');
+                closeAccessibleOverlay(dom.settingsModal);
+                delete dom.settingsModal.dataset.closing;
             }, 300);
         }
 
@@ -4821,9 +5035,9 @@ async function refreshUserPlaylistLibrary() {
                     dom.searchResults.innerHTML = '';
                     limitedSongs.forEach(song => {
                         const div = document.createElement('div');
-                        div.className = 'playlist-item p-2 rounded-xl hover:bg-surface-container-high-color cursor-pointer flex items-center gap-3 transition-all theme-text-on-surface mb-1';
+                        div.className = 'playlist-item p-2 rounded-xl hover:bg-surface-container-high-color flex items-center gap-2 transition-all theme-text-on-surface mb-1';
 
-                        const coverDiv = document.createElement('div');
+                        const coverDiv = document.createElement('span');
                         coverDiv.className = 'w-10 h-10 rounded-lg bg-surface-container-color flex-shrink-0 overflow-hidden';
                         if (song.cover) {
                             const img = document.createElement('img');
@@ -4843,32 +5057,37 @@ async function refreshUserPlaylistLibrary() {
                             coverDiv.innerHTML = '<i class="fas fa-music text-xs opacity-30 flex items-center justify-center w-full h-full"></i>';
                         }
 
-                        const infoDiv = document.createElement('div');
+                        const infoDiv = document.createElement('span');
                         infoDiv.className = 'flex-1 min-w-0';
-                        const titleDiv = document.createElement('div');
-                        titleDiv.className = 'truncate text-sm font-medium flex items-center';
+                        const titleDiv = document.createElement('span');
+                        titleDiv.className = 'block truncate text-sm font-medium';
                         titleDiv.textContent = song.name || '未知歌曲';
-                        const artistDiv = document.createElement('div');
-                        artistDiv.className = 'truncate text-xs opacity-50';
+                        const artistDiv = document.createElement('span');
+                        artistDiv.className = 'block truncate text-xs opacity-50';
                         artistDiv.textContent = song.artist || '未知艺术家';
 
                         infoDiv.appendChild(titleDiv);
                         infoDiv.appendChild(artistDiv);
 
-                        div.appendChild(coverDiv);
-                        div.appendChild(infoDiv);
+                        const playButton = document.createElement('button');
+                        playButton.type = 'button';
+                        playButton.className = 'flex flex-1 min-w-0 items-center gap-3 text-left rounded-lg';
+                        playButton.setAttribute('aria-label', '添加并播放「' + (song.name || '未知歌曲') + '」');
+                        playButton.appendChild(coverDiv);
+                        playButton.appendChild(infoDiv);
+                        div.appendChild(playButton);
 
                         const actions = document.createElement('div');
                         actions.className = 'flex items-center gap-1 flex-shrink-0';
                         const addBtn = document.createElement('button');
                         addBtn.type = 'button';
-                        addBtn.className = 'js-add-queue px-3 h-9 rounded-full border border-white/30 text-xs whitespace-nowrap';
+                        addBtn.className = 'js-add-queue px-3 h-11 rounded-full border border-white/30 text-xs whitespace-nowrap';
                         addBtn.textContent = '加入播放列表';
                         addBtn.title = '加入播放列表（不立即播放）';
                         addBtn.setAttribute('aria-label', '加入播放列表（不立即播放）');
                         const plBtn = document.createElement('button');
                         plBtn.type = 'button';
-                        plBtn.className = 'js-add-playlist px-3 h-9 rounded-full border border-white/30 text-xs whitespace-nowrap';
+                        plBtn.className = 'js-add-playlist px-3 h-11 rounded-full border border-white/30 text-xs whitespace-nowrap';
                         plBtn.textContent = '收藏到歌单';
                         plBtn.title = '收藏到歌单';
                         plBtn.setAttribute('aria-label', '收藏到歌单');
@@ -4896,7 +5115,7 @@ async function refreshUserPlaylistLibrary() {
                             e.stopPropagation();
                             window.openAddToPlaylistModal(newSong);
                         };
-                        div.onclick = function () {
+                        playButton.onclick = function () {
                             const targetIndex = window.insertSongToPlaylist(newSong);
                             renderAllPlaylistItems();
                             playSongAtIndex(targetIndex);
@@ -5085,11 +5304,37 @@ async function refreshUserPlaylistLibrary() {
             }
         }
 
+        function syncProgressAccessibility(element, currentTime, duration) {
+            if (!element) return;
+            const validDuration = Number.isFinite(duration) && duration > 0;
+            const safeCurrent = validDuration ? Math.max(0, Math.min(duration, Number(currentTime) || 0)) : 0;
+            const percent = validDuration ? (safeCurrent / duration) * 100 : 0;
+            element.setAttribute('aria-valuenow', String(Math.round(percent)));
+            element.setAttribute('aria-valuetext', formatTime(safeCurrent) + ' / ' + formatTime(validDuration ? duration : 0));
+            element.setAttribute('aria-disabled', String(!validDuration));
+        }
+
+        function handleProgressKeydown(event) {
+            if (!audio.duration || !['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+            event.preventDefault();
+            let nextTime = audio.currentTime;
+            if (event.key === 'Home') nextTime = 0;
+            else if (event.key === 'End') nextTime = audio.duration;
+            else nextTime += event.key === 'ArrowRight' ? 5 : -5;
+            audio.currentTime = Math.max(0, Math.min(audio.duration, nextTime));
+            updatePlayerState();
+        }
+
         function updatePlayerState() {
-            if (!audio.duration) return;
+            if (!audio.duration) {
+                syncProgressAccessibility(dom.progressBarContainer, 0, 0);
+                syncProgressAccessibility(document.getElementById('mobileProgressBarContainer'), 0, 0);
+                return;
+            }
             const pct = (audio.currentTime / audio.duration) * 100;
             dom.progressBar.style.width = `${pct}%`;
             dom.currentTime.textContent = formatTime(audio.currentTime);
+            syncProgressAccessibility(dom.progressBarContainer, audio.currentTime, audio.duration);
 
             // ★ Mobile Update
             if (mobileUI) mobileUI.updateProgress(audio.currentTime, audio.duration, pct);
@@ -5101,8 +5346,9 @@ async function refreshUserPlaylistLibrary() {
         function seekAudio(e) {
             if (!audio.duration) return;
             const rect = e.currentTarget.getBoundingClientRect();
-            const pct = (e.clientX - rect.left) / rect.width;
+            const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
             audio.currentTime = pct * audio.duration;
+            updatePlayerState();
         }
 
         // ================= 歌词逻辑 =================
@@ -5189,11 +5435,20 @@ async function refreshUserPlaylistLibrary() {
                 div.className = 'lrc-line';
                 div.dataset.time = line.time;
                 div.dataset.idx = idx;
+                div.setAttribute('role', 'button');
+                div.tabIndex = 0;
+                div.setAttribute('aria-label', '跳转到 ' + formatTime(line.time) + '：' + line.text);
 
                 // Click to seek
-                div.onclick = () => {
+                const activateDesktopLyric = () => {
                     audio.currentTime = line.time;
                     audio.play();
+                };
+                div.onclick = activateDesktopLyric;
+                div.onkeydown = (event) => {
+                    if (event.key !== 'Enter' && event.key !== ' ') return;
+                    event.preventDefault();
+                    activateDesktopLyric();
                 };
 
                 const spanMain = document.createElement('span');
@@ -5212,12 +5467,18 @@ async function refreshUserPlaylistLibrary() {
                 // Mobile uses same structure, clone it
                 // We need to re-attach event listener because cloneNode doesn't copy events
                 const mobileDiv = div.cloneNode(true);
-                mobileDiv.onclick = () => {
+                const activateMobileLyric = () => {
                     // Prevent jump if mobile playlist sheet is open
                     if (mobileUI && mobileUI.dom.sheet.classList.contains('translate-y-0')) return;
 
                     audio.currentTime = line.time;
                     audio.play();
+                };
+                mobileDiv.onclick = activateMobileLyric;
+                mobileDiv.onkeydown = (event) => {
+                    if (event.key !== 'Enter' && event.key !== ' ') return;
+                    event.preventDefault();
+                    activateMobileLyric();
                 };
                 mobileFrag.appendChild(mobileDiv);
             });
@@ -5614,6 +5875,11 @@ async function refreshUserPlaylistLibrary() {
 
             if (dropZone && fileInput) {
                 dropZone.addEventListener('click', () => fileInput.click());
+                dropZone.addEventListener('keydown', (event) => {
+                    if (event.key !== 'Enter' && event.key !== ' ') return;
+                    event.preventDefault();
+                    fileInput.click();
+                });
 
                 fileInput.addEventListener('change', (e) => {
                     if (e.target.files[0]) handleImportedFile(e.target.files[0]);
@@ -5726,35 +5992,36 @@ async function refreshUserPlaylistLibrary() {
             if (!modal || !card) return;
 
             modal.classList.remove('hidden');
-            modal.setAttribute('aria-hidden', 'false');
+            delete modal.dataset.closing;
             void modal.offsetWidth;
             modal.classList.remove('opacity-0');
             card.classList.remove('scale-95');
             card.classList.add('scale-100');
-
-            // Focus input
-            setTimeout(() => {
-                const input = document.getElementById('welcomePlaylistInput');
-                if (input) input.focus();
-            }, 400);
+            openAccessibleOverlay(modal, {
+                close: closeWelcomeModal,
+                initialFocus: '#welcomePlaylistInput'
+            });
         }
 
         function closeWelcomeModal() {
             const modal = document.getElementById('welcomeModal');
             const card = document.getElementById('welcomeCard');
             if (!modal || !card) return;
+            if (modal.dataset.closing === '1') return;
+            modal.dataset.closing = '1';
 
             modal.classList.add('opacity-0');
             card.classList.add('scale-95');
             card.classList.remove('scale-100');
             setTimeout(() => {
                 modal.classList.add('hidden');
-                modal.setAttribute('aria-hidden', 'true');
                 // Reset states
                 const loading = document.getElementById('welcomeLoading');
                 const error = document.getElementById('welcomeError');
                 if (loading) loading.classList.add('hidden');
                 if (error) error.classList.add('hidden');
+                closeAccessibleOverlay(modal);
+                delete modal.dataset.closing;
             }, 500);
         }
 
@@ -5837,7 +6104,7 @@ async function refreshUserPlaylistLibrary() {
         }
 
         // ================= 桌面端虚拟滚动 =================
-        const VS_ITEM_H = 52;       // 每项高度 (px)
+        const VS_ITEM_H = 64;       // 每项高度 (px)，容纳 44px 键盘/触控操作
         const VS_BUFFER = 30;       // 上下各多渲染30项
         let vsDisplayOrder = [];     // 当前显示顺序
         let vsRenderedRange = { start: -1, end: -1 };  // 当前已渲染范围
@@ -5888,7 +6155,7 @@ async function refreshUserPlaylistLibrary() {
             const songCover = typeof song === 'object' ? song.cover : '';
 
             const div = document.createElement('div');
-            div.className = 'playlist-item p-2 rounded-xl hover:bg-surface-container-high-color cursor-pointer flex items-center gap-3 group theme-text-on-surface';
+            div.className = 'playlist-item p-2 rounded-xl hover:bg-surface-container-high-color flex items-center gap-2 group theme-text-on-surface';
             div.dataset.idx = actualIndex;
             div.dataset.vsIdx = i;
             div.style.cssText = `position:absolute;top:${i * VS_ITEM_H}px;left:0;right:0;height:${VS_ITEM_H}px;`;
@@ -5932,18 +6199,25 @@ async function refreshUserPlaylistLibrary() {
             infoDiv.appendChild(titleDiv);
             infoDiv.appendChild(artistDiv);
 
-            div.appendChild(numSpan);
-            div.appendChild(coverDiv);
-            div.appendChild(infoDiv);
+            const playButton = document.createElement('button');
+            playButton.type = 'button';
+            playButton.className = 'flex flex-1 min-w-0 items-center gap-3 text-left rounded-lg';
+            playButton.setAttribute('aria-label', '播放「' + songName + '」');
+            playButton.appendChild(numSpan);
+            playButton.appendChild(coverDiv);
+            playButton.appendChild(infoDiv);
+            div.appendChild(playButton);
 
-            div.onclick = () => {
+            playButton.onclick = () => {
                 currentIndex = actualIndex;
                 loadAndPlaySong(songId, { index: actualIndex, reason: 'playlist_click' });
             };
             const delBtn = document.createElement('button');
             delBtn.type = 'button';
-            delBtn.className = 'js-remove-queue p-2 w-8 h-8 flex items-center justify-center rounded-full border border-white/15 text-xs opacity-70';
-            delBtn.innerHTML = '<i class="fas fa-trash"></i>';
+            delBtn.className = 'js-remove-queue w-11 h-11 flex-none flex items-center justify-center rounded-full border border-white/15 text-xs opacity-70';
+            delBtn.setAttribute('aria-label', '从播放列表移除「' + songName + '」');
+            delBtn.title = '从播放列表移除';
+            delBtn.innerHTML = '<i class="fas fa-trash" aria-hidden="true"></i>';
             delBtn.onclick = function (e) {
                 e.stopPropagation();
                 window.removeSongFromQueue(actualIndex);
@@ -6403,6 +6677,7 @@ async function refreshUserPlaylistLibrary() {
             init() {
                 this.bindEvents();
                 this.bindSheetEvents();
+                this.switchSheetTab(this.activeSheetTab);
                 // 延迟执行 initial resize 以确保 DOM就绪
                 requestAnimationFrame(() => this.handleResize());
                 window.addEventListener('resize', () => this.handleResize());
@@ -6495,16 +6770,21 @@ async function refreshUserPlaylistLibrary() {
                         updateProgress();
                     }
                 });
+                this.dom.progressContainer?.addEventListener('keydown', handleProgressKeydown);
             }
 
             bindSheetEvents() {
                 // Toggle Sheet
                 this.dom.sheetToggleBtn?.addEventListener('click', () => this.openSheet());
-                this.dom.closeSheetBtn?.addEventListener('click', () => this.closeSheet());
+                this.dom.closeSheetBtn?.addEventListener('click', () => this.closeSheet(true));
 
                 // Switch Tabs
                 this.dom.tabPlaylist?.addEventListener('click', () => this.switchSheetTab('playlist'));
                 this.dom.tabSearch?.addEventListener('click', () => this.switchSheetTab('search'));
+                bindArrowTabNavigation(this.dom.tabPlaylist && this.dom.tabPlaylist.parentElement,
+                    [this.dom.tabPlaylist, this.dom.tabSearch], (tab) => {
+                        this.switchSheetTab(tab === this.dom.tabSearch ? 'search' : 'playlist');
+                    });
 
                 // Search Input
                 this.dom.searchInput?.addEventListener('change', (e) => {
@@ -6579,12 +6859,24 @@ async function refreshUserPlaylistLibrary() {
                 this.loadPlaylist();
                 this.dom.sheet.classList.remove('translate-y-[110%]');
                 this.dom.sheet.classList.add('translate-y-0');
+                this.dom.sheet.inert = false;
+                this.dom.sheet.setAttribute('aria-hidden', 'false');
+                this.dom.sheetToggleBtn?.setAttribute('aria-expanded', 'true');
+                const activeTab = this.activeSheetTab === 'search' ? this.dom.tabSearch : this.dom.tabPlaylist;
+                requestAnimationFrame(() => activeTab?.focus());
             }
 
-            closeSheet() {
+            closeSheet(restoreFocus) {
+                const focusWasInside = this.dom.sheet.contains(document.activeElement);
                 this.dom.sheet.style.transform = ''; // 清除拖拽残留
                 this.dom.sheet.classList.remove('translate-y-0');
                 this.dom.sheet.classList.add('translate-y-[110%]');
+                this.dom.sheet.setAttribute('aria-hidden', 'true');
+                this.dom.sheet.inert = true;
+                this.dom.sheetToggleBtn?.setAttribute('aria-expanded', 'false');
+                if ((restoreFocus || focusWasInside) && this.dom.sheetToggleBtn) {
+                    requestAnimationFrame(() => this.dom.sheetToggleBtn.focus());
+                }
             }
 
             switchSheetTab(tab) {
@@ -6596,18 +6888,18 @@ async function refreshUserPlaylistLibrary() {
                 this.dom.tabPlaylist.classList.toggle('opacity-50', !isPlaylist);
                 this.dom.tabPlaylist.classList.toggle('border-primary-color', isPlaylist);
                 this.dom.tabPlaylist.classList.toggle('border-transparent', !isPlaylist);
-                this.dom.tabPlaylist.setAttribute('aria-selected', String(isPlaylist));
 
                 this.dom.tabSearch.classList.toggle('opacity-100', !isPlaylist);
                 this.dom.tabSearch.classList.toggle('opacity-50', isPlaylist);
                 this.dom.tabSearch.classList.toggle('border-primary-color', !isPlaylist);
                 this.dom.tabSearch.classList.toggle('border-transparent', isPlaylist);
-                this.dom.tabSearch.setAttribute('aria-selected', String(!isPlaylist));
 
                 // Update Content Visibility
                 this.dom.contentPlaylist.classList.toggle('hidden', !isPlaylist);
                 this.dom.contentSearch.classList.toggle('hidden', isPlaylist);
                 this.dom.contentSearch.classList.toggle('flex', !isPlaylist);
+                setAccessibleTabState(this.dom.tabPlaylist, this.dom.contentPlaylist, isPlaylist);
+                setAccessibleTabState(this.dom.tabSearch, this.dom.contentSearch, !isPlaylist);
             }
 
             // Data Logic
@@ -6625,7 +6917,7 @@ async function refreshUserPlaylistLibrary() {
                         displayOrder = window.playlist.map((_, i) => i);
                     }
 
-                    const MH = 58;  // item height
+                    const MH = 64;  // item height, stable with 44px actions
                     const MB = 20;  // buffer
                     const totalHeight = displayOrder.length * MH;
 
@@ -6647,25 +6939,28 @@ async function refreshUserPlaylistLibrary() {
                         const coverSrc = song.cover || '';
 
                         const div = document.createElement('div');
-                        div.className = `flex items-center gap-3 px-3 rounded-xl cursor-pointer border-b border-white/5 ${isPlaying ? 'bg-white/10' : ''}`;
+                        div.className = `flex items-center gap-2 px-3 rounded-xl border-b border-white/5 ${isPlaying ? 'bg-white/10' : ''}`;
                         div.style.cssText = `position:absolute;top:${i * MH}px;left:0;right:0;height:${MH}px;display:flex;align-items:center;`;
                         div.dataset.mvsIdx = i;
                         if (isPlaying) div.id = 'mobile-playing-item';
 
                         div.innerHTML = `
-                            <span class="text-xs font-mono opacity-50 w-6 text-center flex-none">${i + 1}</span>
-                            <img src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" width="40" height="40" decoding="async" alt="${escapeHtml(song.name || '歌曲封面')}" class="w-10 h-10 rounded-lg object-cover bg-white/5 flex-none" loading="lazy" crossorigin="anonymous">
-                            <div class="flex-1 min-w-0">
-                                <div class="font-bold truncate text-sm ${textClass}">${escapeHtml(song.name || '未知歌曲')}</div>
-                                <div class="text-xs truncate opacity-50">${escapeHtml(song.artist || '')}</div>
-                            </div>
-                            <button type="button" class="js-add-playlist-item flex-none w-14 h-9 rounded-full border border-white/25 flex items-center justify-center gap-1 text-white/85 text-xs active:bg-white/10" title="收藏到歌单" aria-label="收藏到歌单" style="pointer-events:auto;z-index:5;position:relative;">
+                            <button type="button" class="js-play-queue flex flex-1 min-w-0 items-center gap-3 text-left rounded-lg" aria-label="播放「${escapeHtml(song.name || '未知歌曲')}」">
+                                <span class="text-xs font-mono opacity-50 w-6 text-center flex-none">${i + 1}</span>
+                                <img src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" width="40" height="40" decoding="async" alt="" class="w-10 h-10 rounded-lg object-cover bg-white/5 flex-none" loading="lazy" crossorigin="anonymous">
+                                <span class="flex-1 min-w-0">
+                                    <span class="block font-bold truncate text-sm ${textClass}">${escapeHtml(song.name || '未知歌曲')}</span>
+                                    <span class="block text-xs truncate opacity-50">${escapeHtml(song.artist || '')}</span>
+                                </span>
+                            </button>
+                            <button type="button" class="js-add-playlist-item flex-none w-14 h-11 rounded-full border border-white/25 flex items-center justify-center gap-1 text-white/85 text-xs active:bg-white/10" title="收藏到歌单" aria-label="收藏到歌单" style="pointer-events:auto;z-index:5;position:relative;">
                                 <i class="fas fa-folder-plus" aria-hidden="true"></i><span>歌单</span>
                             </button>
-                            <button type="button" class="js-remove-queue flex-none w-14 h-9 rounded-full border border-white/25 flex items-center justify-center text-white/85 text-xs active:bg-red-500/40" title="从播放列表移除" aria-label="从播放列表移除" style="pointer-events:auto;z-index:5;position:relative;">
+                            <button type="button" class="js-remove-queue flex-none w-14 h-11 rounded-full border border-white/25 flex items-center justify-center text-white/85 text-xs active:bg-red-500/40" title="从播放列表移除" aria-label="从播放列表移除" style="pointer-events:auto;z-index:5;position:relative;">
                                 移除
                             </button>
                         `;
+                        const playButton = div.querySelector('.js-play-queue');
                         const addPlaylistBtn = div.querySelector('.js-add-playlist-item');
                         if (addPlaylistBtn) {
                             addPlaylistBtn.onclick = (e) => {
@@ -6684,13 +6979,15 @@ async function refreshUserPlaylistLibrary() {
                                 }
                             };
                         }
-                        div.onclick = () => {
-                            playSongAtIndex(actualIndex);
-                            self.closeSheet();
-                        };
+                        if (playButton) {
+                            playButton.onclick = () => {
+                                playSongAtIndex(actualIndex);
+                                self.closeSheet();
+                            };
+                        }
 
                         if (coverSrc) {
-                            const img = div.querySelector('img');
+                            const img = div.querySelector('.js-play-queue img');
                             window.getCachedImage(`${coverSrc}?param=80y80`).then(cachedSrc => {
                                 if (img.isConnected) img.src = cachedSrc;
                             });
@@ -6844,24 +7141,26 @@ async function refreshUserPlaylistLibrary() {
 
                     results.forEach(song => {
                         const div = document.createElement('div');
-                        div.className = 'flex items-center gap-3 p-2 rounded-xl active:bg-white/5 transition-colors cursor-pointer';
+                        div.className = 'flex items-center gap-2 p-2 rounded-xl active:bg-white/5 transition-colors';
 
                         div.innerHTML = `
-                            <img src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI1MCIgaGVpZ2h0PSI1MCI+PHJlY3Qgd2lkdGg9IjEwMCUiIGhlaWdodD0iMTAwJSIgZmlsbD0iIzMzMyIvPjwvc3ZnPg==" width="40" height="40" decoding="async" alt="${escapeHtml(song.name || '歌曲封面')}" class="w-10 h-10 rounded-lg object-cover bg-white/5 flex-none shadow-md" loading="lazy" crossorigin="anonymous">
-                            <div class="flex-1 min-w-0">
-                                <div class="font-bold truncate text-sm text-white/90">${escapeHtml(song.name || '未知歌曲')}</div>
-                                <div class="text-xs truncate opacity-50">${escapeHtml(song.artist || '')}</div>
-                            </div>
-                            <button type="button" class="js-add-queue p-2 w-12 h-9 gap-1 flex items-center justify-center rounded-full border border-white/20 text-xs" title="加入播放列表（不立即播放）" aria-label="加入播放列表（不立即播放）">
+                            <button type="button" class="js-play-search flex flex-1 min-w-0 items-center gap-3 text-left rounded-lg" aria-label="添加并播放「${escapeHtml(song.name || '未知歌曲')}」">
+                                <img src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI1MCIgaGVpZ2h0PSI1MCI+PHJlY3Qgd2lkdGg9IjEwMCUiIGhlaWdodD0iMTAwJSIgZmlsbD0iIzMzMyIvPjwvc3ZnPg==" width="40" height="40" decoding="async" alt="" class="w-10 h-10 rounded-lg object-cover bg-white/5 flex-none shadow-md" loading="lazy" crossorigin="anonymous">
+                                <span class="flex-1 min-w-0">
+                                    <span class="block font-bold truncate text-sm text-white/90">${escapeHtml(song.name || '未知歌曲')}</span>
+                                    <span class="block text-xs truncate opacity-50">${escapeHtml(song.artist || '')}</span>
+                                </span>
+                            </button>
+                            <button type="button" class="js-add-queue p-2 w-12 h-11 gap-1 flex items-center justify-center rounded-full border border-white/20 text-xs" title="加入播放列表（不立即播放）" aria-label="加入播放列表（不立即播放）">
                                 <i class="fas fa-plus" aria-hidden="true"></i><span>加入</span>
                             </button>
-                            <button type="button" class="js-add-playlist p-2 w-14 h-9 gap-1 flex items-center justify-center rounded-full border border-white/20 text-xs" title="收藏到歌单" aria-label="收藏到歌单">
+                            <button type="button" class="js-add-playlist p-2 w-14 h-11 gap-1 flex items-center justify-center rounded-full border border-white/20 text-xs" title="收藏到歌单" aria-label="收藏到歌单">
                                 <i class="fas fa-folder-plus" aria-hidden="true"></i><span>歌单</span>
                             </button>
                         `;
 
                         if (song.cover) {
-                            const image = div.querySelector('img');
+                            const image = div.querySelector('.js-play-search img');
                             window.getCachedImage(`${song.cover}?param=80y80`).then(cachedSrc => {
                                 if (image && image.isConnected) image.src = cachedSrc;
                             });
@@ -6888,7 +7187,8 @@ async function refreshUserPlaylistLibrary() {
                                 window.openAddToPlaylistModal(newSong);
                             };
                         } catch (e) {}
-                        div.onclick = () => {
+                        const playButton = div.querySelector('.js-play-search');
+                        playButton.onclick = () => {
                             const targetIndex = window.insertSongToPlaylist(newSong);
                             if (typeof renderAllPlaylistItems === 'function') renderAllPlaylistItems();
                             this.loadPlaylist();
@@ -6942,6 +7242,19 @@ async function refreshUserPlaylistLibrary() {
                     this.dom.mobileLyricsContainer.classList.remove('opacity-0', 'pointer-events-none', 'translate-x-full');
                     this.dom.mobileLyricsContainer.classList.add('opacity-100', 'translate-x-0');
                 }
+                const showingLyrics = this.currentMode === 'lyrics';
+                this.dom.mobileCoverContainer.setAttribute('aria-hidden', String(showingLyrics));
+                this.dom.mobileCoverContainer.inert = showingLyrics;
+                this.dom.mobileLyricsContainer.setAttribute('aria-hidden', String(!showingLyrics));
+                this.dom.mobileLyricsContainer.inert = !showingLyrics;
+                if (this.dom.viewToggle) {
+                    const label = showingLyrics ? '返回封面' : '查看歌词';
+                    this.dom.viewToggle.setAttribute('aria-pressed', String(showingLyrics));
+                    this.dom.viewToggle.setAttribute('aria-label', label);
+                    this.dom.viewToggle.title = label;
+                    const icon = this.dom.viewToggle.querySelector('i');
+                    if (icon) icon.className = showingLyrics ? 'fas fa-compact-disc' : 'fas fa-align-left';
+                }
             }
 
             resetView() {
@@ -6994,6 +7307,7 @@ async function refreshUserPlaylistLibrary() {
                 if (this.dom.currentTime) this.dom.currentTime.textContent = formatTime(currentTime);
                 if (this.dom.duration) this.dom.duration.textContent = formatTime(duration);
                 if (this.dom.progressBar) this.dom.progressBar.style.width = `${progressPercent}%`;
+                syncProgressAccessibility(this.dom.progressContainer, currentTime, duration);
             }
         }
 
@@ -7538,7 +7852,7 @@ async function refreshUserPlaylistLibrary() {
 <div id="buildBadge" style="position:fixed;left:8px;bottom:8px;z-index:2147483002;font-size:11px;opacity:.6;background:rgba(0,0,0,.4);color:#fff;padding:2px 6px;border-radius:8px;">v32</div>
 
         <!-- 音乐资料库 -->
-        <div id="myPlaylistsModal" class="hidden fixed inset-0 z-[9999] flex items-end md:items-center md:justify-center bg-black/60 md:px-4"
+        <div id="myPlaylistsModal" class="hidden fixed inset-0 z-[9999] flex items-end md:items-center md:justify-center bg-black/60 md:px-4" inert
             role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="musicLibraryTitle">
             <div class="music-library-dialog">
                 <div class="flex items-center justify-between gap-3 px-4 py-3 border-b border-white/10">
@@ -7591,7 +7905,7 @@ async function refreshUserPlaylistLibrary() {
         </div>
 
         <!-- 自建歌单详情与排序 -->
-        <div id="playlistDetailModal" class="fixed inset-0 hidden items-center justify-center bg-black/60 px-2"
+        <div id="playlistDetailModal" class="fixed inset-0 hidden items-center justify-center bg-black/60 px-2" inert
             style="z-index:2147483001;display:none;" role="dialog" aria-modal="true"
             aria-hidden="true" aria-labelledby="playlistDetailTitle" aria-describedby="playlistDetailStatus">
             <div class="playlist-detail-dialog">

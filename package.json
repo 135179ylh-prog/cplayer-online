@@ -13,6 +13,7 @@
     "verify": "node scripts/run-quality-gate.mjs"
   },
   "devDependencies": {
+    "@axe-core/playwright": "4.10.2",
     "@playwright/test": "1.61.1",
     "tailwindcss": "3.4.17"
   }

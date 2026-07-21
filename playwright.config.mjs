@@ -44,6 +44,22 @@ export default defineConfig({
                 ...devices['Pixel 5'],
                 viewport: { width: 390, height: 844 }
             }
+        },
+        {
+            name: 'narrow-mobile-chromium',
+            testMatch: /responsive-accessibility\.spec\.mjs/,
+            use: {
+                ...devices['Pixel 5'],
+                viewport: { width: 355, height: 800 }
+            }
+        },
+        {
+            name: 'wide-foldable-chromium',
+            testMatch: /responsive-accessibility\.spec\.mjs/,
+            use: {
+                ...devices['Pixel 5'],
+                viewport: { width: 440, height: 707 }
+            }
         }
     ]
 });
