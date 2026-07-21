@@ -8,7 +8,7 @@
    survival in Chromium.
 5. [x] Inspect desktop/mobile rendered states and fix layout/accessibility gaps.
 6. [x] Update executable specs and task records; run the complete gate.
-7. [ ] Commit locally, archive the task, and record the session without pushing
+7. [x] Commit locally, archive the task, and record the session without pushing
    or deploying.
 
 ## Rollback

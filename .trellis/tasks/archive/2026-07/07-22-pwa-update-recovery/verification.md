@@ -93,3 +93,5 @@ Service Worker test. The new full update path runs and passes in both projects.
 Chromium emulation does not prove OS-specific PWA update scheduling or real
 Android/iOS background-audio policy. No push, deployment, or production cache
 observation was performed.
+
+Local feature commit: `ddc4f06 feat: make PWA updates data-safe`.
