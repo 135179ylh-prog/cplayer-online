@@ -339,3 +339,36 @@ Added user-controlled PWA update prompts, awaited queue restore and pre-reload p
 ### Next Steps
 
 - None - task complete
+
+
+## Session 11: Responsive accessibility milestone
+
+**Date**: 2026-07-22
+**Task**: Responsive accessibility milestone
+**Branch**: `main`
+
+### Summary
+
+完成 CPlayer 响应式与无障碍里程碑：统一弹窗焦点与 inert 隔离，补齐面板/标签/进度键盘语义，重排移动控制区并覆盖 1280x800、390x844、355x800、440x707。新增 Axe 与专项 Playwright 回归；npm run verify 最终 78 通过、2 个预期跳过。修复桌面方向键切换标签后搜索框延迟抢焦点的竞态。未推送、未部署。
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `4ae4545` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
