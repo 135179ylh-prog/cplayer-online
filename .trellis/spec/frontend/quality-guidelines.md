@@ -79,6 +79,97 @@ level: typeof d.level === 'string' ? d.level : null
 - Check that no pre-load or stale request can overwrite the active song badge.
 - Check the Service Worker cache version whenever static badge code changes.
 
+## Core-Flow Storage Contract
+
+### 1. Scope / Trigger
+
+This contract applies whenever the play queue, user playlists, recent history,
+or backup import/export changes. All four persist in browser storage, so a
+source-string check is not proof; each change needs a browser round-trip test
+that reads real storage.
+
+### 2. Storage Map
+
+```text
+IndexedDB CPlayer5DB v3, store `playlists` (keyPath id):
+  id === 'current_queue'   -> the play queue record
+  id startsWith 'user_pl_' -> user playlists
+  other ids                -> cached remote playlists
+localStorage:
+  cp_recent_history   -> recent-play list (max 50, newest first)
+  cp_queue_dirty='1'  -> set on every queue save; gates restore on reload
+  cp_playback_session -> resume position
+```
+
+The queue, user playlists, and remote-cached playlists share one object store
+and are disambiguated only by id prefix. A test that inspects the store must
+filter by id.
+
+### 3. Contracts
+
+- Adding a searched song to the queue must persist the `current_queue` record
+  and set `cp_queue_dirty='1'`. On reload the queue restores from IndexedDB
+  when the dirty flag is set; an emptied queue must not stale-restore.
+- Backup import is additive and atomic: imported playlists receive freshly
+  minted `user_pl_` ids and de-duplicated names, all `put` calls run in one
+  `readwrite` transaction, and validation throws before any DB access. A
+  rejected import must leave every existing playlist unchanged.
+- Backup import validation surfaces a specific error toast (`不是有效的 JSON
+  文件`, `不是 CPlayer 歌单备份`, `不支持的备份版本`, ...); the test asserts the
+  exact message, not just toast visibility.
+- Recent history de-duplicates by stringified id, keeps newest-first order, and
+  is capped at `RECENT_HISTORY_LIMIT` (50) on both read and write. Entries
+  without a valid id are dropped on read.
+- Recording a recent play is driven by the real audio `play` event, so it is
+  not deterministically testable without real media. Cover the read/render
+  invariants (cap, invalid-drop, clear) via seeded `localStorage` instead.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required result |
+| --- | --- |
+| Song added, then reload with `cp_queue_dirty='1'` | Queue restores identical order and contents from IndexedDB. |
+| Only queued song removed, then reload | Queue stays empty; no stale restore. |
+| Valid backup imported | New `user_pl_` records added; queue untouched; toast `已导入 N 个歌单`. |
+| Invalid/corrupt backup imported | No DB write; existing playlists identical (count, id, songs); specific error toast. |
+| Recent history over 50 entries | Read and render cap at 50, newest first. |
+| Recent history entry has no valid id | Dropped on read; not rendered. |
+
+### 5. Good / Base / Bad Cases
+
+- Good: a queue test adds via the real add button, polls `readQueueRecord`
+  until the debounced save lands, reloads, and asserts restored contents.
+- Base: a playlist-CRUD test creates and deletes through the library UI and
+  confirms the `user_pl_` record count in IndexedDB across a reload.
+- Bad: a backup test asserts only that a toast appeared, or reads in-memory
+  `window.playlist` instead of the persisted record.
+
+### 6. Tests Required
+
+- Queue: add persists and survives reload; removal clears storage and stays
+  empty after reload. Both desktop and mobile.
+- Backup: valid import adds `user_pl_` records; invalid import and malformed
+  JSON are rejected atomically with the existing playlist intact.
+- User playlists: create/delete round-trip through IndexedDB; dismissed delete
+  confirm keeps the playlist; empty name is rejected.
+- Recent history: render caps at 50; invalid-id entries dropped; clear empties
+  storage.
+- Playback error: a mocked failing `/163_music` response surfaces a clear error
+  toast, clears the loader, leaves audio paused, and raises no unexpected
+  runtime error beyond the injected failure.
+
+### 7. Wrong vs Correct
+
+```js
+// Wrong: asserts in-memory state, not persistence; misses a save/restore bug.
+expect(await page.evaluate(() => window.playlist.length)).toBe(1);
+
+// Correct: asserts the persisted IndexedDB record and reload restore.
+await expect.poll(async () => (await readQueueRecord(page))?.songs.length).toBe(1);
+await page.reload();
+await expect.poll(() => page.evaluate(() => window.playlist.length)).toBe(1);
+```
+
 ## Release Quality Gate Contract
 
 ### 1. Scope / Trigger

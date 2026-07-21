@@ -61,3 +61,66 @@ export async function submitSearch(page, projectName, input) {
         await page.locator('#searchButton').click();
     }
 }
+
+// Route the third-party search endpoint to a deterministic success payload.
+// Returns a counter object so callers can assert the boundary was exercised.
+export function mockSearchSuccess(page, results = [SEARCH_RESULT]) {
+    const state = { requestCount: 0 };
+    page.route(/\/163_search\?/, async (route) => {
+        state.requestCount += 1;
+        await route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({ code: 200, data: results })
+        });
+    });
+    return state;
+}
+
+// Wait until the main module has defined its queue APIs on window. This is the
+// only observable "app ready" proxy; there is no explicit DB-ready flag.
+export async function waitForAppReady(page) {
+    await page.waitForFunction(() => typeof window.addSongToQueueOnly === 'function'
+        && Array.isArray(window.playlist));
+}
+
+// Read the persisted play-queue record straight from IndexedDB so tests assert
+// real storage, not just in-memory state. Returns null when absent.
+export async function readQueueRecord(page) {
+    return page.evaluate(() => new Promise((resolve, reject) => {
+        const open = indexedDB.open('CPlayer5DB', 3);
+        open.onerror = () => reject(open.error);
+        open.onsuccess = () => {
+            const db = open.result;
+            const tx = db.transaction('playlists', 'readonly');
+            const get = tx.objectStore('playlists').get('current_queue');
+            get.onsuccess = () => { resolve(get.result || null); db.close(); };
+            get.onerror = () => { reject(get.error); db.close(); };
+        };
+    }));
+}
+
+// List only the user-playlist records (id prefix user_pl_) from IndexedDB.
+export async function readUserPlaylists(page) {
+    return page.evaluate(() => new Promise((resolve, reject) => {
+        const open = indexedDB.open('CPlayer5DB', 3);
+        open.onerror = () => reject(open.error);
+        open.onsuccess = () => {
+            const db = open.result;
+            const tx = db.transaction('playlists', 'readonly');
+            const all = tx.objectStore('playlists').getAll();
+            all.onsuccess = () => {
+                const rows = (all.result || []).filter((r) => String(r.id).startsWith('user_pl_'));
+                resolve(rows);
+                db.close();
+            };
+            all.onerror = () => { reject(all.error); db.close(); };
+        };
+    }));
+}
+
+// Open the shared music-library modal (desktop + mobile use the same element).
+export async function openLibrary(page) {
+    await page.evaluate(() => window.openMyPlaylists());
+    await expect(page.locator('#myPlaylistsModal')).toBeVisible();
+}
