@@ -1,4 +1,4 @@
-const CACHE_NAME = 'cplayer5-v55-responsive-accessibility';
+const CACHE_NAME = 'cplayer5-v56-main-app-module';
 const COVER_CACHE_LIMIT = 160;
 
 // 核心资源 - 安装时缓存
@@ -9,6 +9,7 @@ const CORE_ASSETS = [
   './css/noto-sans-sc.css',
   './css/tailwind.css',
   './js/color-thief.umd.js',
+  './js/app.js',
   './js/core-utils.js',
   './img/icon.svg',
   './img/icon.png',

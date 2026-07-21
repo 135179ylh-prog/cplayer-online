@@ -566,3 +566,101 @@ requestAnimationFrame(() => {
   if (activeTab === 'search' && document.activeElement === searchTab) searchInput.focus();
 });
 ```
+
+## Main Application Module Contract
+
+### 1. Scope / Trigger
+
+This applies whenever the main runtime script entry, `js/app.js`,
+`js/core-utils.js`, Tailwind content paths, Service Worker core assets, Pages
+artifact rules, or the module syntax checker changes. The HTML entry, module
+import graph, generated CSS, offline cache, and deployment artifact are one
+cross-layer loading contract.
+
+### 2. Signatures
+
+```html
+<script type="module" src="./js/app.js"></script>
+```
+
+```js
+// js/app.js, resolved relative to the module file itself
+import { /* shared pure helpers */ } from './core-utils.js';
+```
+
+`scripts/check_module_syntax.py` runs `node --check js/app.js` against the
+actual production file. It must not reconstruct the module from HTML or check a
+temporary copy.
+
+### 3. Contracts
+
+- `index.html` owns DOM and inline page styles. It contains exactly one
+  external main ES module entry and no inline main application module.
+- `js/app.js` owns browser application behavior. Moving it must not change
+  initialization order, global exports, API behavior, or storage contracts.
+- Static relative imports resolve from `js/app.js`; the core utility import is
+  `./core-utils.js`, not the old HTML-relative `./js/core-utils.js`.
+- Classic dependencies such as `js/color-thief.umd.js` and `playlist.js`
+  load before the module entry. Keep `type="module"` deferred execution; do
+  not replace it with `async` or a classic script.
+- `tailwind.config.cjs` scans `index.html`, `playlist-downloader.html`, and
+  `js/app.js`. Dynamic row/control class strings are production CSS inputs.
+- `sw.js` precaches both `./js/app.js` and `./js/core-utils.js`. Any
+  precached production change advances `CACHE_NAME`.
+- Pages copies the complete `js/` directory. The static feature gate verifies
+  the external entry, source ownership, Tailwind scan, cache entry, and artifact
+  source together.
+- Resource splitting is not itself proof of faster first load. Record byte
+  sizes and request boundaries; do not set machine-time thresholds without a
+  stable measurement environment.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required result |
+| --- | --- |
+| HTML has no `./js/app.js` module entry | Static gate fails before browser tests. |
+| `js/app.js` uses `./js/core-utils.js` | Module request resolves incorrectly; static import-path gate must fail. |
+| App module is absent from Tailwind content | Static gate fails so dynamic utilities cannot be purged silently. |
+| App module is absent from Service Worker core assets | Static gate and upgrade-cache browser assertion fail. |
+| App module has invalid syntax | Direct `node --check js/app.js` fails. |
+| Old Worker upgrades to the current cache | Current cache contains `/js/app.js`; offline reload reaches the app-ready API. |
+| Fresh desktop or mobile navigation | Exactly one `/js/app.js` resource is loaded as JavaScript and the app reaches ready state. |
+| Module extraction changes product behavior | Existing deterministic full browser suite fails; do not patch around it with test-only production branches. |
+
+### 5. Good / Base / Bad Cases
+
+- Good: mechanically extract the existing module, update the single relative
+  import, syntax owner, Tailwind scan, cache revision, and upgrade assertions,
+  then prove normalized old/new module text is equal.
+- Base: a normal feature edit changes only `js/app.js`; the direct syntax
+  check and browser suite run without rewriting or reparsing HTML.
+- Bad: keep a stale inline copy, check whichever script block happens to be
+  longest, omit `js/app.js` from Tailwind, or rely on runtime cache fill for
+  offline installation.
+
+### 6. Tests Required
+
+- Syntax: `node --check js/app.js`, with exactly one recent-history key
+  definition reported by the checker.
+- Static contract: external module entry, no inline main module, correct import,
+  Tailwind scan path, Service Worker cache entry/revision, and Pages `js/`
+  artifact ownership.
+- Browser desktop `1280x800` and mobile `390x844`: app module responds once
+  with JavaScript content type and reaches `waitForAppReady`.
+- Service Worker upgrade desktop/mobile: current cache contains
+  `/js/app.js`; refresh while offline still restores the shell and browser
+  data.
+- Full release gate: all existing API, playback, queue, playlist, backup,
+  update, responsive, and accessibility flows remain green.
+
+### 7. Wrong vs Correct
+
+```html
+<!-- Wrong: application behavior stays embedded in the HTML document. -->
+<script type="module">
+  import { normalizeSongObject } from './js/core-utils.js';
+</script>
+
+<!-- Correct: one production module entry with its own cache boundary. -->
+<script type="module" src="./js/app.js"></script>
+```

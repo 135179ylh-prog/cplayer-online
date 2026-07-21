@@ -7,6 +7,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 HTML = (ROOT / "index.html").read_text(encoding="utf-8")
+APP = (ROOT / "js" / "app.js").read_text(encoding="utf-8")
 DOWNLOADER = (ROOT / "playlist-downloader.html").read_text(encoding="utf-8")
 SW = (ROOT / "sw.js").read_text(encoding="utf-8")
 MANIFEST = json.loads((ROOT / "manifest.json").read_text(encoding="utf-8"))
@@ -32,6 +33,16 @@ def require(condition: bool, message: str) -> None:
 
 
 required_html = {
+    "external app module": '<script type="module" src="./js/app.js"></script>',
+    "API settings password input": 'type="password" id="settingsApiKeyInput"',
+    "PWA update notification": 'id="appUpdateBanner"',
+    "desktop cover sizing": 'width="300" height="300" decoding="async"',
+    "decorative canvas semantics": 'id="fluidBg" class="fixed inset-0 w-full h-full -z-10 pointer-events-none" aria-hidden="true"',
+    "explicit mobile view toggle": 'id="mobileViewToggle"',
+    "closed mobile sheet isolation": 'id="mobilePlaylistSheet" role="region" aria-label="移动播放列表和搜索" aria-hidden="true" inert',
+}
+
+required_app = {
     "current queue restore": "if (!cached || !Array.isArray(cached.songs)) return false;",
     "queue serialization": "let queueSaveInFlight = null;",
     "lifecycle flush": "flushScheduledQueueSave('pagehide');",
@@ -44,8 +55,6 @@ required_html = {
     "API auth response normalization": "apiStatus === 401 || apiStatus === 403",
     "API key storage read": "localStorage.getItem('cp_api_key')",
     "API base storage read": "localStorage.getItem('cp_api_base')",
-    "API settings password input": 'type="password" id="settingsApiKeyInput"',
-    "PWA update notification": 'id="appUpdateBanner"',
     "PWA controller replacement listener": "navigator.serviceWorker.addEventListener('controllerchange'",
     "PWA safe update reload": "flushScheduledQueueSave('sw_update_reload')",
     "PWA update registration after queue restore": "await loadDefaultPlaylist();\n            setupServiceWorkerUpdates();",
@@ -55,28 +64,31 @@ required_html = {
     "mobile add action": "this.loadPlaylist();",
     "bounded mobile initialization": "playlistWaitAttempts >= 40",
     "service worker update policy": "updateViaCache: 'none'",
-    "desktop cover sizing": 'width="300" height="300" decoding="async"',
     "dynamic cover sizing": 'width="40" height="40" decoding="async"',
-    "decorative canvas semantics": 'id="fluidBg" class="fixed inset-0 w-full h-full -z-10 pointer-events-none" aria-hidden="true"',
     "accessible overlay stack": "const accessibleOverlayStack = [];",
     "focus-safe overlay manager": "function openAccessibleOverlay(modal, options)",
     "keyboard progress control": "function handleProgressKeydown(event)",
-    "explicit mobile view toggle": 'id="mobileViewToggle"',
-    "closed mobile sheet isolation": 'id="mobilePlaylistSheet" role="region" aria-label="移动播放列表和搜索" aria-hidden="true" inert',
 }
 
 for label, snippet in required_html.items():
     require(snippet in HTML, f"missing {label}: {snippet}")
 
-require("self.loadPlaylist();" not in HTML, "mobile search still uses the window self object")
-require("mob-search-img-${song.id}" not in HTML, "external song id is still interpolated into mobile HTML")
-require(HTML.count("const RECENT_HISTORY_KEY = 'cp_recent_history';") == 1, "recent history key is duplicated")
+for label, snippet in required_app.items():
+    require(snippet in APP, f"missing {label}: {snippet}")
+
+require('<script type="module">' not in HTML, "main app module is still inline")
+require("from './core-utils.js';" in APP and "./js/core-utils.js" not in APP, "app module import path is invalid")
+require("self.loadPlaylist();" not in APP, "mobile search still uses the window self object")
+require("mob-search-img-${song.id}" not in APP, "external song id is still interpolated into mobile HTML")
+require(APP.count("const RECENT_HISTORY_KEY = 'cp_recent_history';") == 1, "recent history key is duplicated")
 require((ROOT / "playlist.js").is_file(), "optional playlist.js hook is missing")
+require((ROOT / "js" / "app.js").is_file(), "production app module is missing")
 require((ROOT / "js" / "core-utils.js").is_file(), "core utility module is missing")
 require((ROOT / "tests" / "core-utils.test.mjs").is_file(), "core utility tests are missing")
 require("user-scalable=no" not in HTML and "maximum-scale" not in HTML, "viewport still blocks browser zoom")
 
-require("cplayer5-v55-responsive-accessibility" in SW, "service worker cache version is not updated")
+require("cplayer5-v56-main-app-module" in SW, "service worker cache version is not updated")
+require("'./js/app.js'" in SW, "production app module is not precached")
 require("./js/core-utils.js" in SW, "core utility module is not precached")
 require("./css/tailwind.css" in SW and "./js/tailwindcss.js" not in SW, "service worker Tailwind cache entry is stale")
 require("cacheCoreAssets" in SW and "new Request(new URL(asset, self.registration.scope)" in SW, "core cache refresh is not explicit")
@@ -104,7 +116,10 @@ tailwind_css = ROOT / "css" / "tailwind.css"
 require(tailwind_css.is_file() and tailwind_css.stat().st_size > 0, "generated Tailwind CSS is missing")
 tailwind_config = (ROOT / "tailwind.config.cjs").read_text(encoding="utf-8")
 tailwind_input = (ROOT / "css" / "tailwind.input.css").read_text(encoding="utf-8")
-require("'./index.html'" in tailwind_config and "'./playlist-downloader.html'" in tailwind_config, "Tailwind content scan is incomplete")
+require(
+    all(path in tailwind_config for path in ("'./index.html'", "'./playlist-downloader.html'", "'./js/app.js'")),
+    "Tailwind content scan is incomplete",
+)
 require("@tailwind base;" in tailwind_input and "@tailwind utilities;" in tailwind_input, "Tailwind source directives are incomplete")
 require('href="css/tailwind.css"' in HTML and 'js/tailwindcss.js' not in HTML, "main page still uses runtime Tailwind")
 require('href="css/tailwind.css"' in DOWNLOADER and 'cdn.tailwindcss.com' not in DOWNLOADER, "downloader still uses Play CDN")
@@ -136,12 +151,12 @@ require("Service Worker 的缓存修订号" in README, "README does not explain 
 require("npm run verify" in README, "README does not document the release quality gate")
 require("apikey" in README and "localStorage" in README, "README does not explain API key storage and transport")
 
-api_endpoints = set(re.findall(r"ChKSzAPI\.buildUrl\('(/163_[a-z]+)'", HTML))
+api_endpoints = set(re.findall(r"ChKSzAPI\.buildUrl\('(/163_[a-z]+)'", APP))
 require(api_endpoints == {"/163_search", "/163_music", "/163_lyric", "/163_playlist"}, "not every ChKSz endpoint uses the central URL builder")
-require("search.set('apikey', key)" in HTML, "API key is not appended through URLSearchParams")
-require("localStorage.setItem('cp_api_key', key)" in HTML, "API key is not persisted from runtime input")
-require("localStorage.removeItem('cp_api_key')" in HTML, "API key reset is missing")
-production_source = "\n".join((HTML, DOWNLOADER, SW, CORE_UTILS))
+require("search.set('apikey', key)" in APP, "API key is not appended through URLSearchParams")
+require("localStorage.setItem('cp_api_key', key)" in APP, "API key is not persisted from runtime input")
+require("localStorage.removeItem('cp_api_key')" in APP, "API key reset is missing")
+production_source = "\n".join((HTML, APP, DOWNLOADER, SW, CORE_UTILS))
 require(not re.search(r"apikey\s*=\s*['\"][^'\"]{8,}['\"]", production_source, flags=re.IGNORECASE), "a literal API key appears to be hard-coded")
 require("serviceWorkers: 'block'" in API_CONFIG_E2E and "randomUUID" in API_CONFIG_E2E, "API config browser test is not deterministic or uses a fixed key")
 require("searchParams.has('apikey')" in API_CONFIG_E2E, "browser test does not prove key-free compatibility")
@@ -157,9 +172,10 @@ require("output/playwright/" in PLAYWRIGHT, "browser artifacts are not kept unde
 require("node tests/e2e/server.mjs" in PLAYWRIGHT and "reuseExistingServer: false" in PLAYWRIGHT, "Playwright does not own the deterministic test server")
 require("serviceWorkers: 'block'" in SEARCH_E2E and "page.route" in SEARCH_E2E, "search API mock can be bypassed by the Service Worker")
 require("navigator.serviceWorker.controller" in SHELL_E2E and "setOffline(true)" in SHELL_E2E, "offline shell browser contract is incomplete")
+require("external app module loads once as JavaScript" in SHELL_E2E and "transferSize" in SHELL_E2E, "app module resource boundary is not tested")
 require("Service-Worker-Allowed" in TEST_SERVER and "tests/e2e/fixtures/sw-old.js" in TEST_SERVER, "old Worker root-scope permission is not isolated to the test server")
 require("cplayer5-test-old" in OLD_SW_FIXTURE and "self.clients.claim()" in OLD_SW_FIXTURE, "old Worker fixture does not establish an active prior installation")
-for snippet in ["OLD_WORKER_PATH", "controller?.scriptURL", "UNRELATED_CACHE_NAME", "setOffline(true)", "readQueueRecord"]:
+for snippet in ["OLD_WORKER_PATH", "controller?.scriptURL", "UNRELATED_CACHE_NAME", "setOffline(true)", "readQueueRecord", "'/js/app.js'"]:
     require(snippet in SW_UPDATE_E2E, f"service worker upgrade browser contract is missing: {snippet}")
 for snippet in ["AxeBuilder", "element.inert", "ArrowRight", "keyboard-progress.wav", "songRequests"]:
     require(snippet in RESPONSIVE_E2E, f"responsive accessibility browser contract is missing: {snippet}")
@@ -176,22 +192,22 @@ require(all(not (ROOT / name).exists() for name in legacy_names), "legacy debug 
 badge = re.search(r'id="buildBadge"[^>]*>(v\d+)', HTML)
 require(badge, "build badge is missing or malformed")
 require("CPlayer 5 • 当前构建见左下角" in HTML, "settings version text is misleading")
-require("classifyPlaybackQuality" in HTML and "renderPlaybackQuality" in HTML, "truthful quality display is not wired")
-require("quality-unknown" in HTML and "音质确认中" in HTML, "quality loading state is missing")
-require("dom.qualityBadge.textContent = '💎JyMaster';" not in HTML, "quality badge still claims master before verification")
-require("level: typeof d.level === 'string' ? d.level : null" in HTML, "requested quality still masquerades as API metadata")
-require("document.querySelectorAll('#qualityBadge, #mobileQualityBadge')" in HTML, "quality state is not rendered to both layouts")
-require("超清母带" not in HTML, "UI still guarantees master-quality playback")
+require("classifyPlaybackQuality" in APP and "renderPlaybackQuality" in APP, "truthful quality display is not wired")
+require("quality-unknown" in HTML and "音质确认中" in APP, "quality loading state is missing")
+require("dom.qualityBadge.textContent = '💎JyMaster';" not in APP, "quality badge still claims master before verification")
+require("level: typeof d.level === 'string' ? d.level : null" in APP, "requested quality still masquerades as API metadata")
+require("document.querySelectorAll('#qualityBadge, #mobileQualityBadge')" in APP, "quality state is not rendered to both layouts")
+require("超清母带" not in production_source, "UI still guarantees master-quality playback")
 require("音质未标注" in README, "README does not explain unverified quality metadata")
-require("const PLAYBACK_SESSION_KEY = 'cp_playback_session';" in HTML, "playback resume storage is missing")
-require("normalizePlaybackSession" in HTML and "preparePlaybackResume" in HTML, "playback resume is not wired")
-require("getSafePlaybackResumeTime" in HTML, "safe playback resume boundary is not wired")
-require("savePlaybackSession('timeupdate', false)" in HTML, "playback progress is not throttled through the shared saver")
-require('id="sleepTimerSelect"' in HTML and "setupSleepTimerUI" in HTML, "sleep timer controls are missing")
-require("classifyPlaybackFailure(error, navigator.onLine !== false)" in HTML, "playback failure feedback is not classified")
+require("const PLAYBACK_SESSION_KEY = 'cp_playback_session';" in APP, "playback resume storage is missing")
+require("normalizePlaybackSession" in APP and "preparePlaybackResume" in APP, "playback resume is not wired")
+require("getSafePlaybackResumeTime" in APP, "safe playback resume boundary is not wired")
+require("savePlaybackSession('timeupdate', false)" in APP, "playback progress is not throttled through the shared saver")
+require('id="sleepTimerSelect"' in HTML and "setupSleepTimerUI" in APP, "sleep timer controls are missing")
+require("classifyPlaybackFailure(error, navigator.onLine !== false)" in APP, "playback failure feedback is not classified")
 require("播放器不会绕过浏览器限制自动发声" in README, "resume autoplay limitation is undocumented")
-require(HTML.count("renderSearchRecoveryState") >= 3, "desktop and mobile search retry states are not shared")
-require("重试搜索：" in HTML and "当前已离线" in HTML, "search retry accessibility or offline copy is missing")
+require(APP.count("renderSearchRecoveryState") >= 3, "desktop and mobile search retry states are not shared")
+require("重试搜索：" in APP and "当前已离线" in APP, "search retry accessibility or offline copy is missing")
 
 print("stability checks: passed")
 print("build badge:", badge.group(1))

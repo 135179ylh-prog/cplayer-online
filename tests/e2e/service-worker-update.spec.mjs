@@ -122,7 +122,8 @@ test('old installation upgrades, preserves data, and reloads offline', async ({ 
     expect(cacheState.names).toContain(CURRENT_CACHE_NAME);
     expect(cacheState.names).toContain(UNRELATED_CACHE_NAME);
     expect(cacheState.currentUrls).toContain('/index.html');
-    expect(cacheState.currentUrls.length).toBeGreaterThanOrEqual(10);
+    expect(cacheState.currentUrls).toContain('/js/app.js');
+    expect(cacheState.currentUrls.length).toBeGreaterThanOrEqual(11);
     await expect.poll(() => page.evaluate(() => caches.keys())).not.toContain(OLD_CACHE_NAME);
 
     await context.setOffline(true);
