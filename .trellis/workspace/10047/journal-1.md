@@ -306,3 +306,36 @@ Added browser-only API key/base settings, centralized auth handling, and desktop
 ### Next Steps
 
 - None - task complete
+
+
+## Session 10: PWA update recovery
+
+**Date**: 2026-07-22
+**Task**: PWA update recovery
+**Branch**: `main`
+
+### Summary
+
+Added user-controlled PWA update prompts, awaited queue restore and pre-reload persistence, deterministic old-to-current Service Worker coverage, cache cleanup regression, and offline data-survival checks.
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `ddc4f06` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

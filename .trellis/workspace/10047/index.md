@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 9
+- **Total Sessions**: 10
 - **Last Active**: 2026-07-22
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~308 | Active |
+| `journal-1.md` | ~341 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 10 | 2026-07-22 | PWA update recovery | `ddc4f06` | `main` |
 | 9 | 2026-07-22 | ChKSz API configuration | `83d381c` | `main` |
 | 8 | 2026-07-21 | Phase 2: core-path reliability browser tests | - | `main` |
 | 7 | 2026-07-21 | Search retry and recovery | `e86b91f`, `a7eef41` | `main` |
