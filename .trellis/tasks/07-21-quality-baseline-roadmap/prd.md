@@ -72,7 +72,7 @@ freshness rule discovered during this task.
 - [x] Pages deployment depends on the quality job and cannot publish after a
       failing check.
 - [x] Frontend quality guidance documents the resulting executable contracts.
-- [ ] Task verification records exact commands, counts, viewports, and known
+- [x] Task verification records exact commands, counts, viewports, and known
       limitations; the working tree has no uncommitted task code.
 
 ## Out of Scope
