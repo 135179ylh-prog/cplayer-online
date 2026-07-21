@@ -19,6 +19,9 @@ QUALITY_GATE = (ROOT / "scripts" / "run-quality-gate.mjs").read_text(encoding="u
 SEARCH_E2E = (ROOT / "tests" / "e2e" / "search-recovery.spec.mjs").read_text(encoding="utf-8")
 SHELL_E2E = (ROOT / "tests" / "e2e" / "app-shell.spec.mjs").read_text(encoding="utf-8")
 API_CONFIG_E2E = (ROOT / "tests" / "e2e" / "api-config.spec.mjs").read_text(encoding="utf-8")
+SW_UPDATE_E2E = (ROOT / "tests" / "e2e" / "service-worker-update.spec.mjs").read_text(encoding="utf-8")
+TEST_SERVER = (ROOT / "tests" / "e2e" / "server.mjs").read_text(encoding="utf-8")
+OLD_SW_FIXTURE = (ROOT / "tests" / "e2e" / "fixtures" / "sw-old.js").read_text(encoding="utf-8")
 CORE_UTILS = (ROOT / "js" / "core-utils.js").read_text(encoding="utf-8")
 
 
@@ -41,6 +44,10 @@ required_html = {
     "API key storage read": "localStorage.getItem('cp_api_key')",
     "API base storage read": "localStorage.getItem('cp_api_base')",
     "API settings password input": 'type="password" id="settingsApiKeyInput"',
+    "PWA update notification": 'id="appUpdateBanner"',
+    "PWA controller replacement listener": "navigator.serviceWorker.addEventListener('controllerchange'",
+    "PWA safe update reload": "flushScheduledQueueSave('sw_update_reload')",
+    "PWA update registration after queue restore": "await loadDefaultPlaylist();\n            setupServiceWorkerUpdates();",
     "offline feedback": "window.addEventListener('offline'",
     "safe search title": "titleDiv.textContent = song.name ||",
     "mobile instance export": "window.mobileUI = mobileUI;",
@@ -62,7 +69,7 @@ require((ROOT / "playlist.js").is_file(), "optional playlist.js hook is missing"
 require((ROOT / "js" / "core-utils.js").is_file(), "core utility module is missing")
 require((ROOT / "tests" / "core-utils.test.mjs").is_file(), "core utility tests are missing")
 
-require("cplayer5-v52-api-key-config" in SW, "service worker cache version is not updated")
+require("cplayer5-v54-pwa-update-recovery" in SW, "service worker cache version is not updated")
 require("./js/core-utils.js" in SW, "core utility module is not precached")
 require("./css/tailwind.css" in SW and "./js/tailwindcss.js" not in SW, "service worker Tailwind cache entry is stale")
 require("cacheCoreAssets" in SW and "new Request(new URL(asset, self.registration.scope)" in SW, "core cache refresh is not explicit")
@@ -136,8 +143,14 @@ require("viewport: { width: 1280, height: 800 }" in PLAYWRIGHT, "desktop quality
 require("viewport: { width: 390, height: 844 }" in PLAYWRIGHT, "mobile quality viewport changed unexpectedly")
 require("workers: 1" in PLAYWRIGHT and "serviceWorkers: 'allow'" in PLAYWRIGHT, "PWA browser tests are not isolated deterministically")
 require("output/playwright/" in PLAYWRIGHT, "browser artifacts are not kept under output/playwright")
+require("node tests/e2e/server.mjs" in PLAYWRIGHT and "reuseExistingServer: false" in PLAYWRIGHT, "Playwright does not own the deterministic test server")
 require("serviceWorkers: 'block'" in SEARCH_E2E and "page.route" in SEARCH_E2E, "search API mock can be bypassed by the Service Worker")
 require("navigator.serviceWorker.controller" in SHELL_E2E and "setOffline(true)" in SHELL_E2E, "offline shell browser contract is incomplete")
+require("Service-Worker-Allowed" in TEST_SERVER and "tests/e2e/fixtures/sw-old.js" in TEST_SERVER, "old Worker root-scope permission is not isolated to the test server")
+require("cplayer5-test-old" in OLD_SW_FIXTURE and "self.clients.claim()" in OLD_SW_FIXTURE, "old Worker fixture does not establish an active prior installation")
+for snippet in ["OLD_WORKER_PATH", "controller?.scriptURL", "UNRELATED_CACHE_NAME", "setOffline(true)", "readQueueRecord"]:
+    require(snippet in SW_UPDATE_E2E, f"service worker upgrade browser contract is missing: {snippet}")
+require("tests/e2e" not in WORKFLOW, "test-only Worker/server files must not enter the Pages artifact")
 for gate_step in ["build:css", "test:unit", "check:module", "check:sw", "check:features", "audit", "test:e2e", "diff', '--check"]:
     require(gate_step in QUALITY_GATE, f"quality gate is missing step: {gate_step}")
 

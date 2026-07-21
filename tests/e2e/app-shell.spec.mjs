@@ -6,6 +6,7 @@ test('application shell starts without unexpected runtime errors', async ({ page
 
     await page.goto('/index.html');
     await expect(page.locator('#buildBadge')).toHaveText(/^v\d+$/);
+    await expect(page.locator('#appUpdateBanner')).toBeHidden();
 
     if (testInfo.project.name === 'mobile-chromium') {
         await expect(page.locator('#mobileLayout')).toBeVisible();

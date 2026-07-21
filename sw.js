@@ -1,4 +1,4 @@
-const CACHE_NAME = 'cplayer5-v52-api-key-config';
+const CACHE_NAME = 'cplayer5-v54-pwa-update-recovery';
 const COVER_CACHE_LIMIT = 160;
 
 // 核心资源 - 安装时缓存
@@ -76,9 +76,10 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) => Promise.all(
       keys.filter(k => k.startsWith('cplayer5-') && k !== CACHE_NAME).map(k => caches.delete(k))
-    )).then(() => caches.open(CACHE_NAME)).then((cache) => trimCoverCache(cache))
+    )).then(() => caches.open(CACHE_NAME))
+      .then((cache) => trimCoverCache(cache))
+      .then(() => self.clients.claim())
   );
-  self.clients.claim();
 });
 
 // 请求策略

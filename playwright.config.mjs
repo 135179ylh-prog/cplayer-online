@@ -1,6 +1,6 @@
 import { defineConfig, devices } from '@playwright/test';
 
-const port = 4173;
+const port = Number(process.env.PW_PORT || 4173);
 const baseURL = `http://127.0.0.1:${port}`;
 
 export default defineConfig({
@@ -24,9 +24,9 @@ export default defineConfig({
         video: 'retain-on-failure'
     },
     webServer: {
-        command: `python -m http.server ${port} --bind 127.0.0.1`,
+        command: `node tests/e2e/server.mjs ${port}`,
         url: `${baseURL}/index.html`,
-        reuseExistingServer: !process.env.CI,
+        reuseExistingServer: false,
         stdout: 'pipe',
         stderr: 'pipe'
     },

@@ -1152,6 +1152,24 @@
         <span class="font-bold text-sm">已复制到剪贴板</span>
     </div>
 
+    <!-- PWA 更新提示：仅在已有 Service Worker 被新版本接管时显示 -->
+    <div id="appUpdateBanner" role="status" aria-live="polite" aria-atomic="true" aria-hidden="true"
+        class="hidden fixed top-4 left-1/2 -translate-x-1/2 z-[110] w-[calc(100vw-1.5rem)] max-w-md items-center gap-3 rounded-2xl border border-primary-color/25 bg-surface-container-high-color px-3 py-3 text-on-surface-color shadow-2xl backdrop-blur-md">
+        <i class="fas fa-arrows-rotate text-primary-color" aria-hidden="true"></i>
+        <div class="min-w-0 flex-1">
+            <div class="text-sm font-bold">播放器已更新</div>
+            <div class="text-xs opacity-60">刷新后使用最新版本</div>
+        </div>
+        <button id="appUpdateReloadBtn" type="button"
+            class="min-h-[44px] shrink-0 rounded-xl bg-primary-color px-3 text-sm font-bold text-on-primary-color disabled:cursor-wait disabled:opacity-50">
+            <i class="fas fa-rotate-right mr-1" aria-hidden="true"></i><span>刷新</span>
+        </button>
+        <button id="appUpdateDismissBtn" type="button" aria-label="稍后刷新" title="稍后刷新"
+            class="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white/10 text-sm hover:bg-white/15">
+            <i class="fas fa-xmark" aria-hidden="true"></i>
+        </button>
+    </div>
+
     <!-- 主容器 (Desktop Layout) - 全屏重构版 -->
     <div id="desktopLayout" class="hidden md:flex flex-row h-screen w-screen overflow-hidden bg-transparent">
 
@@ -3937,7 +3955,8 @@ async function refreshUserPlaylistLibrary() {
             setupApiSettingsUI();
             setupPlaylistIdLoader();
             if (typeof bindUserPlaylistUI === 'function') bindUserPlaylistUI();  // 初始化歌单ID加载按钮
-            loadDefaultPlaylist();
+            await loadDefaultPlaylist();
+            setupServiceWorkerUpdates();
             initVisualizer();
             // checkSystemTheme(); // Removed
             // enableGradientModeByDefault(); // Removed
@@ -3972,15 +3991,6 @@ async function refreshUserPlaylistLibrary() {
                     }
                 }
                 console.log('🎛️ MediaSession 已启用 (Enhanced)');
-            }
-
-            // ★ PWA Service Worker 注册
-            if ('serviceWorker' in navigator) {
-                navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' }).then(reg => {
-                    console.log('📱 Service Worker 已注册');
-                }).catch(err => {
-                    console.warn('SW 注册失败:', err);
-                });
             }
 
             // H5+ Integration for Android App
@@ -4283,6 +4293,65 @@ async function refreshUserPlaylistLibrary() {
         }
 
         let connectivityFeedbackBound = false;
+
+        let serviceWorkerUpdateBound = false;
+        let appUpdatePromptShown = false;
+        let appUpdateReloadInFlight = false;
+
+        function hideAppUpdatePrompt() {
+            const banner = document.getElementById('appUpdateBanner');
+            if (!banner) return;
+            banner.classList.add('hidden');
+            banner.classList.remove('flex');
+            banner.setAttribute('aria-hidden', 'true');
+        }
+
+        function showAppUpdatePrompt() {
+            if (appUpdatePromptShown) return;
+            const banner = document.getElementById('appUpdateBanner');
+            if (!banner) return;
+            appUpdatePromptShown = true;
+            banner.classList.remove('hidden');
+            banner.classList.add('flex');
+            banner.setAttribute('aria-hidden', 'false');
+        }
+
+        async function reloadForAppUpdate() {
+            if (appUpdateReloadInFlight) return;
+            appUpdateReloadInFlight = true;
+            const reloadButton = document.getElementById('appUpdateReloadBtn');
+            const reloadLabel = reloadButton ? reloadButton.querySelector('span') : null;
+            if (reloadButton) reloadButton.disabled = true;
+            if (reloadLabel) reloadLabel.textContent = '保存中';
+            try {
+                await Promise.resolve(flushScheduledQueueSave('sw_update_reload'));
+                savePlaybackSession('sw_update_reload', true);
+            } catch (error) {
+                console.warn('[update] state flush failed before reload', error);
+            }
+            window.location.reload();
+        }
+
+        function setupServiceWorkerUpdates() {
+            if (serviceWorkerUpdateBound || !('serviceWorker' in navigator)) return;
+            serviceWorkerUpdateBound = true;
+            let controllerSeen = Boolean(navigator.serviceWorker.controller);
+            const reloadButton = document.getElementById('appUpdateReloadBtn');
+            const dismissButton = document.getElementById('appUpdateDismissBtn');
+            if (reloadButton) reloadButton.addEventListener('click', reloadForAppUpdate);
+            if (dismissButton) dismissButton.addEventListener('click', hideAppUpdatePrompt);
+
+            navigator.serviceWorker.addEventListener('controllerchange', function () {
+                if (controllerSeen) showAppUpdatePrompt();
+                controllerSeen = true;
+            });
+
+            navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' }).then(() => {
+                console.log('📱 Service Worker 已注册');
+            }).catch((error) => {
+                console.warn('SW 注册失败:', error);
+            });
+        }
 
         function setupConnectivityFeedback() {
             if (connectivityFeedbackBound || typeof window === 'undefined' || typeof navigator === 'undefined') return;

@@ -347,3 +347,113 @@ const url = base + '/163_music?id=' + id + '&apikey=fixed-value';
 // Correct: the centralized builder reads optional runtime browser state.
 const url = ChKSzAPI.buildUrl('/163_music', { id, level });
 ```
+
+## PWA Update Lifecycle Contract
+
+### 1. Scope / Trigger
+
+This contract applies whenever `index.html`, `sw.js`, the Service Worker cache
+name/core asset list, update UI, browser-storage flush behavior, or PWA browser
+tests change. A static source check cannot prove that an active older Worker is
+replaced safely.
+
+### 2. Signatures
+
+```js
+setupServiceWorkerUpdates()
+// binds controllerchange before registering ./sw.js
+
+showAppUpdatePrompt()
+// displays one update notification per page lifetime
+
+reloadForAppUpdate()
+// awaits queue flush, saves valid playback state, then reloads
+```
+
+Playwright uses `node tests/e2e/server.mjs 4173`. The test-only old Worker is
+`/tests/e2e/fixtures/sw-old.js`; only that response receives
+`Service-Worker-Allowed: /`.
+
+### 3. Contracts
+
+- Remember whether `navigator.serviceWorker.controller` exists before
+  registration. A first claim establishes the baseline; replacing an existing
+  controller displays the update notification exactly once.
+- Await `loadDefaultPlaylist()` before calling `setupServiceWorkerUpdates()`.
+  The notification must not become actionable while the persisted queue is
+  still being restored into memory.
+- Never auto-reload on `controllerchange`. The user owns refresh timing through
+  `刷新`; `稍后刷新` hides the prompt for the current page.
+- Before reload, await `flushScheduledQueueSave('sw_update_reload')`, then call
+  `savePlaybackSession('sw_update_reload', true)`. Reuse these storage owners;
+  do not write IndexedDB/localStorage directly in update UI code.
+- Every production precache change advances `CACHE_NAME`. Install succeeds only
+  after all core assets are available from network or an older cache.
+- Activation deletes only older `cplayer5-*` caches, preserves unrelated
+  origin caches, trims the current cover cache, then calls `clients.claim()`
+  inside the same `event.waitUntil` chain.
+- `controllerchange` proves controller replacement, not immediate Cache Storage
+  list visibility. Browser tests poll the old-cache absence condition without a
+  fixed sleep.
+- The Worker never deletes or migrates IndexedDB/localStorage. Upgrade tests
+  prove queue, recent history, and playback-session survival through an offline
+  reload.
+- The old Worker fixture and test server stay below `tests/e2e/` and must not be
+  present in the Pages artifact.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required result |
+| --- | --- |
+| Page starts without a controller | First claim stays silent; update prompt remains hidden. |
+| Existing controller is replaced | Show one accessible prompt with refresh and dismiss actions. |
+| User dismisses | Hide prompt; do not reload or modify browser data. |
+| User refreshes repeatedly | One save/reload sequence; refresh control stays disabled while saving. |
+| Pending queue write exists | Await the shared queue saver before reload. |
+| Playback progress is invalid | Shared saver safely declines it; reload still proceeds. |
+| Older `cplayer5-*` cache exists | Delete it during current Worker activation. |
+| Unrelated origin cache exists | Preserve it. |
+| Network is offline after upgrade | Current cached app shell loads and stored queue/history remain readable. |
+| Old fixture lacks root-scope response header | Test setup is invalid; fix the test server, not production scope logic. |
+
+### 5. Good / Base / Bad Cases
+
+- Good: activate the test old Worker, seed real Cache Storage/IndexedDB/
+  localStorage, open the real app, observe the current Worker, go offline, click
+  the real refresh command, and assert shell plus data round trips.
+- Base: a fresh browser context installs the current Worker and never displays
+  an update prompt.
+- Bad: seed an old cache without an old active controller, duplicate current
+  Worker cleanup logic in a fixture, auto-reload on every controller change, or
+  assert cache deletion immediately without a condition wait.
+
+### 6. Tests Required
+
+- Startup in desktop `1280x800` and mobile `390x844`: current shell renders,
+  no unexpected runtime error, update prompt hidden on first install.
+- Old-to-current upgrade in both viewport projects: controller script changes
+  from the fixture to `/sw.js`; prompt is visible and accessible; current core
+  cache exists; old CPlayer cache disappears; unrelated cache remains.
+- Refresh path: switch offline, click `刷新`, wait for navigation, assert the
+  app shell and build badge, then read both `window.playlist` and the IndexedDB
+  `current_queue` record plus recent/playback localStorage.
+- Dismiss path: click `稍后刷新`, assert prompt hidden, URL unchanged, and app
+  still usable.
+- Syntax/feature gate: parse the test server, fixture, Worker, and main module;
+  assert custom server ownership, scoped header, update markers, cache revision,
+  and Pages fixture exclusion.
+
+### 7. Wrong vs Correct
+
+```js
+// Wrong: claims clients before activation cleanup has completed.
+event.waitUntil(deleteOldCaches());
+self.clients.claim();
+
+// Correct: cleanup, trim, and claim form one activation transaction.
+event.waitUntil(
+  deleteOldCaches()
+    .then(trimCurrentCache)
+    .then(() => self.clients.claim())
+);
+```

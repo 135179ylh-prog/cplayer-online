@@ -1,0 +1,2 @@
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Check first-install/update distinction, cache ownership, storage survival, deterministic browser evidence, and version synchronization."}
+{"file":".trellis/tasks/07-22-pwa-update-recovery/research.md","reason":"Review the implementation against the mapped controller/cache/storage/UI boundaries and known test risks."}

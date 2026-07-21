@@ -1,0 +1,2 @@
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Owns Service Worker cache revisions, deterministic PWA tests, browser storage safety, and the release gate."}
+{"file":".trellis/tasks/07-22-pwa-update-recovery/research.md","reason":"Records the current update-flow gap, chosen old-worker fixture boundary, data-flow map, and test-server constraints."}
