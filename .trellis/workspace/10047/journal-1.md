@@ -372,3 +372,36 @@ Added user-controlled PWA update prompts, awaited queue restore and pre-reload p
 ### Next Steps
 
 - None - task complete
+
+
+## Session 12: Main app module extraction
+
+**Date**: 2026-07-22
+**Task**: Main app module extraction
+**Branch**: `main`
+
+### Summary
+
+完成性能与可维护性阶段的主模块边界：将 index.html 中约 28 万字符的 ES module 机械提取到 js/app.js，规范化文本等价；HTML 缩小 75.73%。同步直接语法检查、Tailwind 扫描、v56 Service Worker 预缓存、静态契约和模块/升级浏览器回归。npm run verify 8/8 层通过，82 个浏览器用例 80 通过、2 个预期跳过。未推送、未部署。
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `1b54215` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
