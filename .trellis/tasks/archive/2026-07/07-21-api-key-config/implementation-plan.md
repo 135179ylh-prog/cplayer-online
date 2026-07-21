@@ -13,7 +13,7 @@
    frontend executable specification.
 6. [x] Run the complete quality gate and secret-pattern scan; record exact
    evidence in `verification.md`.
-7. [ ] Commit locally, archive the task, and record the Trellis journal without
+7. [x] Commit locally, archive the task, and record the Trellis journal without
    pushing or deploying.
 
 ## Rollback

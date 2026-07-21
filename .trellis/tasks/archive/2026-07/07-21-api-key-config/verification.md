@@ -53,6 +53,7 @@ stopping without skipping the next queued song.
   found only expected runtime storage access, parameter construction, test
   assertions, and documentation. No credential value is present.
 - `git diff --check` -> exit 0.
+- Local feature commit: `83d381c feat: add user-configurable ChKSz API key`.
 
 ## Quality Matrix
 
