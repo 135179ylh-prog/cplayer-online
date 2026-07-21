@@ -242,3 +242,34 @@ Finished playlist UX evidence and added desktop/mobile search retry recovery wit
 ### Next Steps
 
 - None - task complete
+
+
+## Session 8: Phase 2: core-path reliability browser tests
+
+**Date**: 2026-07-21
+**Task**: Phase 2: core-path reliability browser tests
+**Branch**: `main`
+
+### Summary
+
+Added deterministic Playwright storage tests for queue round-trip, backup atomic rollback, playlist CRUD, recent history, and playback error recovery. Browser regression grew 5->29 passing. No production code changed; docs and evidence matrix updated.
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+(No commits - planning session)
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

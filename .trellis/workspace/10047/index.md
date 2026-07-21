@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 7
+- **Total Sessions**: 8
 - **Last Active**: 2026-07-21
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~244 | Active |
+| `journal-1.md` | ~275 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 8 | 2026-07-21 | Phase 2: core-path reliability browser tests | - | `main` |
 | 7 | 2026-07-21 | Search retry and recovery | `e86b91f`, `a7eef41` | `main` |
 | 6 | 2026-07-21 | Playback recovery and sleep timer | `3cd4c86` | `main` |
 | 5 | 2026-07-20 | Make playback quality labels truthful | `1e8f991`, `6e23f22` | `main` |
