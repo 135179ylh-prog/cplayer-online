@@ -1,0 +1,32 @@
+{
+  "id": "quality-baseline-roadmap",
+  "name": "quality-baseline-roadmap",
+  "title": "Quality baseline and roadmap",
+  "description": "Establish a deterministic local and CI release gate, browser baseline, and evidence-backed roadmap for the long-term PWA productization goal.",
+  "status": "in_progress",
+  "dev_type": "frontend-quality",
+  "scope": "tests, PWA verification, CI deployment gate, and Trellis quality contracts",
+  "package": "frontend",
+  "priority": "P1",
+  "creator": "10047",
+  "assignee": "10047",
+  "createdAt": "2026-07-21",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    "package.json",
+    "playwright.config.mjs",
+    "scripts/run-quality-gate.mjs",
+    "tests/e2e/",
+    ".github/workflows/pages.yml"
+  ],
+  "notes": "",
+  "meta": {}
+}

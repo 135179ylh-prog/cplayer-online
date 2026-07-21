@@ -14,6 +14,10 @@ PACKAGE = json.loads((ROOT / "package.json").read_text(encoding="utf-8"))
 WORKFLOW = (ROOT / ".github" / "workflows" / "pages.yml").read_text(encoding="utf-8")
 GITIGNORE = (ROOT / ".gitignore").read_text(encoding="utf-8")
 README = (ROOT / "README.md").read_text(encoding="utf-8")
+PLAYWRIGHT = (ROOT / "playwright.config.mjs").read_text(encoding="utf-8")
+QUALITY_GATE = (ROOT / "scripts" / "run-quality-gate.mjs").read_text(encoding="utf-8")
+SEARCH_E2E = (ROOT / "tests" / "e2e" / "search-recovery.spec.mjs").read_text(encoding="utf-8")
+SHELL_E2E = (ROOT / "tests" / "e2e" / "app-shell.spec.mjs").read_text(encoding="utf-8")
 
 
 def require(condition: bool, message: str) -> None:
@@ -68,6 +72,10 @@ require(MANIFEST.get("start_url") == "./index.html", "manifest start_url changed
 require(any(icon.get("src") == "img/icon.png" for icon in MANIFEST.get("icons", [])), "PNG app icon is missing")
 require(PACKAGE.get("scripts", {}).get("build:css") == "tailwindcss -c tailwind.config.cjs -i css/tailwind.input.css -o css/tailwind.css --minify", "Tailwind build script changed unexpectedly")
 require(PACKAGE.get("devDependencies", {}).get("tailwindcss") == "3.4.17", "Tailwind version is not pinned")
+require(PACKAGE.get("scripts", {}).get("verify") == "node scripts/run-quality-gate.mjs", "unified quality gate is missing")
+require(PACKAGE.get("scripts", {}).get("test:e2e") == "playwright test", "browser regression command is missing")
+playwright_version = PACKAGE.get("devDependencies", {}).get("@playwright/test", "")
+require(bool(re.fullmatch(r"\d+\.\d+\.\d+", playwright_version)), "Playwright must use an exact pinned version")
 require((ROOT / "tailwind.config.cjs").is_file(), "Tailwind config is missing")
 require((ROOT / "css" / "tailwind.input.css").is_file(), "Tailwind source CSS is missing")
 tailwind_css = ROOT / "css" / "tailwind.css"
@@ -86,6 +94,9 @@ deployment_assets = [
 require('site_dir="$RUNNER_TEMP/cplayer-pages"' in WORKFLOW, "Pages staging directory is missing")
 require("path: ${{ runner.temp }}/cplayer-pages" in WORKFLOW, "Pages artifact does not use the staging directory")
 require(not re.search(r"^\s*path:\s+\.\s*$", WORKFLOW, flags=re.MULTILINE), "Pages still uploads the repository root")
+require("quality:" in WORKFLOW and "needs: quality" in WORKFLOW, "Pages deploy is not gated by quality checks")
+require("npm ci" in WORKFLOW and "playwright install --with-deps chromium" in WORKFLOW, "CI browser dependencies are not reproducible")
+require("npm run verify" in WORKFLOW, "CI does not run the unified quality gate")
 for asset in deployment_assets:
     require(asset in WORKFLOW, f"Pages staging artifact is missing {asset}")
     require((ROOT / asset).exists(), f"Pages staging source is missing {asset}")
@@ -94,11 +105,23 @@ require(not (ROOT / "_headers").exists(), "unsupported Pages _headers file is st
 required_ignore_rules = [
     "/.agents/skills/*", "/.claude/", "/.codex/", "/.trellis/config.yaml",
     "/.trellis/scripts/*", "!/.trellis/scripts/get_context.py", "/.trellis/spec/",
+    "output/playwright/",
 ]
 for rule in required_ignore_rules:
     require(rule in GITIGNORE, f"missing local runtime ignore rule: {rule}")
 require("api.chksz.top" in README, "README does not document the upstream API dependency")
 require("Service Worker 的缓存修订号" in README, "README does not explain version semantics")
+require("npm run verify" in README, "README does not document the release quality gate")
+
+require("name: 'desktop-chromium'" in PLAYWRIGHT and "name: 'mobile-chromium'" in PLAYWRIGHT, "desktop/mobile browser projects are incomplete")
+require("viewport: { width: 1280, height: 800 }" in PLAYWRIGHT, "desktop quality viewport changed unexpectedly")
+require("viewport: { width: 390, height: 844 }" in PLAYWRIGHT, "mobile quality viewport changed unexpectedly")
+require("workers: 1" in PLAYWRIGHT and "serviceWorkers: 'allow'" in PLAYWRIGHT, "PWA browser tests are not isolated deterministically")
+require("output/playwright/" in PLAYWRIGHT, "browser artifacts are not kept under output/playwright")
+require("serviceWorkers: 'block'" in SEARCH_E2E and "page.route" in SEARCH_E2E, "search API mock can be bypassed by the Service Worker")
+require("navigator.serviceWorker.controller" in SHELL_E2E and "setOffline(true)" in SHELL_E2E, "offline shell browser contract is incomplete")
+for gate_step in ["build:css", "test:unit", "check:module", "check:sw", "check:features", "audit", "test:e2e", "diff', '--check"]:
+    require(gate_step in QUALITY_GATE, f"quality gate is missing step: {gate_step}")
 
 legacy_names = [
     "dedup_detail.py", "dedupe_recent.py", "find_cycle.py", "find_manage.py", "find_vars.py",

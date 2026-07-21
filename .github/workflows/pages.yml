@@ -11,7 +11,25 @@ concurrency:
   group: pages
   cancel-in-progress: true
 jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Install Chromium for browser regression
+        run: npx playwright install --with-deps chromium
+      - name: Run release quality gate
+        run: npm run verify
   deploy:
+    needs: quality
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

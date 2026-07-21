@@ -4,9 +4,16 @@
   "type": "module",
   "scripts": {
     "build:css": "tailwindcss -c tailwind.config.cjs -i css/tailwind.input.css -o css/tailwind.css --minify",
-    "test": "node --test tests/*.test.mjs"
+    "test": "npm run test:unit",
+    "test:unit": "node --test tests/*.test.mjs",
+    "test:e2e": "playwright test",
+    "check:module": "python scripts/check_module_syntax.py",
+    "check:sw": "node --check sw.js",
+    "check:features": "python tests/verify_features.py",
+    "verify": "node scripts/run-quality-gate.mjs"
   },
   "devDependencies": {
+    "@playwright/test": "1.61.1",
     "tailwindcss": "3.4.17"
   }
 }
