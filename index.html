@@ -4456,6 +4456,36 @@ async function refreshUserPlaylistLibrary() {
 
         let desktopSearchRequestId = 0;
 
+        function renderSearchRecoveryState(container, options) {
+            if (!container) return;
+            options = options || {};
+            const query = String(options.query || '').trim();
+            const compact = options.compact === true;
+            const message = navigator.onLine === false ? '当前已离线' : '搜索服务暂不可用';
+            const state = document.createElement('div');
+            state.className = compact
+                ? 'p-4 text-center opacity-80 text-xs'
+                : 'p-4 text-center text-red-300';
+            state.setAttribute('role', 'status');
+            state.setAttribute('aria-live', 'polite');
+
+            const messageNode = document.createElement('div');
+            messageNode.textContent = message;
+            const retryButton = document.createElement('button');
+            retryButton.type = 'button';
+            retryButton.className = compact
+                ? 'mt-3 px-3 py-1.5 rounded-full border border-white/25 text-white/90'
+                : 'mt-3 px-4 py-2 rounded-full border border-white/25 text-sm text-white/90 hover:bg-white/10';
+            retryButton.setAttribute('aria-label', '重试搜索：' + query);
+            retryButton.innerHTML = '<i class="fas fa-redo-alt mr-1" aria-hidden="true"></i><span>重试</span>';
+            retryButton.addEventListener('click', function () {
+                if (typeof options.onRetry === 'function') options.onRetry(query);
+            });
+
+            state.append(messageNode, retryButton);
+            container.replaceChildren(state);
+        }
+
         async function searchSongs(query) {
             query = String(query || '').trim();
             const requestId = ++desktopSearchRequestId;
@@ -4623,7 +4653,13 @@ async function refreshUserPlaylistLibrary() {
             } catch (error) {
                 if (requestId !== desktopSearchRequestId) return;
                 console.error(error);
-                dom.searchResults.innerHTML = '<div class="p-4 text-center text-red-400">搜索服务暂不可用</div>';
+                renderSearchRecoveryState(dom.searchResults, {
+                    query: query,
+                    onRetry: function (retryQuery) {
+                        if (dom.searchInput) dom.searchInput.value = retryQuery;
+                        searchSongs(retryQuery);
+                    }
+                });
             } finally {
                 // 搜索loader已移除
             }
@@ -6582,7 +6618,11 @@ async function refreshUserPlaylistLibrary() {
                 } catch (e) {
                     if (requestId !== this.searchRequestId) return;
                     console.error('Search failed', e);
-                    container.innerHTML = '<div class="p-4 text-center opacity-50 text-xs text-red-400">搜索出错</div>';
+                    renderSearchRecoveryState(container, {
+                        query: query,
+                        compact: true,
+                        onRetry: (retryQuery) => this.handleSearch(retryQuery)
+                    });
                 }
             }
 

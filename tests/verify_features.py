@@ -51,7 +51,7 @@ require((ROOT / "playlist.js").is_file(), "optional playlist.js hook is missing"
 require((ROOT / "js" / "core-utils.js").is_file(), "core utility module is missing")
 require((ROOT / "tests" / "core-utils.test.mjs").is_file(), "core utility tests are missing")
 
-require("cplayer5-v50-playback-comfort" in SW, "service worker cache version is not updated")
+require("cplayer5-v51-search-retry" in SW, "service worker cache version is not updated")
 require("./js/core-utils.js" in SW, "core utility module is not precached")
 require("./css/tailwind.css" in SW and "./js/tailwindcss.js" not in SW, "service worker Tailwind cache entry is stale")
 require("cacheCoreAssets" in SW and "new Request(new URL(asset, self.registration.scope)" in SW, "core cache refresh is not explicit")
@@ -123,6 +123,8 @@ require("savePlaybackSession('timeupdate', false)" in HTML, "playback progress i
 require('id="sleepTimerSelect"' in HTML and "setupSleepTimerUI" in HTML, "sleep timer controls are missing")
 require("classifyPlaybackFailure(error, navigator.onLine !== false)" in HTML, "playback failure feedback is not classified")
 require("播放器不会绕过浏览器限制自动发声" in README, "resume autoplay limitation is undocumented")
+require(HTML.count("renderSearchRecoveryState") >= 3, "desktop and mobile search retry states are not shared")
+require("重试搜索：" in HTML and "当前已离线" in HTML, "search retry accessibility or offline copy is missing")
 
 print("stability checks: passed")
 print("build badge:", badge.group(1))

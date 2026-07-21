@@ -1,4 +1,4 @@
-const CACHE_NAME = 'cplayer5-v50-playback-comfort';
+const CACHE_NAME = 'cplayer5-v51-search-retry';
 const COVER_CACHE_LIMIT = 160;
 
 // 核心资源 - 安装时缓存
