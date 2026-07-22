@@ -40,7 +40,7 @@ Reduce the Pages artifact and first-install transfer size by replacing oversized
   checks pass through `npm run verify`.
 - [x] A staged large-binary repository-check regression passes without reading
   the entire WOFF2 blob through the text inspection path.
-- [ ] Verification evidence, the frontend quality contract, task archive, and
+- [x] Verification evidence, the frontend quality contract, task archive, and
   journal are updated; changes are committed locally without push or deploy.
 
 ## Baseline
