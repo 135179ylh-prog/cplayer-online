@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 15
-- **Last Active**: 2026-07-22
+- **Total Sessions**: 16
+- **Last Active**: 2026-07-23
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~506 | Active |
+| `journal-1.md` | ~540 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 16 | 2026-07-23 | 完成最终发布前检查与回退保护 | `4bf4f22`, `0dbff84` | `main` |
 | 15 | 2026-07-22 | Browser storage resilience | `2b26ac4` | `main` |
 | 14 | 2026-07-22 | Runtime and background resilience | `93dadf4` | `main` |
 | 13 | 2026-07-22 | Release candidate audit and handoff | `0a94177` | `main` |

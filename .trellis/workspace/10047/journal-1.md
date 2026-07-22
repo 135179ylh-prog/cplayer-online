@@ -504,3 +504,37 @@ Hardened browser storage lifecycle, queue conflict protection, quota recovery, d
 ### Next Steps
 
 - None - task complete
+
+
+## Session 16: 完成最终发布前检查与回退保护
+
+**Date**: 2026-07-23
+**Task**: 完成最终发布前检查与回退保护
+**Branch**: `main`
+
+### Summary
+
+完成 Pages 产物、9 层质量门禁和移动/桌面浏览器回归；加固 IndexedDB 回退版本静态检查，覆盖全部部署 HTML/JS/MJS、经典/模块作用域、异步别名、动态执行和嵌套脚本路径；安全 v4 ref 通过、v3 ref 被拒绝。未 push、未部署。
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `4bf4f22` | (see git log) |
+| `0dbff84` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
