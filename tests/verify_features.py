@@ -121,7 +121,7 @@ require((ROOT / "js" / "core-utils.js").is_file(), "core utility module is missi
 require((ROOT / "tests" / "core-utils.test.mjs").is_file(), "core utility tests are missing")
 require("user-scalable=no" not in HTML and "maximum-scale" not in HTML, "viewport still blocks browser zoom")
 
-require("cplayer5-v59-storage-resilience" in SW, "service worker cache version is not updated")
+require("cplayer5-v60-mobile-landscape-accessibility" in SW, "service worker cache version is not updated")
 require("'./js/app.js'" in SW, "production app module is not precached")
 require("./js/core-utils.js" in SW, "core utility module is not precached")
 require("./css/tailwind.css" in SW and "./js/tailwindcss.js" not in SW, "service worker Tailwind cache entry is stale")
@@ -228,7 +228,9 @@ require("viewport: { width: 1280, height: 800 }" in PLAYWRIGHT, "desktop quality
 require("viewport: { width: 390, height: 844 }" in PLAYWRIGHT, "mobile quality viewport changed unexpectedly")
 require("viewport: { width: 355, height: 800 }" in PLAYWRIGHT, "narrow mobile quality viewport is missing")
 require("viewport: { width: 440, height: 707 }" in PLAYWRIGHT, "wide foldable quality viewport is missing")
-require(PLAYWRIGHT.count("testMatch: /responsive-accessibility") == 2, "specialized responsive projects must run only the accessibility spec")
+require("viewport: { width: 844, height: 390 }" in PLAYWRIGHT, "wide landscape quality viewport is missing")
+require("viewport: { width: 740, height: 360 }" in PLAYWRIGHT, "compact landscape quality viewport is missing")
+require(PLAYWRIGHT.count("testMatch: /responsive-accessibility") == 4, "specialized responsive projects must run only the accessibility spec")
 require("workers: 1" in PLAYWRIGHT and "serviceWorkers: 'allow'" in PLAYWRIGHT, "PWA browser tests are not isolated deterministically")
 require("output/playwright/" in PLAYWRIGHT, "browser artifacts are not kept under output/playwright")
 require("node tests/e2e/server.mjs" in PLAYWRIGHT and "reuseExistingServer: false" in PLAYWRIGHT, "Playwright does not own the deterministic test server")
@@ -263,8 +265,24 @@ require("document.documentElement.dataset.cplayerReady === 'true'" in E2E_HELPER
         "browser readiness helper does not use the explicit app signal")
 require("readMainAudioProbe" in PLAYBACK_ERROR_E2E and "querySelector('audio')" not in PLAYBACK_ERROR_E2E,
         "playback failure test does not inspect the real Audio boundary")
-for snippet in ["AxeBuilder", "element.inert", "ArrowRight", "keyboard-progress.wav", "songRequests"]:
+for snippet in [
+    "AxeBuilder", "element.inert", "ArrowRight", "keyboard-progress.wav", "songRequests",
+    "compact landscape keeps the mobile player", "expectNoSeriousAxeViolations(page, ids.panel)",
+    "mobile playlist sheet stays open", "--cp-safe-area-top", "viewport-fit=cover",
+]:
     require(snippet in RESPONSIVE_E2E, f"responsive accessibility browser contract is missing: {snippet}")
+for snippet in [
+    "prefers-reduced-motion: reduce", "reduced motion keeps audio playing",
+    "switching reduced motion cancels", "expectNoRecurringAnimation",
+]:
+    require(snippet in RUNTIME_RESILIENCE_E2E, f"reduced-motion browser contract is missing: {snippet}")
+require("viewport-fit=cover" in HTML and "--cp-safe-area-top" in HTML and "#mobileBottomControls" in HTML,
+        "mobile safe-area selectors or viewport ownership are incomplete")
+require("prefers-reduced-motion: reduce" in HTML and "prefersReducedMotion()" in APP,
+        "reduced-motion CSS/runtime ownership is incomplete")
+require("mobileLayoutQuery" in APP and "this.isMobile = isMobileLayoutViewport()" in APP
+        and "const isNowMobile = isMobileLayoutViewport()" in APP,
+        "runtime mobile-layout ownership does not match the responsive CSS boundary")
 require("tests/e2e" not in WORKFLOW and "tests/e2e" not in PAGES_BUILDER,
         "test-only Worker/server files must not enter the Pages artifact")
 for gate_step in ["build:css", "test:unit", "check:module", "check:sw", "check:features", "audit", "build:pages", "test:e2e", "check:repo"]:

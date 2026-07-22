@@ -551,3 +551,71 @@ test('animation work stops while paused or hidden and visible resume starts one 
         expectNoRecurringAnimation(visibleResume);
     }
 });
+
+test('reduced motion keeps audio playing and stops recurring visual work', async ({ page }, testInfo) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await installAnimationFrameProbe(page);
+    await installRuntimeProbes(page, { audio: { duration: 120 } });
+    await installPlaybackBoundary(page, [SONG_A]);
+
+    await page.goto('/index.html');
+    await waitForAppReady(page);
+    await addSongsToQueue(page, [SONG_A]);
+    await playSongAndWaitForCommit(page, 0, SONG_A);
+    await expect.poll(() => page.evaluate(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches)).toBe(true);
+
+    await waitForAnimationSchedulingToSettle(page);
+    expect((await readMainAudioProbe(page)).paused).toBe(false);
+    const mobile = testInfo.project.name === 'mobile-chromium';
+    const visualIds = mobile
+        ? { album: 'mobileAlbumArtWrapper', loader: 'mobileLoaderOverlay', lyrics: 'mobileLyricsScroller' }
+        : { album: 'albumArtWrapper', loader: 'desktopLoaderOverlay', lyrics: 'lyricsScroller' };
+    const motion = await page.evaluate((ids) => ({
+        albumIterationCount: getComputedStyle(document.getElementById(ids.album)).animationIterationCount,
+        spinnerIterationCount: getComputedStyle(document.querySelector(`#${ids.loader} .animate-spin`)).animationIterationCount,
+        playlistScrollBehavior: getComputedStyle(document.querySelector('.playlist-songs')).scrollBehavior,
+        lyricsScrollBehavior: getComputedStyle(document.getElementById(ids.lyrics)).scrollBehavior
+    }), visualIds);
+    expect(motion.albumIterationCount).not.toBe('infinite');
+    expect(motion.spinnerIterationCount).not.toBe('infinite');
+    expect(motion.playlistScrollBehavior).toBe('auto');
+    expect(motion.lyricsScrollBehavior).toBe('auto');
+    expectNoRecurringAnimation(await sampleAnimationActivity(page));
+});
+
+test('switching reduced motion cancels and can restore the visual loop', async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'no-preference' });
+    await installAnimationFrameProbe(page);
+    await installRuntimeProbes(page, { audio: { duration: 120 } });
+    await installPlaybackBoundary(page, [SONG_A]);
+
+    await page.goto('/index.html');
+    await waitForAppReady(page);
+    await addSongsToQueue(page, [SONG_A]);
+    await playSongAndWaitForCommit(page, 0, SONG_A);
+    const webglState = await page.evaluate(() => {
+        const capabilityCanvas = document.createElement('canvas');
+        const capability = capabilityCanvas.getContext('webgl') || capabilityCanvas.getContext('experimental-webgl');
+        const appCanvas = document.getElementById('fluidBg');
+        const appContext = appCanvas?.getContext('webgl') || appCanvas?.getContext('experimental-webgl');
+        return {
+            supported: Boolean(capability),
+            appHasProgram: Boolean(appContext && appContext.getParameter(appContext.CURRENT_PROGRAM))
+        };
+    });
+    const hasRenderableWebgl = webglState.supported && webglState.appHasProgram;
+    const visible = await sampleAnimationActivity(page);
+    if (hasRenderableWebgl) expect(recurringCallbackDeltas(visible)).toHaveLength(1);
+
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await expect.poll(() => page.evaluate(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches)).toBe(true);
+    await expect.poll(async () => (await readAnimationFrameProbe(page)).pending).toBe(0);
+    expectNoRecurringAnimation(await sampleAnimationActivity(page));
+    expect((await readMainAudioProbe(page)).paused).toBe(false);
+
+    await page.emulateMedia({ reducedMotion: 'no-preference' });
+    await expect.poll(() => page.evaluate(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches)).toBe(false);
+    const resumed = await sampleAnimationActivity(page);
+    if (hasRenderableWebgl) expect(recurringCallbackDeltas(resumed)).toHaveLength(1);
+    else expectNoRecurringAnimation(resumed);
+});

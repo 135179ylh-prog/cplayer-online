@@ -1,4 +1,4 @@
-const CACHE_NAME = 'cplayer5-v59-storage-resilience';
+const CACHE_NAME = 'cplayer5-v60-mobile-landscape-accessibility';
 const COVER_CACHE_LIMIT = 160;
 const DYNAMIC_API_PATH_SEGMENTS = new Set([
   '163_search',

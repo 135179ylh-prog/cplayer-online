@@ -1,0 +1,1 @@
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Load the responsive accessibility, opened-overlay, geometry, and browser-test contracts before implementation."}

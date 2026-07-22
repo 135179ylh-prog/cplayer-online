@@ -28,6 +28,10 @@ function isMobileProject(testInfo) {
     return testInfo.project.name !== 'desktop-chromium';
 }
 
+function isLandscapeProject(testInfo) {
+    return testInfo.project.name.startsWith('landscape-');
+}
+
 async function waitForResponsiveAppReady(page, testInfo) {
     await waitForAppReady(page);
     if (isMobileProject(testInfo)) {
@@ -102,6 +106,97 @@ test('responsive shell has no horizontal overflow or undersized mobile targets',
     if (isMobileProject(testInfo)) expect(geometry.undersized).toEqual([]);
 });
 
+test('compact landscape keeps the mobile player and core controls inside the viewport', async ({ page }, testInfo) => {
+    test.skip(!isLandscapeProject(testInfo), 'The compact landscape contract applies only to landscape projects.');
+    await page.goto('/index.html');
+    await waitForResponsiveAppReady(page, testInfo);
+    await expect(page.locator('#mobileLayout')).toBeVisible();
+    await expect(page.locator('#desktopLayout')).toBeHidden();
+
+    const ids = [
+        'mobileViewToggle',
+        'mobileSettingsBtn',
+        'mobileVinylContainer',
+        'mobileTitle',
+        'mobileArtist',
+        'mobileMetaContainer',
+        'mobileProgressBarContainer',
+        'mobileModeBtn',
+        'mobilePrevBtn',
+        'mobilePlayBtn',
+        'mobileNextBtn',
+        'mobilePlaylistToggleBtn',
+        'mClearQueueBtnBar',
+        'myPlaylistsBtn'
+    ];
+    const geometry = await page.evaluate((targetIds) => {
+        const rects = Object.fromEntries(targetIds.map((id) => {
+            const element = document.getElementById(id);
+            const rect = element?.getBoundingClientRect();
+            const style = element ? getComputedStyle(element) : null;
+            return [id, rect ? {
+                left: rect.left,
+                top: rect.top,
+                right: rect.right,
+                bottom: rect.bottom,
+                width: rect.width,
+                height: rect.height,
+                display: style.display,
+                visibility: style.visibility,
+                opacity: style.opacity
+            } : null];
+        }));
+        const main = document.getElementById('mobileMainView')?.getBoundingClientRect();
+        const controls = document.getElementById('mobileBottomControls')?.getBoundingClientRect();
+        return {
+            rects,
+            main: main && { left: main.left, right: main.right, top: main.top, bottom: main.bottom },
+            controls: controls && { left: controls.left, right: controls.right, top: controls.top, bottom: controls.bottom },
+            grid: getComputedStyle(document.getElementById('mobileLayout')).gridTemplateColumns
+        };
+    }, ids);
+
+    const visibleRects = Object.values(geometry.rects);
+    expect(visibleRects.every((rect) => rect && rect.width > 0 && rect.height > 0
+        && rect.display !== 'none' && rect.visibility !== 'hidden' && Number(rect.opacity) > 0)).toBe(true);
+    const viewport = page.viewportSize();
+    const viewportOutside = Object.entries(geometry.rects).filter(([, rect]) =>
+        rect.left < -0.5 || rect.top < -0.5 || rect.right > viewport.width + 0.5 || rect.bottom > viewport.height + 0.5);
+    expect(viewportOutside).toEqual([]);
+    expect(geometry.main.right).toBeLessThanOrEqual(geometry.controls.left + 0.5);
+    expect(geometry.grid).not.toBe('none');
+
+    const rect = (id) => geometry.rects[id];
+    expect(rect('mobileVinylContainer').bottom).toBeLessThanOrEqual(rect('mobileTitle').top + 0.5);
+    expect(rect('mobileTitle').bottom).toBeLessThanOrEqual(rect('mobileArtist').top + 0.5);
+    expect(rect('mobileArtist').bottom).toBeLessThanOrEqual(rect('mobileMetaContainer').top + 0.5);
+    expect(rect('mobileProgressBarContainer').bottom).toBeLessThanOrEqual(rect('mobileModeBtn').top + 0.5);
+    for (const [leftId, rightId] of [
+        ['mobileModeBtn', 'mobilePrevBtn'],
+        ['mobilePrevBtn', 'mobilePlayBtn'],
+        ['mobilePlayBtn', 'mobileNextBtn'],
+        ['mobileNextBtn', 'mobilePlaylistToggleBtn'],
+        ['mClearQueueBtnBar', 'myPlaylistsBtn']
+    ]) {
+        expect(rect(leftId).right).toBeLessThanOrEqual(rect(rightId).left + 0.5);
+    }
+});
+
+test('mobile playlist sheet stays open when rotating into compact landscape', async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== 'mobile-chromium', 'The rotation regression uses the standard mobile project as its portrait start.');
+    await page.goto('/index.html');
+    await waitForResponsiveAppReady(page, testInfo);
+    const trigger = page.locator('#mobilePlaylistToggleBtn');
+    const sheet = page.locator('#mobilePlaylistSheet');
+    await trigger.click();
+    await expect(sheet).toHaveAttribute('aria-hidden', 'false');
+    await page.setViewportSize({ width: 844, height: 390 });
+    await expect(page.locator('#mobileLayout')).toBeVisible();
+    await expect(page.locator('#desktopLayout')).toBeHidden();
+    await expect(sheet).toHaveAttribute('aria-hidden', 'false');
+    await expect.poll(() => sheet.evaluate((element) => element.inert)).toBe(false);
+});
+
 test('dialogs contain focus, isolate the background, and restore the opener', async ({ page }, testInfo) => {
     await page.goto('/index.html');
     await waitForResponsiveAppReady(page, testInfo);
@@ -143,11 +238,17 @@ test('playlist panels expose state, support arrow tabs, and close with Escape', 
     await expect(panel).toHaveAttribute('aria-hidden', 'false');
     await expect.poll(() => panel.evaluate((element) => element.inert)).toBe(false);
     await expect(page.locator(ids.playlistTab)).toBeFocused();
+    const tablistChildren = await panel.locator('[role="tablist"]').evaluate((element) =>
+        [...element.children].map((child) => child.getAttribute('role') || child.tagName.toLowerCase())
+    );
+    expect(tablistChildren).toEqual(['tab', 'tab']);
+    await expectNoSeriousAxeViolations(page, ids.panel);
     await page.keyboard.press('ArrowRight');
     await expect(page.locator(ids.searchTab)).toBeFocused();
     await expect(page.locator(ids.searchTab)).toHaveAttribute('aria-selected', 'true');
     await expect.poll(() => page.locator(ids.playlistPanel).evaluate((element) => element.inert)).toBe(true);
     await expect.poll(() => page.locator(ids.searchPanel).evaluate((element) => element.inert)).toBe(false);
+    await expectNoSeriousAxeViolations(page, ids.panel);
 
     await page.keyboard.press('Escape');
     await expect(panel).toHaveAttribute('aria-hidden', 'true');
@@ -313,4 +414,47 @@ test('core shell and settings dialog have no serious Axe violations', async ({ p
     await expect(page.locator('#settingsModal')).toBeVisible();
     await expect(page.locator('#settingsModal')).toHaveCSS('opacity', '1');
     await expectNoSeriousAxeViolations(page, '#settingsModal');
+});
+
+test('mobile safe-area variables reach the real layout controls and sheet', async ({ page }, testInfo) => {
+    test.skip(!isMobileProject(testInfo), 'Safe-area ownership applies to the mobile layout.');
+    await page.goto('/index.html');
+    await waitForResponsiveAppReady(page, testInfo);
+    await page.evaluate(() => {
+        const root = document.documentElement;
+        root.style.setProperty('--cp-safe-area-top', '13px');
+        root.style.setProperty('--cp-safe-area-right', '19px');
+        root.style.setProperty('--cp-safe-area-bottom', '21px');
+        root.style.setProperty('--cp-safe-area-left', '23px');
+    });
+    const values = await page.evaluate(() => {
+        const meta = document.querySelector('meta[name="viewport"]')?.content || '';
+        const layout = document.getElementById('mobileLayout');
+        const viewToggle = document.getElementById('mobileViewToggle');
+        const settings = document.getElementById('mobileSettingsBtn');
+        const controls = document.getElementById('mobileBottomControls');
+        const sheet = document.getElementById('mobilePlaylistSheet');
+        return {
+            meta,
+            layoutPaddingTop: getComputedStyle(layout).paddingTop,
+            viewToggleLeft: getComputedStyle(viewToggle).left,
+            settingsRight: getComputedStyle(settings).right,
+            controlsPaddingLeft: getComputedStyle(controls).paddingLeft,
+            controlsPaddingRight: getComputedStyle(controls).paddingRight,
+            controlsPaddingBottom: getComputedStyle(controls).paddingBottom,
+            sheetPaddingLeft: getComputedStyle(sheet).paddingLeft,
+            sheetPaddingRight: getComputedStyle(sheet).paddingRight,
+            sheetPaddingBottom: getComputedStyle(sheet).paddingBottom
+        };
+    });
+    expect(values.meta).toContain('viewport-fit=cover');
+    expect(values.layoutPaddingTop).toBe('13px');
+    expect(values.viewToggleLeft).toBe('23px');
+    expect(values.settingsRight).toBe('19px');
+    expect(values.controlsPaddingLeft).toBe('23px');
+    expect(values.controlsPaddingRight).toBe('19px');
+    expect(values.controlsPaddingBottom).toBe('21px');
+    expect(values.sheetPaddingLeft).toBe('23px');
+    expect(values.sheetPaddingRight).toBe('19px');
+    expect(values.sheetPaddingBottom).toBe('21px');
 });

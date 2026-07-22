@@ -765,9 +765,10 @@ handleProgressKeydown(event)
 ```
 
 The browser matrix is desktop `1280x800`, mobile `390x844`, narrow mobile
-`355x800`, and wide foldable `440x707`. The last two projects run only
-`responsive-accessibility.spec.mjs`; they do not multiply storage and PWA
-flows that are already covered by desktop/mobile.
+`355x800`, wide foldable `440x707`, wide landscape `844x390`, and compact
+landscape `740x360`. The last four projects run only
+`responsive-accessibility.spec.mjs`; they do not multiply storage and PWA flows
+that are already covered by desktop/mobile.
 
 ### 3. Contracts
 
@@ -780,7 +781,9 @@ flows that are already covered by desktop/mobile.
   their trigger has `aria-expanded="false"`. Opening reverses all three and
   focuses the active tab. Escape closes the panel only when no dialog is open.
 - Tabs use `tablist`/`tab`/`tabpanel`, roving `tabindex`, `aria-selected`, and
-  left/right/Home/End navigation. Inactive panels are hidden and inert.
+  left/right/Home/End navigation. A tablist's direct interactive children are
+  tabs only; unrelated commands remain sibling controls. Inactive panels are
+  hidden and inert.
 - Playback progress uses slider semantics and exposes percent plus readable
   elapsed/total time. Arrow keys seek five seconds; Home/End seek to the media
   boundaries. No duration means `aria-disabled="true"`.
@@ -789,8 +792,20 @@ flows that are already covered by desktop/mobile.
 - A song row with secondary actions uses a native primary play button plus
   sibling action buttons. Never put nested buttons inside a click-only row.
 - Visible mobile buttons, tabs, and row actions are at least `44x44` CSS px.
-  All four target viewports have no document-level horizontal overflow or
+  All six target viewports have no document-level horizontal overflow or
   clipped interactive targets.
+- Compact landscape up to `900x500` uses the mobile player even above the
+  normal `md` breakpoint. Header actions, cover/metadata, progress, primary
+  controls, and secondary actions remain inside the viewport in separate
+  non-overlapping columns. JavaScript uses the same layout query; rotating from
+  portrait into compact landscape must not close an open mobile sheet.
+- Mobile safe areas use `viewport-fit=cover` plus shared root variables wired
+  to the real layout, header controls, bottom controls, and sheet. Tests inject
+  the variables because Chromium cannot emulate a device cutout.
+- `prefers-reduced-motion: reduce` stops recurring visual RAF loops, infinite
+  CSS motion, and smooth scrolling without pausing audio or disabling one-shot
+  focus, resize, and virtual-list frames. A live preference change resynchronizes
+  the existing visual lifecycle.
 - The viewport meta must allow browser zoom. Never add `user-scalable=no` or a
   restrictive `maximum-scale`.
 - Delayed focus must not steal focus after the user moves elsewhere. Prefer the
@@ -808,6 +823,10 @@ flows that are already covered by desktop/mobile.
 | Mobile autoplay is blocked | Progress keyboard test accepts the already-paused state and still uses real metadata. |
 | Dialog opacity is transitioning | Axe scan waits for final opacity `1`; final state must have no serious/critical violation. |
 | Viewport is 355, 390, or 440px wide | No visible interactive target is below 44px or outside the viewport. |
+| Viewport is `844x390` or `740x360` | Mobile layout is active; cover and every core control remain wholly inside the viewport without column overlap. |
+| An open mobile sheet rotates from `390x844` to `844x390` | The layout remains mobile and the sheet stays open, expanded, and non-inert. |
+| Safe-area variables are non-zero | Top/left/right/bottom spacing reaches the real mobile layout, header buttons, controls, and sheet. |
+| Reduced motion is enabled during playback | Audio remains playing; recurring visual frames stop and CSS motion is finite. |
 
 ### 5. Good / Base / Bad Cases
 
@@ -821,19 +840,27 @@ flows that are already covered by desktop/mobile.
 
 ### 6. Tests Required
 
-- Axe Playwright: shell and open Settings have zero critical/serious violations
-  in all four viewport projects.
+- Axe Playwright: shell, open Settings, open playlist, and open search states
+  have zero critical/serious violations in all six viewport projects.
 - Geometry: root width does not overflow; visible mobile interactive targets
-  are at least 44px and remain inside the viewport.
+  are at least 44px and remain inside the viewport. Both compact landscape
+  projects also prove the cover, metadata, and control columns do not clip or
+  overlap.
 - Focus: Settings contains Tab, Escape hides it after animation, and focus
   returns to the desktop/mobile opener.
 - Layers: nested playlist detail closes one level at a time.
 - Panels/tabs: hidden/inert/expanded states round-trip; ArrowRight changes the
-  selected tab; Escape returns focus to the trigger.
+  selected tab; Escape returns focus to the trigger. Portrait-to-compact-
+  landscape rotation preserves an already open mobile sheet.
 - Progress: a Range-capable mocked audio boundary supplies real metadata;
   ArrowRight/Home/End update slider time and percent.
 - Dynamic songs: the primary search result is a native button and Enter reaches
   the mocked song API boundary. External ChKSz availability is never used.
+- Safe area: non-zero production CSS variables reach every owned mobile edge;
+  viewport metadata includes `viewport-fit=cover`.
+- Reduced motion: mocked playback remains active at load and across live media
+  query changes while RAF probes prove recurring visual work stops/resumes as
+  required.
 
 ### 7. Wrong vs Correct
 

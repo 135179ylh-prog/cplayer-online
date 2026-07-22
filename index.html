@@ -3,7 +3,7 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <meta name="cplayer-api-base-url" content="https://api.chksz.top/api">
     <title>CPlayer 5</title>
 
@@ -38,7 +38,7 @@
         */
 
         :root {
-            /* 
+            /*
              * 极简配色 - 无主题色概念
              * 磨砂玻璃拟态 + Google M3 圆角风格
              */
@@ -72,6 +72,12 @@
             --m3-radius-l: 28px;
             --m3-radius-xl: 32px;
             --m3-radius-full: 9999px;
+
+            /* Mobile display cutouts and home indicators */
+            --cp-safe-area-top: env(safe-area-inset-top, 0px);
+            --cp-safe-area-right: env(safe-area-inset-right, 0px);
+            --cp-safe-area-bottom: env(safe-area-inset-bottom, 0px);
+            --cp-safe-area-left: env(safe-area-inset-left, 0px);
         }
 
         /* html.dark 与 :root 一致，无需重复定义 */
@@ -481,7 +487,7 @@
         }
 
         /*
-        磨砂玻璃歌词卡片 
+        磨砂玻璃歌词卡片
         .lyrics-card {
             background-color: rgba(255, 255, 255, 0.05) !important;
             backdrop-filter: blur(30px);
@@ -933,23 +939,82 @@
             }
         }
 
-        /* 横屏模式适配 */
-        @media (max-height: 500px) and (orientation: landscape) {
+        /* Compact landscape remains the mobile player even above Tailwind's md breakpoint. */
+        @media (max-width: 900px) and (max-height: 500px) and (orientation: landscape) {
             :root {
                 --cover-size: clamp(140px, 30vh, 200px);
+            }
+
+            #desktopLayout {
+                display: none !important;
+            }
+
+            #mobileLayout {
+                display: grid !important;
+                grid-template-columns: minmax(240px, 42%) minmax(0, 58%);
+                grid-template-rows: 48px minmax(0, 1fr);
             }
 
             .visualizer-container {
                 margin-bottom: 8px;
             }
 
-            #mobileLayout header {
-                display: none !important;
+            #mobileLayout > header {
+                display: flex !important;
+                grid-column: 1 / -1;
+                grid-row: 1;
+                height: 48px;
+            }
+
+            #mobileMainView {
+                grid-column: 1;
+                grid-row: 2;
+                min-width: 0;
+                min-height: 0;
+            }
+
+            #mobileCoverContainer {
+                padding: 4px 8px !important;
             }
 
             #mobileVinylContainer {
+                --cover-size: min(42vh, 170px) !important;
                 margin-top: 0 !important;
                 margin-bottom: 4px !important;
+            }
+
+            #mobileTitle {
+                font-size: 1.1rem !important;
+            }
+
+            #mobileArtist {
+                font-size: 0.875rem !important;
+            }
+
+            #mobileMetaContainer {
+                gap: 4px !important;
+                margin-top: 4px !important;
+            }
+
+            #mobileBottomControls {
+                grid-column: 2;
+                grid-row: 2;
+                min-width: 0;
+                min-height: 0;
+                overflow-y: auto;
+                display: flex;
+                flex-direction: column;
+                justify-content: center;
+                padding-top: 4px;
+            }
+
+            #mobileProgressControls {
+                margin-bottom: 4px !important;
+            }
+
+            #mobileControlBar {
+                gap: 4px !important;
+                margin-bottom: 0 !important;
             }
         }
 
@@ -959,14 +1024,36 @@
                 background: rgba(20, 20, 20, 0.9) !important;
             }
         }
-    
-        /* Mobile foldable safe-area + reachability tweaks */
-        @media (max-width: 768px) {
-            body { padding-top: env(safe-area-inset-top); }
-            #mobileUI { padding-bottom: calc(env(safe-area-inset-bottom) + 12px); }
-            .mobile-controls { padding-bottom: calc(env(safe-area-inset-bottom) + 20px); }
+
+        /* Mobile safe-area + reachability tweaks */
+        @media (max-width: 900px) {
+            #mobileLayout { padding-top: var(--cp-safe-area-top); }
+            #mobileViewToggle { left: max(1rem, var(--cp-safe-area-left)); }
+            #mobileSettingsBtn { right: max(1rem, var(--cp-safe-area-right)); }
+            #mobileBottomControls {
+                padding-right: max(1rem, var(--cp-safe-area-right));
+                padding-bottom: var(--cp-safe-area-bottom);
+                padding-left: max(1rem, var(--cp-safe-area-left));
+            }
+            #mobilePlaylistSheet {
+                padding-right: var(--cp-safe-area-right);
+                padding-bottom: var(--cp-safe-area-bottom);
+                padding-left: var(--cp-safe-area-left);
+            }
             #mobilePlaylistToggleBtn, #mClearQueueBtnBar, #myPlaylistsBtn { min-height: 44px; min-width: 44px; }
             #mobilePlaylistToggleBtn { font-size: 14px; }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            *,
+            *::before,
+            *::after {
+                scroll-behavior: auto !important;
+                animation-duration: 0.01ms !important;
+                animation-iteration-count: 1 !important;
+                transition-duration: 0.01ms !important;
+                transition-delay: 0s !important;
+            }
         }
 
         /* User playlist detail controls keep a stable touch target on narrow screens. */
@@ -1339,16 +1426,18 @@
 
             <!-- Tab 切换头部 -->
             <div class="flex-none pt-5 pb-0 px-5">
-                <div class="flex items-center gap-5 border-b border-white/10 pb-3" role="tablist" aria-label="播放列表和搜索视图">
-                    <button id="desktopTabPlaylist" role="tab" aria-selected="true" aria-controls="desktopContentPlaylist"
-                        class="min-h-[44px] text-base font-bold border-b-2 border-primary-color pb-1 transition-all opacity-100">
-                        <i class="fas fa-list-ul mr-1.5 text-primary-color"></i>当前播放
-                        <span id="playlistCount" class="text-xs opacity-50 font-normal ml-1"></span>
-                    </button>
-                    <button id="desktopTabSearch" role="tab" aria-selected="false" aria-controls="desktopContentSearch"
-                        class="min-h-[44px] text-base font-bold border-b-2 border-transparent pb-1 transition-all opacity-50">
-                        <i class="fas fa-search mr-1.5"></i>搜索添加
-                    </button>
+                <div class="flex items-center border-b border-white/10 pb-3">
+                    <div class="flex items-center gap-5" role="tablist" aria-label="播放列表和搜索视图">
+                        <button id="desktopTabPlaylist" role="tab" aria-selected="true" aria-controls="desktopContentPlaylist"
+                            class="min-h-[44px] text-base font-bold border-b-2 border-primary-color pb-1 transition-all opacity-100">
+                            <i class="fas fa-list-ul mr-1.5 text-primary-color"></i>当前播放
+                            <span id="playlistCount" class="text-xs opacity-50 font-normal ml-1"></span>
+                        </button>
+                        <button id="desktopTabSearch" role="tab" aria-selected="false" aria-controls="desktopContentSearch"
+                            class="min-h-[44px] text-base font-bold border-b-2 border-transparent pb-1 transition-all opacity-50">
+                            <i class="fas fa-search mr-1.5"></i>搜索添加
+                        </button>
+                    </div>
                     <button id="clearQueueBtn" type="button"
                         class="ml-auto px-3 min-h-[44px] rounded-lg bg-red-500/20 text-red-200 text-xs font-medium hover:bg-red-500/30 border border-red-400/30"
                         title="清空播放列表" aria-label="清空当前播放列表">清空</button>
@@ -1472,9 +1561,9 @@
         </div>
 
         <!-- 3. Bottom Controls -->
-        <div class="flex-none p-4 pb-0 bg-gradient-to-t from-black/80 to-transparent">
+        <div id="mobileBottomControls" class="flex-none p-4 pb-0 bg-gradient-to-t from-black/80 to-transparent">
             <!-- Progress - 增大触摸区域 -->
-            <div class="flex items-center gap-2 mb-4">
+            <div id="mobileProgressControls" class="flex items-center gap-2 mb-4">
                 <span id="mobileCurrentTime" class="text-xs font-mono opacity-70 w-10 text-right">0:00</span>
                 <div class="flex-1 h-12 flex items-center group relative cursor-pointer"
                     id="mobileProgressBarContainer" role="slider" tabindex="0" aria-label="播放进度"

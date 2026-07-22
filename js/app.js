@@ -330,6 +330,13 @@
         let activePlaybackAttempt = null;
         let committedMedia = null;
         let visualizerController = null;
+        const reducedMotionQuery = typeof window.matchMedia === 'function'
+            ? window.matchMedia('(prefers-reduced-motion: reduce)')
+            : null;
+        const mobileLayoutQuery = typeof window.matchMedia === 'function'
+            ? window.matchMedia('(max-width: 767px), (max-width: 900px) and (max-height: 500px) and (orientation: landscape)')
+            : null;
+        let reducedMotionListenerBound = false;
 
         // ================= IndexedDB 缓存系统 =================
         const DB_NAME = 'CPlayer5DB';
@@ -2718,6 +2725,7 @@ async function refreshUserPlaylistLibrary() {
             await loadDefaultPlaylist();
             flushStorageWarning();
             setupServiceWorkerUpdates();
+            setupReducedMotionPreference();
             initVisualizer();
             initCanvasRenderers();
             // checkSystemTheme(); // Removed
@@ -2748,8 +2756,8 @@ async function refreshUserPlaylistLibrary() {
 
         function initEventListeners() {
             initAccessibleOverlayManager();
-            dom.searchButton.addEventListener('click', () => { if (window.innerWidth >= 768 && typeof switchDesktopTab === 'function') switchDesktopTab('search'); searchSongs(dom.searchInput.value); });
-            dom.searchInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') { if (window.innerWidth >= 768 && typeof switchDesktopTab === 'function') switchDesktopTab('search'); searchSongs(dom.searchInput.value); } });
+            dom.searchButton.addEventListener('click', () => { if (!isMobileLayoutViewport() && typeof switchDesktopTab === 'function') switchDesktopTab('search'); searchSongs(dom.searchInput.value); });
+            dom.searchInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') { if (!isMobileLayoutViewport() && typeof switchDesktopTab === 'function') switchDesktopTab('search'); searchSongs(dom.searchInput.value); } });
 
             // Floating Toggle Button - opens sidebar
             document.getElementById('togglePlaylistBtn').addEventListener('click', (e) => {
@@ -2896,7 +2904,7 @@ async function refreshUserPlaylistLibrary() {
 
             const mobileSettingsButtons = document.getElementById('mobileSettingsButtons');
             const updateMobileButtonsVisibility = () => {
-                const isMobile = window.innerWidth <= 768;
+                const isMobile = isMobileLayoutViewport();
                 if (mobileSettingsButtons) {
                     if (isMobile) {
                         mobileSettingsButtons.classList.remove('hidden');
@@ -5153,6 +5161,25 @@ async function refreshUserPlaylistLibrary() {
             if (fluidBg) fluidBg.setPlaying(isPlaying);
         }
 
+        function prefersReducedMotion() {
+            return Boolean(reducedMotionQuery && reducedMotionQuery.matches);
+        }
+
+        function isMobileLayoutViewport() {
+            return mobileLayoutQuery ? mobileLayoutQuery.matches : window.innerWidth < 768;
+        }
+
+        function setupReducedMotionPreference() {
+            if (!reducedMotionQuery || reducedMotionListenerBound) return;
+            const handleChange = function () { syncVisualLifecycle(); };
+            if (typeof reducedMotionQuery.addEventListener === 'function') {
+                reducedMotionQuery.addEventListener('change', handleChange);
+            } else if (typeof reducedMotionQuery.addListener === 'function') {
+                reducedMotionQuery.addListener(handleChange);
+            }
+            reducedMotionListenerBound = true;
+        }
+
         function initVisualizer() {
             if (visualizerController) return visualizerController;
             const canvas = document.getElementById('audioVisualizer');
@@ -5176,7 +5203,7 @@ async function refreshUserPlaylistLibrary() {
             let animationFrameId = null;
 
             function shouldDraw() {
-                return !!(analyser && isPlaying && document.visibilityState === 'visible');
+                return !!(analyser && isPlaying && !prefersReducedMotion() && document.visibilityState === 'visible');
             }
 
             function draw() {
@@ -5367,7 +5394,7 @@ async function refreshUserPlaylistLibrary() {
         // ================= ★ Mobile UI Manager (Updated) =================
         class MobileUIManager {
             constructor() {
-                this.isMobile = window.innerWidth < 768;
+                this.isMobile = isMobileLayoutViewport();
                 this.currentMode = 'cover';
                 this.activeSheetTab = 'playlist'; // playlist | search
                 this.searchRequestId = 0;
@@ -5946,7 +5973,7 @@ async function refreshUserPlaylistLibrary() {
             }
 
             handleResize() {
-                const isNowMobile = window.innerWidth < 768;
+                const isNowMobile = isMobileLayoutViewport();
                 if (this.isMobile !== isNowMobile) {
                     this.isMobile = isNowMobile;
                     if (!this.isMobile) {
@@ -6217,7 +6244,7 @@ async function refreshUserPlaylistLibrary() {
             }
 
             shouldAnimate() {
-                return !!(this.gl && this.program && this.isPlaying && document.visibilityState === 'visible');
+                return !!(this.gl && this.program && this.isPlaying && !prefersReducedMotion() && document.visibilityState === 'visible');
             }
 
             syncAnimation() {

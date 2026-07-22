@@ -62,6 +62,22 @@ export default defineConfig({
                 ...devices['Pixel 5'],
                 viewport: { width: 440, height: 707 }
             }
+        },
+        {
+            name: 'landscape-wide-chromium',
+            testMatch: /responsive-accessibility\.spec\.mjs/,
+            use: {
+                ...devices['Pixel 5'],
+                viewport: { width: 844, height: 390 }
+            }
+        },
+        {
+            name: 'landscape-compact-chromium',
+            testMatch: /responsive-accessibility\.spec\.mjs/,
+            use: {
+                ...devices['Pixel 5'],
+                viewport: { width: 740, height: 360 }
+            }
         }
     ]
 });
