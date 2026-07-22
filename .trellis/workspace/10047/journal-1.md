@@ -471,3 +471,36 @@ Hardened committed-media ownership, queue reset, Media Session seeking, lifecycl
 ### Next Steps
 
 - None - task complete
+
+
+## Session 15: Browser storage resilience
+
+**Date**: 2026-07-22
+**Task**: Browser storage resilience
+**Branch**: `main`
+
+### Summary
+
+Hardened browser storage lifecycle, queue conflict protection, quota recovery, disposable cache bounds, and Service Worker cache isolation; final 8-layer gate passed.
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `2b26ac4` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
