@@ -72,7 +72,7 @@ Close verified mobile landscape clipping and opened-sidebar accessibility gaps, 
   check, and the complete `npm run verify` gate pass.
 - [x] The responsive accessibility contract and task verification evidence are
   updated.
-- [ ] Changes are committed and archived locally without push or deploy.
+- [x] Changes are committed and archived locally without push or deploy.
 
 ## Out Of Scope
 
