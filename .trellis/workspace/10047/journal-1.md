@@ -405,3 +405,36 @@ Added user-controlled PWA update prompts, awaited queue restore and pre-reload p
 ### Next Steps
 
 - None - task complete
+
+
+## Session 13: Release candidate audit and handoff
+
+**Date**: 2026-07-22
+**Task**: Release candidate audit and handoff
+**Branch**: `main`
+
+### Summary
+
+完成长期 Goal 的本地发布候选审计：八条核心链路与五项 Goal 标准建立当前证据矩阵，manifest 改为不夸大音质的描述，Service Worker 提升到 v57。新增发布说明、非破坏性回退方案和华为 Pura X/TalkBack 实体设备清单。PW_PORT=4175 的 npm run verify 8/8 层通过，82 个浏览器用例 80 通过、2 个预期跳过。未推送、未部署；实体后台/锁屏/读屏和远端 Pages 仍待用户执行。
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `0a94177` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
