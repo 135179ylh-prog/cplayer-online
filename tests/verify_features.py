@@ -21,6 +21,10 @@ SEARCH_E2E = (ROOT / "tests" / "e2e" / "search-recovery.spec.mjs").read_text(enc
 SHELL_E2E = (ROOT / "tests" / "e2e" / "app-shell.spec.mjs").read_text(encoding="utf-8")
 API_CONFIG_E2E = (ROOT / "tests" / "e2e" / "api-config.spec.mjs").read_text(encoding="utf-8")
 SW_UPDATE_E2E = (ROOT / "tests" / "e2e" / "service-worker-update.spec.mjs").read_text(encoding="utf-8")
+SW_KEY_CACHE_E2E = (ROOT / "tests" / "e2e" / "service-worker-key-cache.spec.mjs").read_text(encoding="utf-8")
+RUNTIME_RESILIENCE_E2E = (ROOT / "tests" / "e2e" / "runtime-background-resilience.spec.mjs").read_text(encoding="utf-8")
+PLAYBACK_ERROR_E2E = (ROOT / "tests" / "e2e" / "playback-error.spec.mjs").read_text(encoding="utf-8")
+E2E_HELPERS = (ROOT / "tests" / "e2e" / "helpers.mjs").read_text(encoding="utf-8")
 RESPONSIVE_E2E = (ROOT / "tests" / "e2e" / "responsive-accessibility.spec.mjs").read_text(encoding="utf-8")
 TEST_SERVER = (ROOT / "tests" / "e2e" / "server.mjs").read_text(encoding="utf-8")
 OLD_SW_FIXTURE = (ROOT / "tests" / "e2e" / "fixtures" / "sw-old.js").read_text(encoding="utf-8")
@@ -57,12 +61,19 @@ required_app = {
     "API base storage read": "localStorage.getItem('cp_api_base')",
     "PWA controller replacement listener": "navigator.serviceWorker.addEventListener('controllerchange'",
     "PWA safe update reload": "flushScheduledQueueSave('sw_update_reload')",
-    "PWA update registration after queue restore": "await loadDefaultPlaylist();\n            setupServiceWorkerUpdates();",
+    "committed playback identity": "let committedMedia = null;",
+    "shared media reset": "function resetPlaybackIdentity()",
+    "committed media resume": "async function resumeCommittedMedia(source)",
+    "ended media ownership guard": "activePlaybackAttempt.token !== committedMedia.token",
+    "bounded media session seek": "function seekMainAudio(target, options)",
+    "explicit app readiness": "document.documentElement.dataset.cplayerReady = 'true';",
+    "visual lifecycle owner": "function syncVisualLifecycle()",
+    "paused WebGL resize redraw": "if (document.visibilityState === 'visible' && !this.shouldAnimate()) this.render();",
     "offline feedback": "window.addEventListener('offline'",
     "safe search title": "titleDiv.textContent = song.name ||",
     "mobile instance export": "window.mobileUI = mobileUI;",
     "mobile add action": "this.loadPlaylist();",
-    "bounded mobile initialization": "playlistWaitAttempts >= 40",
+    "synchronous mobile initialization": "function initCanvasRenderers()",
     "service worker update policy": "updateViaCache: 'none'",
     "dynamic cover sizing": 'width="40" height="40" decoding="async"',
     "accessible overlay stack": "const accessibleOverlayStack = [];",
@@ -76,6 +87,15 @@ for label, snippet in required_html.items():
 for label, snippet in required_app.items():
     require(snippet in APP, f"missing {label}: {snippet}")
 
+boot_order = [
+    APP.index("await loadDefaultPlaylist();"),
+    APP.index("setupServiceWorkerUpdates();", APP.index("await loadDefaultPlaylist();")),
+    APP.index("initCanvasRenderers();", APP.index("await loadDefaultPlaylist();")),
+    APP.index("setupMediaSessionHandlers();", APP.index("await loadDefaultPlaylist();")),
+    APP.index("markCPlayerReady();", APP.index("await loadDefaultPlaylist();")),
+]
+require(boot_order == sorted(boot_order) and len(set(boot_order)) == len(boot_order), "app-ready signal precedes required boot work")
+
 require('<script type="module">' not in HTML, "main app module is still inline")
 require("from './core-utils.js';" in APP and "./js/core-utils.js" not in APP, "app module import path is invalid")
 require("self.loadPlaylist();" not in APP, "mobile search still uses the window self object")
@@ -87,7 +107,7 @@ require((ROOT / "js" / "core-utils.js").is_file(), "core utility module is missi
 require((ROOT / "tests" / "core-utils.test.mjs").is_file(), "core utility tests are missing")
 require("user-scalable=no" not in HTML and "maximum-scale" not in HTML, "viewport still blocks browser zoom")
 
-require("cplayer5-v57-release-candidate" in SW, "service worker cache version is not updated")
+require("cplayer5-v58-runtime-background-resilience" in SW, "service worker cache version is not updated")
 require("'./js/app.js'" in SW, "production app module is not precached")
 require("./js/core-utils.js" in SW, "core utility module is not precached")
 require("./css/tailwind.css" in SW and "./js/tailwindcss.js" not in SW, "service worker Tailwind cache entry is stale")
@@ -97,6 +117,14 @@ require("k.startsWith('cplayer5-') && k !== CACHE_NAME" in SW, "cache cleanup is
 require("event.request.mode === 'navigate'" in SW, "navigation fallback is missing")
 require("isAppShellNavigation(url)" in SW, "navigation cache writes are not limited to the app shell")
 require("url.pathname === scope.pathname" in SW, "app shell navigation does not recognize the scoped root")
+fetch_handler = SW[SW.index("self.addEventListener('fetch'"):]
+keyed_network_branch = fetch_handler.find("url.searchParams.has('apikey')")
+known_api_branch = fetch_handler.find("url.hostname === 'api.chksz.top'")
+first_cache_lookup = fetch_handler.find("caches.match(")
+require(
+    0 <= keyed_network_branch < known_api_branch < first_cache_lookup,
+    "keyed and known ChKSz API requests must bypass every fetch-handler cache lookup",
+)
 image_branch = SW.find("url.hostname.includes('music.126.net') && url.pathname.match")
 cdn_network_branch = SW.find("url.hostname.includes('music.126.net'))")
 require(image_branch >= 0 and cdn_network_branch > image_branch, "cover cache branch is shadowed by CDN network branch")
@@ -178,6 +206,20 @@ require("Service-Worker-Allowed" in TEST_SERVER and "tests/e2e/fixtures/sw-old.j
 require("cplayer5-test-old" in OLD_SW_FIXTURE and "self.clients.claim()" in OLD_SW_FIXTURE, "old Worker fixture does not establish an active prior installation")
 for snippet in ["OLD_WORKER_PATH", "controller?.scriptURL", "UNRELATED_CACHE_NAME", "setOffline(true)", "readQueueRecord", "'/js/app.js'"]:
     require(snippet in SW_UPDATE_E2E, f"service worker upgrade browser contract is missing: {snippet}")
+for snippet in ["randomUUID", "/manifest.json?apikey=", "cache.put", ".delete(url)", "caches.match(url)"]:
+    require(snippet in SW_KEY_CACHE_E2E, f"service worker key-cache browser contract is missing: {snippet}")
+for snippet in [
+    "installRuntimeProbes", "PageTransitionEvent('pagehide'", "removeSongFromQueue",
+    "system play resumes committed song A", "ended committed media",
+    "autoplay rejection after a source switch", "explicit clear-queue command",
+    "seekbackward", "seekforward", "currentTimeAssignments", "loadCalls", "webglDrawCalls",
+    "installAnimationFrameProbe", "setTestDocumentVisibility",
+]:
+    require(snippet in RUNTIME_RESILIENCE_E2E, f"runtime resilience browser contract is missing: {snippet}")
+require("document.documentElement.dataset.cplayerReady === 'true'" in E2E_HELPERS,
+        "browser readiness helper does not use the explicit app signal")
+require("readMainAudioProbe" in PLAYBACK_ERROR_E2E and "querySelector('audio')" not in PLAYBACK_ERROR_E2E,
+        "playback failure test does not inspect the real Audio boundary")
 for snippet in ["AxeBuilder", "element.inert", "ArrowRight", "keyboard-progress.wav", "songRequests"]:
     require(snippet in RESPONSIVE_E2E, f"responsive accessibility browser contract is missing: {snippet}")
 require("tests/e2e" not in WORKFLOW, "test-only Worker/server files must not enter the Pages artifact")

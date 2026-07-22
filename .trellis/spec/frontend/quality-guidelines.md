@@ -289,6 +289,10 @@ base remains the value of `meta[name="cplayer-api-base-url"]`.
   `ChKSzAPI.buildUrl`; no endpoint may append `apikey` independently.
 - `buildUrl` uses `URLSearchParams`, includes a trimmed non-empty key as the
   query parameter named exactly `apikey`, and omits it when the key is empty.
+- The Service Worker must route every URL containing the `apikey` query
+  parameter directly to the network before any `caches.match` call. This rule is
+  hostname-independent so a same-origin custom proxy cannot persist the key in
+  CacheStorage.
 - A custom base must be an absolute HTTP(S) URL with a hostname and without
   credentials, query, or fragment. Invalid stored data falls back to the
   default base; saving the default removes the redundant `cp_api_base` key.
@@ -314,6 +318,7 @@ base remains the value of `meta[name="cplayer-api-base-url"]`.
 | HTTP is 200 and JSON code is 401 or 403 | Produce the same auth behavior as an HTTP auth status. |
 | Playback gets an auth error | Pause/stop recovery; do not request the next queue item. |
 | Settings reset | Remove both storage keys; subsequent requests use the default without `apikey`. |
+| Same-origin custom base sends `apikey` | Network response is used; no cached response is read or written for that URL. |
 
 ### 5. Good / Base / Bad Cases
 
@@ -337,6 +342,10 @@ base remains the value of `meta[name="cplayer-api-base-url"]`.
   feedback, and reset to a key-free default request.
 - Route-mocked tests set `serviceWorkers: 'block'`; generated keys and route
   payloads must not use a real credential or call the live service.
+- Service Worker browser test: preseed a same-origin keyed URL with a marker
+  response, fetch it under the active Worker, prove the network response wins,
+  delete the entry, fetch again, and prove the URL is still absent from every
+  application cache.
 
 ### 7. Wrong vs Correct
 
@@ -346,6 +355,141 @@ const url = base + '/163_music?id=' + id + '&apikey=fixed-value';
 
 // Correct: the centralized builder reads optional runtime browser state.
 const url = ChKSzAPI.buildUrl('/163_music', { id, level });
+```
+
+## Deterministic Playback and Runtime Lifecycle Contract
+
+### 1. Scope / Trigger
+
+This contract applies whenever the main `Audio` source, playback request flow,
+resume session, queue-empty behavior, Media Session actions, application boot,
+or a continuous canvas/WebGL animation changes. A song requested from the API is
+not necessarily the media currently loaded in the browser.
+
+### 2. Signatures
+
+```js
+activePlaybackAttempt
+// pending async work; changes before the song API resolves
+
+committedMedia
+// { token, songId, source, ready }; owns the main Audio source
+
+commitMediaIdentity(attempt, source)
+resetPlaybackIdentity()
+
+seekMainAudio(target, options)
+// options.fastSeek is optional and defaults to false
+syncVisualLifecycle()
+
+document.documentElement.dataset.cplayerReady = 'true'
+window.dispatchEvent(new CustomEvent('cplayer:ready'))
+```
+
+Browser tests install `Audio`, Media Session, and animation probes with
+`page.addInitScript` before navigation. The main audio object remains a real
+`HTMLAudioElement`; production has no test-mode branch and does not add a DOM
+`<audio>` solely for inspection.
+
+### 3. Contracts
+
+- `activePlaybackAttempt` cancels stale network/lyric/cover work only. Resume
+  persistence must never take a song id from it.
+- `committedMedia` changes only when a playable URL is assigned to the main
+  `Audio`. It becomes ready on real `loadedmetadata` or `play`, and its normalized
+  source must still match the audio source before time/duration can be saved.
+- `savePlaybackSession` resolves the queue index from `committedMedia.songId`.
+  During a pending song-B request, page hide may save song A only as song A; it
+  must never write song B with song A's clock.
+- Page and system play commands resume the committed source even when a newer
+  request is pending. An `ended` event resolves its queue index from committed
+  media and returns without advancing when a different attempt is pending.
+- Replacing `audio.src` synchronizes paused UI, Media Session, and visual state
+  before autoplay. Policy/abort failures repeat that synchronization when the
+  native element is paused, so the next user play command remains usable.
+- Final-item removal and explicit queue clearing call the same reset owner. Reset
+  invalidates the attempt token before pausing/unloading main and preload audio,
+  clears the resume record, metadata, position state, and playback state, and
+  leaves an earlier captured system `play` handler unable to revive the source.
+- `seekto`, `seekbackward`, `seekforward`, keyboard progress, and pointer progress
+  share one finite clamping boundary. Missing forward/back offsets default to 10
+  seconds; explicitly invalid, non-positive, or infinite offsets are ignored.
+- Media Session position state is published only for a committed ready source
+  with finite positive duration/rate and position inside `[0, duration]`. A new
+  source and a reset clear the old position state.
+- The app-ready signal is emitted once, after IndexedDB/queue restore, core event
+  registration, update setup, synchronous mobile UI construction, and Media
+  Session handler registration. Tests do not infer readiness from an unrelated
+  global function.
+- A continuous renderer owns at most one request id. Audio-reactive work requires
+  an analyser, active playback, and a visible document. Fluid background work
+  requires active playback and visibility; pause/hide cancels pending frames,
+  and repeated visible events cannot start duplicate loops. A visible resize
+  while paused redraws one static WebGL frame without starting a loop.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required result |
+| --- | --- |
+| Song A plays while song B API response is pending | Lifecycle save uses A id/index/time, or safely declines; never B plus A time. |
+| A is paused while B is pending, then system play fires | Resume A's committed source without cancelling B. |
+| A ends while user-selected B is pending | Stop A's visual/system state and keep waiting for B; do not request C. |
+| Replacing A with B is autoplay-blocked | Audio, UI, Media Session, and visuals remain paused; a later play can retry B. |
+| New source is assigned but metadata is not ready | Clear old system position; do not persist a new resume snapshot yet. |
+| Last queue song is removed | Queue stays empty; both audio sources are unloaded; system metadata/position cleared and playback state is `none`. |
+| Captured pre-reset system play handler is invoked | No new `audio.play()` call and no source restoration. |
+| Absolute seek is negative / above duration | Clamp to `0` / `duration`. |
+| Absolute target or explicit offset is `NaN`, infinite, zero, or negative | Ignore it and leave current time unchanged. |
+| Back/forward offset is absent | Move by the 10-second default within media bounds. |
+| Page boots with persisted queue | Ready signal waits until restored queue and mobile/system handlers are usable. |
+| Playback is paused or document is hidden | Continuous visual request count settles; pending visual frame is cancelled. |
+| Visible playback resumes or visibility event repeats | Start exactly one visual loop, never one loop per event. |
+| Visible viewport resizes while paused | Redraw one WebGL frame, then keep the request count settled. |
+
+### 5. Good / Base / Bad Cases
+
+- Good: hold song B at the routed `/163_music` boundary, give real probed song A
+  a 61-second clock, dispatch `pagehide`, and assert the persisted record is A at
+  61 seconds before releasing B.
+- Base: invoke system forward seek without an offset at 40/120 seconds and observe
+  50 seconds plus a valid `{ duration, position, playbackRate }` update.
+- Bad: query `document.querySelector('audio')` and treat `null` as paused, use
+  `activePlaybackAttempt.songId` with `audio.currentTime`, or call
+  `requestAnimationFrame` before checking whether useful work exists.
+
+### 6. Tests Required
+
+- Unit: `clampMediaSeekTime` covers normal, boundary, negative, over-duration,
+  non-number, non-finite, and invalid-duration inputs.
+- Browser desktop `1280x800` and mobile `390x844`: explicit ready plus queue
+  restore; pending-request session ownership; final-item source/system cleanup;
+  committed resume and ended-event ownership while another request is pending;
+  blocked-autoplay state recovery; captured play invalidation; bounded Media
+  Session absolute/default/custom and invalid seeks; position-state publication
+  and reset.
+- Playback-error browser test must inspect the captured first `Audio` instance
+  and fail if no real instance exists; a missing DOM element is not evidence.
+- Animation browser test instruments request/cancel/execute counts before
+  navigation and proves paused, play, pause, hidden, visible, and repeated-visible
+  transitions plus paused resize redraw without relying on the browser's own
+  hidden-page throttling.
+- Static contract verifies the ready ordering, committed-media/reset owners,
+  shared seek path, visual lifecycle owner, and presence of the boundary tests.
+
+### 7. Wrong vs Correct
+
+```js
+// Wrong: pending request identity is paired with the old Audio clock.
+const songId = activePlaybackAttempt.songId;
+save({ songId, currentTime: audio.currentTime });
+
+// Correct: only ready media still bound to the Audio source can own progress.
+if (committedMedia.ready && committedMedia.source === audio.src) {
+    save({
+        songId: committedMedia.songId,
+        currentTime: audio.currentTime
+    });
+}
 ```
 
 ## PWA Update Lifecycle Contract

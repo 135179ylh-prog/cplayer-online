@@ -1,0 +1,4 @@
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Owns playback, storage, Service Worker, browser-test, responsive, and module-loading contracts."}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"The fix crosses request state, committed media, storage, system controls, and browser lifecycle boundaries."}
+{"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"Seek, reset, readiness, and animation lifecycle must each have a single owner."}
+{"file":".trellis/tasks/07-22-runtime-background-resilience/research.md","reason":"Records confirmed current-code failure windows and baseline evidence."}

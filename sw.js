@@ -1,4 +1,4 @@
-const CACHE_NAME = 'cplayer5-v57-release-candidate';
+const CACHE_NAME = 'cplayer5-v58-runtime-background-resilience';
 const COVER_CACHE_LIMIT = 160;
 
 // 核心资源 - 安装时缓存
@@ -87,6 +87,12 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
   const url = new URL(event.request.url);
+
+  // 带密钥的请求可能使用任意自定义域名，始终直连且不读写缓存
+  if (url.searchParams.has('apikey')) {
+    event.respondWith(fetch(event.request));
+    return;
+  }
 
   // API 请求：始终网络优先，不缓存
   if (url.hostname === 'api.chksz.top' || url.hostname === 'api.chksz.com' || url.hostname.endsWith('.chksz.top') || url.hostname.endsWith('.chksz.com')) {

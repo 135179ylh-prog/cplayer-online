@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+    clampMediaSeekTime,
     classifyPlaybackFailure,
     classifyPlaybackQuality,
     fetchJsonWithRetry,
@@ -61,6 +62,21 @@ test('classifyPlaybackQuality separates API labels, inference, and unknown strea
     assert.equal(unknown.text, '音质未标注');
     assert.equal(unknown.className, 'quality-unknown');
     assert.equal(unknown.source, 'unknown');
+});
+
+test('clampMediaSeekTime validates and bounds media seek positions', () => {
+    assert.equal(clampMediaSeekTime(42.5, 200), 42.5);
+    assert.equal(clampMediaSeekTime(-5, 200), 0);
+    assert.equal(clampMediaSeekTime(250, 200), 200);
+    assert.equal(clampMediaSeekTime(0, 200), 0);
+    assert.equal(clampMediaSeekTime(200, 200), 200);
+
+    for (const target of [NaN, Infinity, -Infinity, '42', null, undefined]) {
+        assert.equal(clampMediaSeekTime(target, 200), null);
+    }
+    for (const duration of [NaN, Infinity, -Infinity, 0, -1, '200', null, undefined]) {
+        assert.equal(clampMediaSeekTime(42, duration), null);
+    }
 });
 
 test('normalizePlaybackSession accepts only useful recent progress', () => {

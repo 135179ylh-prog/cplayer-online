@@ -103,6 +103,12 @@ export function classifyPlaybackQuality({ level, url, bitrate } = {}) {
     return qualityResult('音质未标注', 'quality-unknown', '？', '上游 API 未提供可信的音质等级或码率', 'unknown');
 }
 
+/** Clamp a finite media seek target to the current finite duration. */
+export function clampMediaSeekTime(target, duration) {
+    if (!Number.isFinite(target) || !Number.isFinite(duration) || duration <= 0) return null;
+    return Math.min(duration, Math.max(0, target));
+}
+
 /** Return a seek position only when at least five seconds remain in the track. */
 export function getSafePlaybackResumeTime(currentTime, duration) {
     const position = Number(currentTime);

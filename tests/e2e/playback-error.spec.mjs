@@ -5,7 +5,9 @@ import {
     submitSearch,
     mockSearchSuccess,
     waitForAppReady,
-    collectUnexpectedErrors
+    collectUnexpectedErrors,
+    installAudioProbe,
+    readMainAudioProbe
 } from './helpers.mjs';
 
 test.use({ serviceWorkers: 'block' });
@@ -26,6 +28,7 @@ const ALLOWED_PLAYBACK_ERRORS = [
 test('failing song URL surfaces clear error without getting stuck', async ({ page }, testInfo) => {
     const projectName = testInfo.project.name;
     const errors = collectUnexpectedErrors(page, ALLOWED_PLAYBACK_ERRORS);
+    await installAudioProbe(page);
     mockSearchSuccess(page);
 
     // Fail every song-detail request deterministically.
@@ -59,13 +62,15 @@ test('failing song URL surfaces clear error without getting stuck', async ({ pag
     // The song endpoint was actually exercised (boundary hit, not skipped).
     expect(songRequests).toBeGreaterThanOrEqual(1);
 
-    // Not stuck: the loader overlay is cleared (opacity-0) and audio is not playing.
+    // Not stuck: the loader overlay is cleared and the actual main Audio
+    // constructed by the app was explicitly paused by the failure path.
     const overlayId = projectName === 'mobile-chromium' ? '#mobileLoaderOverlay' : '#desktopLoaderOverlay';
     await expect(page.locator(overlayId)).toHaveClass(/opacity-0/);
-    expect(await page.evaluate(() => {
-        const audio = document.querySelector('audio');
-        return audio ? audio.paused : true;
-    })).toBe(true);
+    const mainAudio = await readMainAudioProbe(page);
+    expect(mainAudio, 'the app must construct a main Audio instance').not.toBeNull();
+    expect(mainAudio.isNativeAudioElement).toBe(true);
+    expect(mainAudio.pauseCalls).toBeGreaterThan(0);
+    expect(mainAudio.paused).toBe(true);
 
     // No unexpected runtime error beyond the deliberately injected failure.
     await page.waitForTimeout(500);

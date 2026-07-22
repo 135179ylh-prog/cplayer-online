@@ -26,6 +26,453 @@ export function collectUnexpectedErrors(page, allowedPatterns = []) {
     return errors;
 }
 
+// Install before navigation. Each constructed Audio remains a real
+// HTMLAudioElement, while its media boundary is deterministic and observable.
+export async function installAudioProbe(page, options = {}) {
+    const duration = Number.isFinite(options.duration) && options.duration > 0
+        ? options.duration
+        : 180;
+
+    await page.addInitScript(({ defaultDuration }) => {
+        const NativeAudio = window.Audio;
+        const instances = [];
+        const states = [];
+        const records = [];
+
+        function queueEvent(audio, type) {
+            queueMicrotask(() => audio.dispatchEvent(new Event(type)));
+        }
+
+        function snapshot(index = 0) {
+            const audio = instances[index];
+            const state = states[index];
+            const record = records[index];
+            if (!audio || !state || !record) return null;
+            return {
+                index,
+                isNativeAudioElement: audio instanceof HTMLAudioElement,
+                src: state.src,
+                currentSrc: state.src,
+                currentTime: state.currentTime,
+                duration: state.duration,
+                paused: state.paused,
+                ended: state.ended,
+                readyState: state.readyState,
+                playbackRate: state.playbackRate,
+                playCalls: record.playCalls,
+                pauseCalls: record.pauseCalls,
+                loadCalls: record.loadCalls,
+                fastSeekCalls: record.fastSeekCalls,
+                currentTimeAssignments: record.currentTimeAssignments,
+                srcAssignments: record.srcAssignments.slice()
+            };
+        }
+
+        function ProbedAudio(initialSrc = '') {
+            const audio = new NativeAudio();
+            const state = {
+                src: '',
+                currentTime: 0,
+                duration: defaultDuration,
+                paused: true,
+                ended: false,
+                readyState: 0,
+                playbackRate: 1
+            };
+            const record = {
+                playCalls: 0,
+                pauseCalls: 0,
+                loadCalls: 0,
+                fastSeekCalls: 0,
+                currentTimeAssignments: 0,
+                srcAssignments: []
+            };
+            const nativeSetAttribute = audio.setAttribute.bind(audio);
+            const nativeGetAttribute = audio.getAttribute.bind(audio);
+            const nativeRemoveAttribute = audio.removeAttribute.bind(audio);
+
+            Object.defineProperties(audio, {
+                src: {
+                    configurable: true,
+                    get: () => state.src,
+                    set: (value) => {
+                        state.src = String(value || '');
+                        state.currentTime = 0;
+                        state.paused = true;
+                        state.ended = false;
+                        state.readyState = state.src ? 4 : 0;
+                        state.duration = state.src ? defaultDuration : Number.NaN;
+                        record.srcAssignments.push(state.src);
+                        if (state.src) queueEvent(audio, 'loadedmetadata');
+                    }
+                },
+                currentSrc: { configurable: true, get: () => state.src },
+                currentTime: {
+                    configurable: true,
+                    get: () => state.currentTime,
+                    set: (value) => {
+                        const next = Number(value);
+                        if (!Number.isFinite(next)) throw new TypeError('provided double value is non-finite');
+                        record.currentTimeAssignments += 1;
+                        state.currentTime = next;
+                    }
+                },
+                duration: { configurable: true, get: () => state.duration },
+                paused: { configurable: true, get: () => state.paused },
+                ended: { configurable: true, get: () => state.ended },
+                readyState: { configurable: true, get: () => state.readyState },
+                playbackRate: {
+                    configurable: true,
+                    get: () => state.playbackRate,
+                    set: (value) => {
+                        const next = Number(value);
+                        if (Number.isFinite(next) && next > 0) state.playbackRate = next;
+                    }
+                },
+                error: { configurable: true, get: () => null }
+            });
+
+            audio.setAttribute = (name, value) => {
+                if (String(name).toLowerCase() === 'src') {
+                    audio.src = value;
+                    return;
+                }
+                nativeSetAttribute(name, value);
+            };
+            audio.getAttribute = (name) => String(name).toLowerCase() === 'src'
+                ? (state.src || null)
+                : nativeGetAttribute(name);
+            audio.removeAttribute = (name) => {
+                if (String(name).toLowerCase() === 'src') {
+                    audio.src = '';
+                    return;
+                }
+                nativeRemoveAttribute(name);
+            };
+            audio.play = () => {
+                record.playCalls += 1;
+                if (!state.src) {
+                    return Promise.reject(new DOMException('No media source', 'NotSupportedError'));
+                }
+                if (state.nextPlayError) {
+                    const nextError = state.nextPlayError;
+                    state.nextPlayError = null;
+                    state.paused = true;
+                    return Promise.reject(new DOMException(nextError.message, nextError.name));
+                }
+                state.paused = false;
+                state.ended = false;
+                queueEvent(audio, 'play');
+                return Promise.resolve();
+            };
+            audio.pause = () => {
+                record.pauseCalls += 1;
+                const wasPaused = state.paused;
+                state.paused = true;
+                if (!wasPaused) queueEvent(audio, 'pause');
+            };
+            audio.load = () => {
+                record.loadCalls += 1;
+                state.readyState = state.src ? 4 : 0;
+                if (!state.src) {
+                    state.currentTime = 0;
+                    state.duration = Number.NaN;
+                }
+            };
+            audio.fastSeek = (value) => {
+                record.fastSeekCalls += 1;
+                audio.currentTime = value;
+            };
+
+            instances.push(audio);
+            states.push(state);
+            records.push(record);
+            state.nextPlayError = null;
+            if (initialSrc) audio.src = initialSrc;
+            return audio;
+        }
+
+        ProbedAudio.prototype = NativeAudio.prototype;
+        Object.setPrototypeOf(ProbedAudio, NativeAudio);
+
+        window.Audio = ProbedAudio;
+        window.__cplayerAudioProbe = {
+            instances,
+            snapshot,
+            setState(index, patch) {
+                const state = states[index];
+                if (!state || !patch) return false;
+                for (const key of ['currentTime', 'duration', 'playbackRate']) {
+                    if (Object.prototype.hasOwnProperty.call(patch, key)) {
+                        state[key] = Number(patch[key]);
+                    }
+                }
+                for (const key of ['paused', 'ended']) {
+                    if (Object.prototype.hasOwnProperty.call(patch, key)) {
+                        state[key] = Boolean(patch[key]);
+                    }
+                }
+                if (Object.prototype.hasOwnProperty.call(patch, 'readyState')) {
+                    state.readyState = Number(patch.readyState);
+                }
+                if (Object.prototype.hasOwnProperty.call(patch, 'src')) {
+                    instances[index].src = patch.src;
+                }
+                return true;
+            },
+            dispatch(index, type) {
+                const audio = instances[index];
+                if (!audio) return false;
+                audio.dispatchEvent(new Event(type));
+                return true;
+            },
+            rejectNextPlay(index, name = 'NotAllowedError', message = 'autoplay blocked') {
+                const state = states[index];
+                if (!state) return false;
+                state.nextPlayError = { name, message };
+                return true;
+            }
+        };
+    }, { defaultDuration: duration });
+}
+
+// Install before navigation so production registers handlers against this
+// browser-boundary probe instead of Chromium's host Media Session object.
+export async function installMediaSessionProbe(page) {
+    await page.addInitScript(() => {
+        const handlers = Object.create(null);
+        const state = {
+            metadata: null,
+            playbackState: 'none',
+            positionState: null,
+            metadataAssignments: [],
+            playbackStateAssignments: [],
+            positionStateAssignments: []
+        };
+
+        function clone(value) {
+            if (value == null) return null;
+            return JSON.parse(JSON.stringify(value));
+        }
+
+        class ProbedMediaMetadata {
+            constructor(init = {}) {
+                this.title = init.title || '';
+                this.artist = init.artist || '';
+                this.album = init.album || '';
+                this.artwork = Array.isArray(init.artwork) ? clone(init.artwork) : [];
+            }
+        }
+
+        const mediaSession = {
+            get metadata() {
+                return state.metadata;
+            },
+            set metadata(value) {
+                state.metadata = value == null ? null : clone(value);
+                state.metadataAssignments.push(clone(state.metadata));
+            },
+            get playbackState() {
+                return state.playbackState;
+            },
+            set playbackState(value) {
+                state.playbackState = String(value);
+                state.playbackStateAssignments.push(state.playbackState);
+            },
+            setActionHandler(action, handler) {
+                handlers[action] = handler;
+            },
+            setPositionState(positionState) {
+                state.positionState = arguments.length === 0 ? null : clone(positionState);
+                state.positionStateAssignments.push(clone(state.positionState));
+            }
+        };
+
+        Object.defineProperty(navigator, 'mediaSession', {
+            configurable: true,
+            value: mediaSession
+        });
+        window.MediaMetadata = ProbedMediaMetadata;
+        window.__cplayerMediaSessionProbe = {
+            handlers,
+            snapshot() {
+                return {
+                    actions: Object.keys(handlers).sort(),
+                    metadata: clone(state.metadata),
+                    playbackState: state.playbackState,
+                    positionState: clone(state.positionState),
+                    metadataAssignments: clone(state.metadataAssignments),
+                    playbackStateAssignments: state.playbackStateAssignments.slice(),
+                    positionStateAssignments: clone(state.positionStateAssignments)
+                };
+            },
+            invoke(action, details = {}) {
+                const handler = handlers[action];
+                if (typeof handler !== 'function') throw new Error(`Missing Media Session handler: ${action}`);
+                return handler(details);
+            }
+        };
+    });
+}
+
+// Track real browser frame scheduling while letting callbacks run normally.
+// The visibility override is test-owned and installed before app code reads it.
+export async function installAnimationFrameProbe(page) {
+    await page.addInitScript(() => {
+        const nativeRequestAnimationFrame = window.requestAnimationFrame.bind(window);
+        const nativeCancelAnimationFrame = window.cancelAnimationFrame.bind(window);
+        const callbackIds = new WeakMap();
+        const callbackStats = new Map();
+        const pendingFrames = new Map();
+        let nextCallbackId = 1;
+        let requested = 0;
+        let executed = 0;
+        let canceled = 0;
+        let maxPending = 0;
+        let webglDrawCalls = 0;
+        let visibilityState = 'visible';
+
+        const webglPrototype = window.WebGLRenderingContext?.prototype;
+        const nativeDrawArrays = webglPrototype?.drawArrays;
+        if (webglPrototype && typeof nativeDrawArrays === 'function') {
+            webglPrototype.drawArrays = function (...args) {
+                webglDrawCalls += 1;
+                return nativeDrawArrays.apply(this, args);
+            };
+        }
+
+        Object.defineProperties(document, {
+            visibilityState: {
+                configurable: true,
+                get: () => visibilityState
+            },
+            hidden: {
+                configurable: true,
+                get: () => visibilityState === 'hidden'
+            }
+        });
+
+        function getCallbackStats(callback) {
+            let callbackId = callbackIds.get(callback);
+            if (!callbackId) {
+                callbackId = nextCallbackId;
+                nextCallbackId += 1;
+                callbackIds.set(callback, callbackId);
+                callbackStats.set(callbackId, {
+                    id: callbackId,
+                    name: callback.name || '',
+                    requested: 0,
+                    executed: 0,
+                    canceled: 0,
+                    pending: 0,
+                    maxPending: 0
+                });
+            }
+            return callbackStats.get(callbackId);
+        }
+
+        window.requestAnimationFrame = (callback) => {
+            const stats = getCallbackStats(callback);
+            requested += 1;
+            stats.requested += 1;
+            let frameId;
+            frameId = nativeRequestAnimationFrame((timestamp) => {
+                const pending = pendingFrames.get(frameId);
+                if (pending) {
+                    pendingFrames.delete(frameId);
+                    pending.stats.pending -= 1;
+                }
+                executed += 1;
+                stats.executed += 1;
+                callback(timestamp);
+            });
+            pendingFrames.set(frameId, { stats });
+            stats.pending += 1;
+            stats.maxPending = Math.max(stats.maxPending, stats.pending);
+            maxPending = Math.max(maxPending, pendingFrames.size);
+            return frameId;
+        };
+
+        window.cancelAnimationFrame = (frameId) => {
+            const pending = pendingFrames.get(frameId);
+            if (pending) {
+                pendingFrames.delete(frameId);
+                pending.stats.pending -= 1;
+                pending.stats.canceled += 1;
+                canceled += 1;
+            }
+            nativeCancelAnimationFrame(frameId);
+        };
+
+        window.__cplayerAnimationFrameProbe = {
+            snapshot() {
+                return {
+                    requested,
+                    executed,
+                    canceled,
+                    pending: pendingFrames.size,
+                    maxPending,
+                    webglDrawCalls,
+                    visibilityState,
+                    hasVisibilityOverride: Object.prototype.hasOwnProperty.call(document, 'visibilityState'),
+                    visibilityOverrideConfigurable: Object.getOwnPropertyDescriptor(document, 'visibilityState')?.configurable === true,
+                    callbacks: Array.from(callbackStats.values()).map((stats) => ({ ...stats }))
+                };
+            },
+            setVisibility(nextState, dispatch = true) {
+                if (nextState !== 'visible' && nextState !== 'hidden') {
+                    throw new Error(`Unsupported test visibility state: ${nextState}`);
+                }
+                visibilityState = nextState;
+                if (dispatch) document.dispatchEvent(new Event('visibilitychange'));
+            }
+        };
+    });
+}
+
+export async function installRuntimeProbes(page, options = {}) {
+    await installAudioProbe(page, options.audio);
+    await installMediaSessionProbe(page);
+}
+
+export async function readMainAudioProbe(page) {
+    return page.evaluate(() => window.__cplayerAudioProbe?.snapshot(0) || null);
+}
+
+export async function setMainAudioProbeState(page, state) {
+    return page.evaluate((patch) => window.__cplayerAudioProbe?.setState(0, patch) || false, state);
+}
+
+export async function rejectNextMainAudioPlay(page, name = 'NotAllowedError', message = 'autoplay blocked') {
+    return page.evaluate(({ errorName, errorMessage }) => (
+        window.__cplayerAudioProbe?.rejectNextPlay(0, errorName, errorMessage) || false
+    ), { errorName: name, errorMessage: message });
+}
+
+export async function dispatchMainAudioProbeEvent(page, type) {
+    return page.evaluate((eventType) => window.__cplayerAudioProbe?.dispatch(0, eventType) || false, type);
+}
+
+export async function readMediaSessionProbe(page) {
+    return page.evaluate(() => window.__cplayerMediaSessionProbe?.snapshot() || null);
+}
+
+export async function readAnimationFrameProbe(page) {
+    return page.evaluate(() => window.__cplayerAnimationFrameProbe?.snapshot() || null);
+}
+
+export async function setTestDocumentVisibility(page, visibilityState, dispatch = true) {
+    return page.evaluate(({ nextState, shouldDispatch }) => {
+        window.__cplayerAnimationFrameProbe.setVisibility(nextState, shouldDispatch);
+    }, { nextState: visibilityState, shouldDispatch: dispatch });
+}
+
+export async function invokeMediaSessionAction(page, action, details = {}) {
+    return page.evaluate(async ({ actionName, actionDetails }) => {
+        return window.__cplayerMediaSessionProbe.invoke(actionName, actionDetails);
+    }, { actionName: action, actionDetails: details });
+}
+
 export async function openSearch(page, projectName) {
     if (projectName === 'mobile-chromium') {
         await page.waitForFunction(() => Boolean(window.mobileUI));
@@ -78,11 +525,9 @@ export function mockSearchSuccess(page, results = [SEARCH_RESULT]) {
     return state;
 }
 
-// Wait until the main module has defined its queue APIs on window. This is the
-// only observable "app ready" proxy; there is no explicit DB-ready flag.
+// The app publishes this only after restore and required UI/system handlers.
 export async function waitForAppReady(page) {
-    await page.waitForFunction(() => typeof window.addSongToQueueOnly === 'function'
-        && Array.isArray(window.playlist));
+    await page.waitForFunction(() => document.documentElement.dataset.cplayerReady === 'true');
 }
 
 // Read the persisted play-queue record straight from IndexedDB so tests assert
