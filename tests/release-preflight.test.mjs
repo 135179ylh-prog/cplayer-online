@@ -713,6 +713,21 @@ test('repository inspection enforces UTF-8 text and skips known binary assets on
     assert.equal(inspectRepositoryFile('cover.png', Buffer.from([0x00, 0xff])).skippedBinary, true);
 });
 
+test('repository check skips large staged binary snapshots without buffering the blob', async () => {
+    const sandbox = await mkdtemp(resolve(tmpdir(), 'cplayer-large-binary-check-'));
+    try {
+        runGit(sandbox, ['init', '--quiet']);
+        await writeFile(resolve(sandbox, 'font.woff2'), Buffer.alloc(2 * 1024 * 1024, 0x41));
+        runGit(sandbox, ['add', 'font.woff2']);
+
+        const result = await checkRepositoryState(sandbox);
+        assert.equal(result.skippedBinaryFiles, 1);
+        assert.equal(result.checkedTextFiles, 0);
+    } finally {
+        await rm(sandbox, { recursive: true, force: true });
+    }
+});
+
 test('repository check rejects a staged non-UTF-8 source file', async () => {
     const sandbox = await mkdtemp(resolve(tmpdir(), 'cplayer-repo-check-'));
     try {

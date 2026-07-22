@@ -1,0 +1,1 @@
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Load the Pages artifact, Service Worker revision, browser gate, and webfont offline-load contracts before implementation."}

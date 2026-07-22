@@ -10,6 +10,7 @@ HTML = (ROOT / "index.html").read_text(encoding="utf-8")
 APP = (ROOT / "js" / "app.js").read_text(encoding="utf-8")
 DOWNLOADER = (ROOT / "playlist-downloader.html").read_text(encoding="utf-8")
 SW = (ROOT / "sw.js").read_text(encoding="utf-8")
+NOTO_CSS = (ROOT / "css" / "noto-sans-sc.css").read_text(encoding="utf-8")
 MANIFEST = json.loads((ROOT / "manifest.json").read_text(encoding="utf-8"))
 PACKAGE = json.loads((ROOT / "package.json").read_text(encoding="utf-8"))
 WORKFLOW = (ROOT / ".github" / "workflows" / "pages.yml").read_text(encoding="utf-8")
@@ -31,6 +32,7 @@ PLAYBACK_ERROR_E2E = (ROOT / "tests" / "e2e" / "playback-error.spec.mjs").read_t
 E2E_HELPERS = (ROOT / "tests" / "e2e" / "helpers.mjs").read_text(encoding="utf-8")
 RESPONSIVE_E2E = (ROOT / "tests" / "e2e" / "responsive-accessibility.spec.mjs").read_text(encoding="utf-8")
 RELEASE_ARTIFACT_E2E = (ROOT / "tests" / "e2e" / "release-artifact.spec.mjs").read_text(encoding="utf-8")
+RELEASE_PREFLIGHT_TEST = (ROOT / "tests" / "release-preflight.test.mjs").read_text(encoding="utf-8")
 TEST_SERVER = (ROOT / "tests" / "e2e" / "server.mjs").read_text(encoding="utf-8")
 OLD_SW_FIXTURE = (ROOT / "tests" / "e2e" / "fixtures" / "sw-old.js").read_text(encoding="utf-8")
 CORE_UTILS = (ROOT / "js" / "core-utils.js").read_text(encoding="utf-8")
@@ -121,7 +123,7 @@ require((ROOT / "js" / "core-utils.js").is_file(), "core utility module is missi
 require((ROOT / "tests" / "core-utils.test.mjs").is_file(), "core utility tests are missing")
 require("user-scalable=no" not in HTML and "maximum-scale" not in HTML, "viewport still blocks browser zoom")
 
-require("cplayer5-v60-mobile-landscape-accessibility" in SW, "service worker cache version is not updated")
+require("cplayer5-v61-font-footprint-optimization" in SW, "service worker cache version is not updated")
 require("'./js/app.js'" in SW, "production app module is not precached")
 require("./js/core-utils.js" in SW, "core utility module is not precached")
 require("./css/tailwind.css" in SW and "./js/tailwindcss.js" not in SW, "service worker Tailwind cache entry is stale")
@@ -131,6 +133,16 @@ require("k.startsWith('cplayer5-') && k !== CACHE_NAME" in SW, "cache cleanup is
 require("event.request.mode === 'navigate'" in SW, "navigation fallback is missing")
 require("isAppShellNavigation(url)" in SW, "navigation cache writes are not limited to the app shell")
 require("url.pathname === scope.pathname" in SW, "app shell navigation does not recognize the scoped root")
+expected_noto_fonts = {
+    "k3kCo84MPvpLmixcA63oeAL7Iqp5IZJF9bmaG9_FnYw.woff2",
+    "k3kCo84MPvpLmixcA63oeAL7Iqp5IZJF9bmaG-3FnYw.woff2",
+    "k3kCo84MPvpLmixcA63oeAL7Iqp5IZJF9bmaGzjCnYw.woff2",
+    "k3kCo84MPvpLmixcA63oeAL7Iqp5IZJF9bmaG3bCnYw.woff2",
+}
+actual_noto_fonts = {path.name for path in (ROOT / "fonts").iterdir() if path.is_file()}
+require(actual_noto_fonts == expected_noto_fonts, "fonts/ must contain exactly the four Noto WOFF2 assets")
+require("format('woff2')" in NOTO_CSS and ".ttf" not in NOTO_CSS and "truetype" not in NOTO_CSS,
+        "Noto CSS still references a TTF or truetype format")
 fetch_handler = SW[SW.index("self.addEventListener('fetch'"):]
 keyed_network_branch = fetch_handler.find("url.searchParams.has('apikey')")
 known_api_branch = fetch_handler.find("url.hostname === 'api.chksz.top'")
@@ -249,6 +261,11 @@ require("/__test__/" in TEST_SERVER and "testDynamicApiSequence" in TEST_SERVER,
         "test server does not provide controlled successful dynamic API responses")
 for snippet in ["PUBLIC_PATHS", "PRIVATE_PATHS", "serviceWorker.ready", "setOffline(true)"]:
     require(snippet in RELEASE_ARTIFACT_E2E, f"Pages artifact browser contract is missing: {snippet}")
+for snippet in [
+    "FONT_FACES", "LEGACY_FONT_PATHS", "ARTIFACT_BYTE_BUDGET", "measureArtifactBytes",
+    "document.fonts.load", "currentName", "offline Noto weight",
+]:
+    require(snippet in RELEASE_ARTIFACT_E2E, f"font artifact browser contract is missing: {snippet}")
 require("serviceWorkers: 'block'" in STORAGE_RESILIENCE_E2E and "CPlayer5DB" in STORAGE_RESILIENCE_E2E,
         "storage resilience browser tests do not isolate the real storage boundary")
 require(E2E_HELPERS.count("indexedDB.open('CPlayer5DB', 4)") >= 2,
@@ -295,6 +312,8 @@ for snippet in [
     "UTF-8 BOM is not allowed", "extra blank line at EOF",
 ]:
     require(snippet in REPOSITORY_CHECK, f"repository hygiene boundary is missing: {snippet}")
+require("large staged binary snapshots" in RELEASE_PREFLIGHT_TEST,
+        "repository hygiene lacks a large staged-binary regression")
 for snippet in [
     "from 'acorn'", "from 'parse5'", "extractDatabaseVersion", "sourceKind",
     "collectHtmlScripts", "GLOBAL_OBJECT_REFERENCE", "INDEXED_DB_REFERENCE",

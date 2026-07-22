@@ -10,32 +10,36 @@ const BINARY_EXTENSIONS = new Set([
     '.woff2', '.zip'
 ]);
 
-export function inspectRepositoryFile(file, bytes) {
-    if (BINARY_EXTENSIONS.has(extname(file).toLowerCase())) {
+function isKnownBinaryFile(file) {
+    return BINARY_EXTENSIONS.has(extname(file).toLowerCase());
+}
+
+export function inspectRepositoryFile(file, bytes, displayFile = file) {
+    if (isKnownBinaryFile(file)) {
         return { skippedBinary: true, failures: [] };
     }
     if (bytes.includes(0)) {
-        return { skippedBinary: false, failures: [`${file}: text file contains NUL bytes; UTF-8 is required`] };
+        return { skippedBinary: false, failures: [`${displayFile}: text file contains NUL bytes; UTF-8 is required`] };
     }
 
     const failures = [];
     if (bytes.length >= 3 && bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) {
-        failures.push(`${file}: UTF-8 BOM is not allowed`);
+        failures.push(`${displayFile}: UTF-8 BOM is not allowed`);
     }
 
     let text;
     try {
         text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
     } catch (error) {
-        return { skippedBinary: false, failures: [`${file}: text file is not valid UTF-8`] };
+        return { skippedBinary: false, failures: [`${displayFile}: text file is not valid UTF-8`] };
     }
 
     const normalizedText = text.replace(/\r\n?/g, '\n');
     const lines = normalizedText.split('\n');
     lines.forEach((line, index) => {
-        if (/[\t ]+$/.test(line)) failures.push(`${file}:${index + 1}: trailing whitespace`);
+        if (/[\t ]+$/.test(line)) failures.push(`${displayFile}:${index + 1}: trailing whitespace`);
     });
-    if (/\n\n+$/.test(normalizedText)) failures.push(`${file}: extra blank line at EOF`);
+    if (/\n\n+$/.test(normalizedText)) failures.push(`${displayFile}: extra blank line at EOF`);
     return { skippedBinary: false, failures };
 }
 function runGit(args, options = {}) {
@@ -75,15 +79,18 @@ export async function checkRepositoryState(root = ROOT) {
     let checkedTextFiles = 0;
     let skippedBinaryFiles = 0;
 
-    const inspect = (file, bytes) => {
-        const result = inspectRepositoryFile(file, bytes);
+    const inspect = (file, bytes, displayFile = file) => {
+        const result = inspectRepositoryFile(file, bytes, displayFile);
         if (result.skippedBinary) skippedBinaryFiles += 1;
         else checkedTextFiles += 1;
         failures.push(...result.failures);
     };
 
     for (const file of staged) {
-        inspect(`${file} (staged)`, runGit(['show', `:${file}`], { root, encoding: null }));
+        const bytes = isKnownBinaryFile(file)
+            ? Buffer.alloc(0)
+            : runGit(['show', `:${file}`], { root, encoding: null });
+        inspect(file, bytes, `${file} (staged)`);
     }
     for (const file of worktreeFiles) {
         inspect(file, await readFile(resolve(root, file)));

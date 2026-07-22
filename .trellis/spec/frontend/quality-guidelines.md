@@ -1091,6 +1091,7 @@ are not members of the deployment artifact.
 | Browser switches offline after current Worker activation | Artifact shell reload reaches app-ready. |
 | New untracked text ends with an extra blank line | Repository gate fails with file-level feedback. |
 | Staged source is non-UTF-8 or contains a UTF-8 BOM | Repository gate fails after reading the index blob, even when Git treats it as binary. |
+| Large staged file has a known binary extension | Count and skip it before `git show`; never buffer the blob through the text-inspection path. |
 | Inline handler or `javascript:` URL can open CPlayer5DB at a conflicting version | Rollback extraction rejects the target as ambiguous. |
 | `srcdoc` or runtime-generated code can load an uninspected database open | Rollback extraction rejects the target as ambiguous or unsupported. |
 | Parent and `srcdoc` use the same constant name | Analyze independent scopes, then merge only discovered versions. |
@@ -1133,8 +1134,8 @@ are not members of the deployment artifact.
   independent child-document/static-block scopes, mutation/control-flow
   invalidation, `var`/global-property/function/closure binding semantics, nested
   deployed HTML and non-`js/` modules, dual classic/module residual `.js`, current
-  and target residual conflicts, staged byte/encoding/type inspection, and
-  compatible/incompatible rollback.
+  and target residual conflicts, staged byte/encoding/type inspection, large
+  staged-binary skipping before blob reads, and compatible/incompatible rollback.
 - Static: package scripts/Node floor, builder allowlist, artifact output path,
   `PW_WEB_ROOT` wiring, quality-job upload ownership, deploy-job minimalism,
   repository check coverage, rollback guard, README commands, and artifact
@@ -1159,3 +1160,49 @@ are not members of the deployment artifact.
   with:
     path: output/pages
 ```
+
+## Webfont Asset and Offline Load Contract
+
+### 1. Scope / Trigger
+
+This contract applies whenever the bundled Noto Sans SC assets, their
+`@font-face` declarations, the Pages artifact, or the Service Worker cache
+revision changes. The player renders dynamic song titles, artists, and lyrics,
+so a page-text-only subset is not sufficient evidence of font coverage.
+
+### 2. Contracts
+
+- `fonts/` contains exactly one WOFF2 file for each existing Noto Sans SC weight
+  (400, 500, 700, and 900). Each output preserves the source Unicode cmap; old
+  Noto TTF files are not copied into the Pages artifact.
+- `css/noto-sans-sc.css` is the single owner of those four faces and references
+  `format('woff2')` with `font-display: swap`. Font Awesome files under
+  `webfonts/` are a separate dependency and are not changed by Noto updates.
+- The Pages artifact byte count is recorded after building. A font replacement
+  must demonstrate a material reduction rather than merely changing the CSS
+  extension.
+- The Worker cache revision advances whenever the font CSS or other precached
+  production asset changes. Font binaries are loaded through the current cache's
+  same-origin runtime branch; tests must explicitly load them before going
+  offline.
+
+### 3. Validation Matrix
+
+| Condition | Required result |
+| --- | --- |
+| Four WOFF2 requests | HTTP 200 with `font/woff2`; all four weights become loaded `FontFace` entries. |
+| Removed Noto TTF request | HTTP 404; no `.ttf` resource is requested by the page. |
+| Dynamic Chinese/Latin/punctuation sample | `document.fonts.load` resolves for every weight; complete no-loss coverage is established separately by the source/output cmap comparison. |
+| Online load followed by cache inspection | Current Worker cache contains all four WOFF2 URLs. |
+| Offline reload after online load | App reaches ready and all four faces still pass `document.fonts.check/load`. |
+| Artifact build | `output/pages/fonts` contains only the four WOFF2 files, the complete artifact stays at or below the 20,000,000-byte budget, and measured bytes are recorded in task evidence. |
+
+### 4. Tests Required
+
+- Artifact browser tests run at desktop `1280x800` and mobile `390x844`, cover
+  CSS/MIME/404 boundaries, explicit four-weight loading, current-cache entries,
+  and offline reload.
+- The full release gate still runs from `output/pages`; source-root font checks
+  alone do not prove deployment or offline behavior.
+- A development-time cmap comparison is recorded when converting a font, but
+  FontTools is not required as a runtime or CI dependency.
