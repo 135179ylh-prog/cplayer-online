@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 13
+- **Total Sessions**: 14
 - **Last Active**: 2026-07-22
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~440 | Active |
+| `journal-1.md` | ~473 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 14 | 2026-07-22 | Runtime and background resilience | `93dadf4` | `main` |
 | 13 | 2026-07-22 | Release candidate audit and handoff | `0a94177` | `main` |
 | 12 | 2026-07-22 | Main app module extraction | `1b54215` | `main` |
 | 11 | 2026-07-22 | Responsive accessibility milestone | `4ae4545` | `main` |

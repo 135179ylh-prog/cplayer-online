@@ -438,3 +438,36 @@ Added user-controlled PWA update prompts, awaited queue restore and pre-reload p
 ### Next Steps
 
 - None - task complete
+
+
+## Session 14: Runtime and background resilience
+
+**Date**: 2026-07-22
+**Task**: Runtime and background resilience
+**Branch**: `main`
+
+### Summary
+
+Hardened committed-media ownership, queue reset, Media Session seeking, lifecycle-aware animation, readiness, and API-key cache isolation; full 8-layer quality gate passed locally.
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `93dadf4` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
