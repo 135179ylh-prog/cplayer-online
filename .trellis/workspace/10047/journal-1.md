@@ -538,3 +538,36 @@ Hardened browser storage lifecycle, queue conflict protection, quota recovery, d
 ### Next Steps
 
 - None - task complete
+
+
+## Session 17: Mobile landscape and accessibility hardening
+
+**Date**: 2026-07-23
+**Task**: Mobile landscape and accessibility hardening
+**Branch**: `main`
+
+### Summary
+
+Fixed compact landscape layout, opened-panel semantics, safe areas, reduced motion, and added six-viewport regression coverage.
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `1b9d14a` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
