@@ -9,7 +9,7 @@ function run(command, args, label, options = {}) {
     const result = spawnSync(command, args, {
         cwd: root,
         stdio: 'inherit',
-        env: process.env,
+        env: options.env || process.env,
         shell: options.shell === true
     });
     if (result.error) {
@@ -22,18 +22,18 @@ function run(command, args, label, options = {}) {
     }
 }
 
-function runNpm(args, label) {
+function runNpm(args, label, options = {}) {
     if (process.env.npm_execpath) {
-        run(process.execPath, [process.env.npm_execpath, ...args], label);
+        run(process.execPath, [process.env.npm_execpath, ...args], label, options);
         return;
     }
-    run('npm', args, label, { shell: process.platform === 'win32' });
+    run('npm', args, label, { ...options, shell: process.platform === 'win32' });
 }
 
 const generatedCss = resolve(root, 'css', 'tailwind.css');
 const cssBefore = existsSync(generatedCss) ? readFileSync(generatedCss) : null;
 
-runNpm(['run', 'build:css'], '1/8 Build committed CSS');
+runNpm(['run', 'build:css'], '1/9 Build committed CSS');
 
 const cssAfter = existsSync(generatedCss) ? readFileSync(generatedCss) : null;
 if (!cssBefore || !cssAfter || !cssBefore.equals(cssAfter)) {
@@ -42,12 +42,15 @@ if (!cssBefore || !cssAfter || !cssBefore.equals(cssAfter)) {
     process.exit(1);
 }
 
-runNpm(['run', 'test:unit'], '2/8 Unit tests');
-runNpm(['run', 'check:module'], '3/8 Main module syntax');
-runNpm(['run', 'check:sw'], '4/8 Service Worker syntax');
-runNpm(['run', 'check:features'], '5/8 Static feature contracts');
-runNpm(['audit', '--audit-level=high'], '6/8 Dependency audit');
-runNpm(['run', 'test:e2e'], '7/8 Browser regression');
-run('git', ['diff', '--check'], '8/8 Git whitespace check');
+runNpm(['run', 'test:unit'], '2/9 Unit tests');
+runNpm(['run', 'check:module'], '3/9 Main module syntax');
+runNpm(['run', 'check:sw'], '4/9 Service Worker syntax');
+runNpm(['run', 'check:features'], '5/9 Static feature contracts');
+runNpm(['audit', '--audit-level=high'], '6/9 Dependency audit');
+runNpm(['run', 'build:pages'], '7/9 Build GitHub Pages artifact');
+runNpm(['run', 'test:e2e'], '8/9 Browser regression from Pages artifact', {
+    env: { ...process.env, PW_WEB_ROOT: resolve(root, 'output', 'pages') }
+});
+runNpm(['run', 'check:repo'], '9/9 Repository whitespace and untracked text');
 
 process.stdout.write('\nQuality gate passed.\n');

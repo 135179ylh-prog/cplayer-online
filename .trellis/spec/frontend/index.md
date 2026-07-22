@@ -4,7 +4,7 @@
 
 | Guide | Scope | Status |
 | --- | --- | --- |
-| [Quality Guidelines](./quality-guidelines.md) | Release gate, browser regression, storage resilience, main app module loading, responsive accessibility, PWA install/update checks, deterministic media lifecycle, playback metadata, and API configuration | Maintained |
+| [Quality Guidelines](./quality-guidelines.md) | Exact Pages artifact, release/rollback gate, browser regression, storage resilience, main app module loading, responsive accessibility, PWA install/update checks, deterministic media lifecycle, playback metadata, and API configuration | Maintained |
 
 ## Pre-Development Checklist
 

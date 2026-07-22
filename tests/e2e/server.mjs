@@ -4,7 +4,9 @@ import { extname, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const projectRoot = resolve(fileURLToPath(new URL('../..', import.meta.url)));
+const webRoot = resolve(process.env.PW_WEB_ROOT || projectRoot);
 const port = Number(process.argv[2] || process.env.PW_PORT || 4173);
+const oldWorkerPathname = '/tests/e2e/fixtures/sw-old.js';
 const testDynamicApiPaths = new Set([
     '/__test__/163_search',
     '/__test__/163_music',
@@ -27,8 +29,9 @@ const contentTypes = {
 function resolveRequestPath(requestUrl) {
     const pathname = decodeURIComponent(new URL(requestUrl, 'http://127.0.0.1').pathname);
     const relativePath = pathname === '/' ? 'index.html' : pathname.replace(/^\/+/, '');
-    const filePath = resolve(projectRoot, relativePath);
-    const relativeToRoot = relative(projectRoot, filePath);
+    const root = pathname === oldWorkerPathname ? projectRoot : webRoot;
+    const filePath = resolve(root, relativePath);
+    const relativeToRoot = relative(root, filePath);
     if (relativeToRoot.startsWith('..' + sep) || relativeToRoot === '..' || relativeToRoot.includes(`..${sep}`)) {
         return null;
     }
@@ -80,7 +83,7 @@ const server = createServer(async (request, response) => {
             'Content-Length': body.byteLength,
             'Content-Type': contentTypes[extname(resolved.filePath).toLowerCase()] || 'application/octet-stream'
         };
-        if (resolved.pathname === '/tests/e2e/fixtures/sw-old.js') {
+        if (resolved.pathname === oldWorkerPathname) {
             headers['Service-Worker-Allowed'] = '/';
         }
         response.writeHead(200, headers);
@@ -94,4 +97,5 @@ const server = createServer(async (request, response) => {
 
 server.listen(port, '127.0.0.1', () => {
     console.log(`test server listening on http://127.0.0.1:${port}`);
+    console.log(`test server web root: ${webRoot}`);
 });

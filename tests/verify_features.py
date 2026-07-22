@@ -17,6 +17,9 @@ GITIGNORE = (ROOT / ".gitignore").read_text(encoding="utf-8")
 README = (ROOT / "README.md").read_text(encoding="utf-8")
 PLAYWRIGHT = (ROOT / "playwright.config.mjs").read_text(encoding="utf-8")
 QUALITY_GATE = (ROOT / "scripts" / "run-quality-gate.mjs").read_text(encoding="utf-8")
+PAGES_BUILDER = (ROOT / "scripts" / "build-pages-artifact.mjs").read_text(encoding="utf-8")
+REPOSITORY_CHECK = (ROOT / "scripts" / "check-repository-state.mjs").read_text(encoding="utf-8")
+ROLLBACK_CHECK = (ROOT / "scripts" / "check-rollback-target.mjs").read_text(encoding="utf-8")
 SEARCH_E2E = (ROOT / "tests" / "e2e" / "search-recovery.spec.mjs").read_text(encoding="utf-8")
 SHELL_E2E = (ROOT / "tests" / "e2e" / "app-shell.spec.mjs").read_text(encoding="utf-8")
 API_CONFIG_E2E = (ROOT / "tests" / "e2e" / "api-config.spec.mjs").read_text(encoding="utf-8")
@@ -27,6 +30,7 @@ RUNTIME_RESILIENCE_E2E = (ROOT / "tests" / "e2e" / "runtime-background-resilienc
 PLAYBACK_ERROR_E2E = (ROOT / "tests" / "e2e" / "playback-error.spec.mjs").read_text(encoding="utf-8")
 E2E_HELPERS = (ROOT / "tests" / "e2e" / "helpers.mjs").read_text(encoding="utf-8")
 RESPONSIVE_E2E = (ROOT / "tests" / "e2e" / "responsive-accessibility.spec.mjs").read_text(encoding="utf-8")
+RELEASE_ARTIFACT_E2E = (ROOT / "tests" / "e2e" / "release-artifact.spec.mjs").read_text(encoding="utf-8")
 TEST_SERVER = (ROOT / "tests" / "e2e" / "server.mjs").read_text(encoding="utf-8")
 OLD_SW_FIXTURE = (ROOT / "tests" / "e2e" / "fixtures" / "sw-old.js").read_text(encoding="utf-8")
 CORE_UTILS = (ROOT / "js" / "core-utils.js").read_text(encoding="utf-8")
@@ -145,9 +149,15 @@ require(MANIFEST.get("start_url") == "./index.html", "manifest start_url changed
 require(any(icon.get("src") == "img/icon.png" for icon in MANIFEST.get("icons", [])), "PNG app icon is missing")
 require("超清母带" not in MANIFEST.get("description", ""), "manifest still overstates playback quality")
 require(PACKAGE.get("scripts", {}).get("build:css") == "tailwindcss -c tailwind.config.cjs -i css/tailwind.input.css -o css/tailwind.css --minify", "Tailwind build script changed unexpectedly")
+require(PACKAGE.get("scripts", {}).get("build:pages") == "node scripts/build-pages-artifact.mjs", "Pages artifact build command is missing")
 require(PACKAGE.get("devDependencies", {}).get("tailwindcss") == "3.4.17", "Tailwind version is not pinned")
+require(PACKAGE.get("devDependencies", {}).get("acorn") == "8.15.0", "Acorn parser version is not pinned")
+require(PACKAGE.get("devDependencies", {}).get("parse5") == "7.3.0", "parse5 version is not pinned")
 require(PACKAGE.get("scripts", {}).get("verify") == "node scripts/run-quality-gate.mjs", "unified quality gate is missing")
 require(PACKAGE.get("scripts", {}).get("test:e2e") == "playwright test", "browser regression command is missing")
+require(PACKAGE.get("scripts", {}).get("check:repo") == "node scripts/check-repository-state.mjs", "repository hygiene command is missing")
+require(PACKAGE.get("scripts", {}).get("check:rollback") == "node scripts/check-rollback-target.mjs", "rollback compatibility command is missing")
+require(PACKAGE.get("engines", {}).get("node") == ">=22", "Node support floor must match CI")
 playwright_version = PACKAGE.get("devDependencies", {}).get("@playwright/test", "")
 require(bool(re.fullmatch(r"\d+\.\d+\.\d+", playwright_version)), "Playwright must use an exact pinned version")
 require(PACKAGE.get("devDependencies", {}).get("@axe-core/playwright") == "4.10.2", "Axe Playwright version is not pinned")
@@ -169,21 +179,30 @@ deployment_assets = [
     "index.html", "playlist-downloader.html", "playlist.js", "manifest.json", "sw.js",
     "css", "fonts", "img", "js", "webfonts",
 ]
-require('site_dir="$RUNNER_TEMP/cplayer-pages"' in WORKFLOW, "Pages staging directory is missing")
-require("path: ${{ runner.temp }}/cplayer-pages" in WORKFLOW, "Pages artifact does not use the staging directory")
+require("path: output/pages" in WORKFLOW, "Pages upload does not use the verified output directory")
 require(not re.search(r"^\s*path:\s+\.\s*$", WORKFLOW, flags=re.MULTILINE), "Pages still uploads the repository root")
 require("quality:" in WORKFLOW and "needs: quality" in WORKFLOW, "Pages deploy is not gated by quality checks")
 require("npm ci" in WORKFLOW and "playwright install --with-deps chromium" in WORKFLOW, "CI browser dependencies are not reproducible")
 require("npm run verify" in WORKFLOW, "CI does not run the unified quality gate")
+quality_job = WORKFLOW[WORKFLOW.index("  quality:"):WORKFLOW.index("  deploy:")]
+deploy_job = WORKFLOW[WORKFLOW.index("  deploy:"):]
+require("actions/upload-pages-artifact@v3" in quality_job, "quality job does not upload its verified Pages artifact")
+require("actions/upload-pages-artifact" not in deploy_job, "deploy job rebuilds or uploads a second artifact")
+require("actions/checkout" not in deploy_job and "Prepare Pages artifact" not in deploy_job, "deploy job still reconstructs the site")
+require("cp index.html" not in WORKFLOW and "$RUNNER_TEMP/cplayer-pages" not in WORKFLOW, "workflow still owns a duplicate shell allowlist")
 for asset in deployment_assets:
-    require(asset in WORKFLOW, f"Pages staging artifact is missing {asset}")
+    require(f"'{asset}'" in PAGES_BUILDER, f"Pages builder is missing {asset}")
     require((ROOT / asset).exists(), f"Pages staging source is missing {asset}")
+require("assertSafeOutputDirectory" in PAGES_BUILDER and "output', 'pages'" in PAGES_BUILDER,
+        "Pages builder does not guard its repository-owned output directory")
+require("PAGE_FILES" in PAGES_BUILDER and "PAGE_DIRECTORIES" in PAGES_BUILDER,
+        "Pages artifact allowlist has no single owner")
 require(not (ROOT / "_headers").exists(), "unsupported Pages _headers file is still present")
 
 required_ignore_rules = [
     "/.agents/skills/*", "/.claude/", "/.codex/", "/.trellis/config.yaml",
     "/.trellis/scripts/*", "!/.trellis/scripts/get_context.py", "/.trellis/spec/",
-    "output/playwright/",
+    "output/playwright/", "/output/pages/",
 ]
 for rule in required_ignore_rules:
     require(rule in GITIGNORE, f"missing local runtime ignore rule: {rule}")
@@ -191,6 +210,8 @@ require("api.chksz.top" in README, "README does not document the upstream API de
 require("Service Worker 的缓存修订号" in README, "README does not explain version semantics")
 require("npm run verify" in README, "README does not document the release quality gate")
 require("apikey" in README and "localStorage" in README, "README does not explain API key storage and transport")
+require("Node.js 22" in README and "output/pages" in README, "README does not document the supported runtime and exact Pages artifact")
+require("npm run check:rollback --" in README and "DB v4" in README, "README does not document the safe rollback guard")
 
 api_endpoints = set(re.findall(r"ChKSzAPI\.buildUrl\('(/163_[a-z]+)'", APP))
 require(api_endpoints == {"/163_search", "/163_music", "/163_lyric", "/163_playlist"}, "not every ChKSz endpoint uses the central URL builder")
@@ -211,6 +232,8 @@ require(PLAYWRIGHT.count("testMatch: /responsive-accessibility") == 2, "speciali
 require("workers: 1" in PLAYWRIGHT and "serviceWorkers: 'allow'" in PLAYWRIGHT, "PWA browser tests are not isolated deterministically")
 require("output/playwright/" in PLAYWRIGHT, "browser artifacts are not kept under output/playwright")
 require("node tests/e2e/server.mjs" in PLAYWRIGHT and "reuseExistingServer: false" in PLAYWRIGHT, "Playwright does not own the deterministic test server")
+require("PW_WEB_ROOT" in PLAYWRIGHT and "PW_WEB_ROOT" in TEST_SERVER and "webRoot" in TEST_SERVER,
+        "release browser tests do not serve the selected Pages artifact root")
 require("serviceWorkers: 'block'" in SEARCH_E2E and "page.route" in SEARCH_E2E, "search API mock can be bypassed by the Service Worker")
 require("navigator.serviceWorker.controller" in SHELL_E2E and "setOffline(true)" in SHELL_E2E, "offline shell browser contract is incomplete")
 require("external app module loads once as JavaScript" in SHELL_E2E and "transferSize" in SHELL_E2E, "app module resource boundary is not tested")
@@ -222,6 +245,8 @@ for snippet in ["randomUUID", "/manifest.json?apikey=", "cache.put", ".delete(ur
     require(snippet in SW_KEY_CACHE_E2E, f"service worker key-cache browser contract is missing: {snippet}")
 require("/__test__/" in TEST_SERVER and "testDynamicApiSequence" in TEST_SERVER,
         "test server does not provide controlled successful dynamic API responses")
+for snippet in ["PUBLIC_PATHS", "PRIVATE_PATHS", "serviceWorker.ready", "setOffline(true)"]:
+    require(snippet in RELEASE_ARTIFACT_E2E, f"Pages artifact browser contract is missing: {snippet}")
 require("serviceWorkers: 'block'" in STORAGE_RESILIENCE_E2E and "CPlayer5DB" in STORAGE_RESILIENCE_E2E,
         "storage resilience browser tests do not isolate the real storage boundary")
 require(E2E_HELPERS.count("indexedDB.open('CPlayer5DB', 4)") >= 2,
@@ -240,9 +265,36 @@ require("readMainAudioProbe" in PLAYBACK_ERROR_E2E and "querySelector('audio')" 
         "playback failure test does not inspect the real Audio boundary")
 for snippet in ["AxeBuilder", "element.inert", "ArrowRight", "keyboard-progress.wav", "songRequests"]:
     require(snippet in RESPONSIVE_E2E, f"responsive accessibility browser contract is missing: {snippet}")
-require("tests/e2e" not in WORKFLOW, "test-only Worker/server files must not enter the Pages artifact")
-for gate_step in ["build:css", "test:unit", "check:module", "check:sw", "check:features", "audit", "test:e2e", "diff', '--check"]:
+require("tests/e2e" not in WORKFLOW and "tests/e2e" not in PAGES_BUILDER,
+        "test-only Worker/server files must not enter the Pages artifact")
+for gate_step in ["build:css", "test:unit", "check:module", "check:sw", "check:features", "audit", "build:pages", "test:e2e", "check:repo"]:
     require(gate_step in QUALITY_GATE, f"quality gate is missing step: {gate_step}")
+require("PW_WEB_ROOT" in QUALITY_GATE and "output', 'pages'" in QUALITY_GATE,
+        "quality gate does not run browser regression from the Pages artifact")
+for snippet in [
+    "runGit(['diff', '--check']", "runGit(['diff', '--cached', '--check']",
+    "--name-only", "--diff-filter=ACMRT", "ls-files", "--others", "encoding: null",
+    "UTF-8 BOM is not allowed", "extra blank line at EOF",
+]:
+    require(snippet in REPOSITORY_CHECK, f"repository hygiene boundary is missing: {snippet}")
+for snippet in [
+    "from 'acorn'", "from 'parse5'", "extractDatabaseVersion", "sourceKind",
+    "collectHtmlScripts", "GLOBAL_OBJECT_REFERENCE", "INDEXED_DB_REFERENCE",
+    "mode: 'handler'", "javascript:", "srcdoc", "childDocuments", "classicScope",
+    "execution === 'defer'", "execution === 'async'", "CALLABLE_REFERENCE",
+    "promiseExecutors", "importScripts", "LOCATION_REFERENCE",
+    "invalidatePatternBindings", "functionBoundary", "uncertain", "TryStatement",
+    "WithStatement", "bindingKinds", "nearestVarScope", "globalObjectPropertyName",
+    "from './build-pages-artifact.mjs'", "PAGE_DIRECTORIES", "PAGE_FILES",
+    "ImportExpression", "isLocalModuleSpecifier", "documentCodeEntryName",
+    "walkPatternExpressions", "predeclareConstants", "globalThis", "readCurrentDatabaseVersion",
+    "readTargetDatabaseVersion", "ls-tree", "javascriptUrlSource", "globalObjectScope",
+    "unstableBindings", "discoverUnstableGlobalBindings", "globalObjectMutationEntryName",
+    "StaticBlock", "executionMode", "isDeployableArtifactPath",
+    "listCurrentDeployablePaths", "normalizeLocalScriptPath",
+    "assertRollbackVersion", "rev-parse", "runGit(['show'", "targetVersion < currentVersion",
+]:
+    require(snippet in ROLLBACK_CHECK, f"rollback schema guard is missing: {snippet}")
 
 legacy_names = [
     "dedup_detail.py", "dedupe_recent.py", "find_cycle.py", "find_manage.py", "find_vars.py",

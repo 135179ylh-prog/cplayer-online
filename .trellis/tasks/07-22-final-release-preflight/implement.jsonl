@@ -1,0 +1,4 @@
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Owns the release gate, Pages artifact, browser server, PWA cache, and deployment contracts."}
+{"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"The task removes asymmetric artifact allowlists and establishes one owner."}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"The same artifact crosses local build, browser tests, Actions upload, deployment, and rollback documentation."}
+{"file":".trellis/tasks/07-22-final-release-preflight/research.md","reason":"Contains the verified pipeline, rollback, and environment gaps that define the implementation."}

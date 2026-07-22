@@ -2,6 +2,7 @@ import { defineConfig, devices } from '@playwright/test';
 
 const port = Number(process.env.PW_PORT || 4173);
 const baseURL = `http://127.0.0.1:${port}`;
+const webRoot = process.env.PW_WEB_ROOT || process.cwd();
 
 export default defineConfig({
     testDir: './tests/e2e',
@@ -27,6 +28,7 @@ export default defineConfig({
         command: `node tests/e2e/server.mjs ${port}`,
         url: `${baseURL}/index.html`,
         reuseExistingServer: false,
+        env: { PW_WEB_ROOT: webRoot },
         stdout: 'pipe',
         stderr: 'pipe'
     },

@@ -1,0 +1,4 @@
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Verify exact artifact ownership, test/deploy parity, PWA behavior, and release evidence."}
+{"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"Confirm the workflow and local gate do not regain separate deployment lists."}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"Trace repository files through artifact build, test server, Actions upload, and rollback validation."}
+{"file":".trellis/tasks/07-22-final-release-preflight/research.md","reason":"Recheck each audited blind spot against executable evidence and residual limits."}

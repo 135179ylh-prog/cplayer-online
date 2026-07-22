@@ -1,4 +1,4 @@
-﻿name: Deploy GitHub Pages
+name: Deploy GitHub Pages
 on:
   push:
     branches: [main]
@@ -28,6 +28,11 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: Run release quality gate
         run: npm run verify
+      - uses: actions/configure-pages@v5
+      - name: Upload verified Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: output/pages
   deploy:
     needs: quality
     environment:
@@ -35,16 +40,5 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/configure-pages@v5
-      - name: Prepare Pages artifact
-        run: |
-          site_dir="$RUNNER_TEMP/cplayer-pages"
-          mkdir -p "$site_dir"
-          cp index.html manifest.json playlist.js playlist-downloader.html sw.js "$site_dir/"
-          cp -R css fonts img js webfonts "$site_dir/"
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: ${{ runner.temp }}/cplayer-pages
       - id: deployment
         uses: actions/deploy-pages@v4
