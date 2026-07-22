@@ -571,3 +571,36 @@ Fixed compact landscape layout, opened-panel semantics, safe areas, reduced moti
 ### Next Steps
 
 - None - task complete
+
+
+## Session 18: Font footprint optimization
+
+**Date**: 2026-07-23
+**Task**: Font footprint optimization
+**Branch**: `main`
+
+### Summary
+
+Replaced four complete-glyph Noto TTF assets with hinting-preserving WOFF2, reduced the Pages artifact to 18,270,968 bytes (58.1857%), added online/offline font and artifact-budget browser coverage, and hardened staged-binary repository checks. Full npm run verify passed 9/9 with 26 unit tests and 154/166 browser scenarios passed.
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `5500f05` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
