@@ -534,7 +534,7 @@ export async function waitForAppReady(page) {
 // real storage, not just in-memory state. Returns null when absent.
 export async function readQueueRecord(page) {
     return page.evaluate(() => new Promise((resolve, reject) => {
-        const open = indexedDB.open('CPlayer5DB', 3);
+        const open = indexedDB.open('CPlayer5DB', 4);
         open.onerror = () => reject(open.error);
         open.onsuccess = () => {
             const db = open.result;
@@ -549,7 +549,7 @@ export async function readQueueRecord(page) {
 // List only the user-playlist records (id prefix user_pl_) from IndexedDB.
 export async function readUserPlaylists(page) {
     return page.evaluate(() => new Promise((resolve, reject) => {
-        const open = indexedDB.open('CPlayer5DB', 3);
+        const open = indexedDB.open('CPlayer5DB', 4);
         open.onerror = () => reject(open.error);
         open.onsuccess = () => {
             const db = open.result;

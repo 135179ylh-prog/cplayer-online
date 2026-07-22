@@ -22,6 +22,7 @@ SHELL_E2E = (ROOT / "tests" / "e2e" / "app-shell.spec.mjs").read_text(encoding="
 API_CONFIG_E2E = (ROOT / "tests" / "e2e" / "api-config.spec.mjs").read_text(encoding="utf-8")
 SW_UPDATE_E2E = (ROOT / "tests" / "e2e" / "service-worker-update.spec.mjs").read_text(encoding="utf-8")
 SW_KEY_CACHE_E2E = (ROOT / "tests" / "e2e" / "service-worker-key-cache.spec.mjs").read_text(encoding="utf-8")
+STORAGE_RESILIENCE_E2E = (ROOT / "tests" / "e2e" / "storage-resilience.spec.mjs").read_text(encoding="utf-8")
 RUNTIME_RESILIENCE_E2E = (ROOT / "tests" / "e2e" / "runtime-background-resilience.spec.mjs").read_text(encoding="utf-8")
 PLAYBACK_ERROR_E2E = (ROOT / "tests" / "e2e" / "playback-error.spec.mjs").read_text(encoding="utf-8")
 E2E_HELPERS = (ROOT / "tests" / "e2e" / "helpers.mjs").read_text(encoding="utf-8")
@@ -57,8 +58,8 @@ required_app = {
     "central API config": "meta[name=\"cplayer-api-base-url\"]",
     "central API URL builder": "static buildUrl(path, params = {})",
     "API auth response normalization": "apiStatus === 401 || apiStatus === 403",
-    "API key storage read": "localStorage.getItem('cp_api_key')",
-    "API base storage read": "localStorage.getItem('cp_api_base')",
+    "API key storage read": "readLocalStorage('cp_api_key'",
+    "API base storage read": "readLocalStorage('cp_api_base'",
     "PWA controller replacement listener": "navigator.serviceWorker.addEventListener('controllerchange'",
     "PWA safe update reload": "flushScheduledQueueSave('sw_update_reload')",
     "committed playback identity": "let committedMedia = null;",
@@ -79,6 +80,14 @@ required_app = {
     "accessible overlay stack": "const accessibleOverlayStack = [];",
     "focus-safe overlay manager": "function openAccessibleOverlay(modal, options)",
     "keyboard progress control": "function handleProgressKeydown(event)",
+    "safe local storage boundary": "function readLocalStorage(key, fallback = null)",
+    "database blocked lifecycle": "request.onblocked = () =>",
+    "database version lifecycle": "connection.onversionchange = () =>",
+    "transaction completion boundary": "function transactionDone(tx)",
+    "queue revision conflict": "failure.name = 'QueueConflictError'",
+    "critical quota recovery": "async function runCriticalStorageWrite(operation)",
+    "bounded image cache": "const IMAGE_CACHE_LIMIT = 160;",
+    "bounded remote playlist cache": "const REMOTE_PLAYLIST_CACHE_LIMIT = 12;",
 }
 
 for label, snippet in required_html.items():
@@ -101,13 +110,14 @@ require("from './core-utils.js';" in APP and "./js/core-utils.js" not in APP, "a
 require("self.loadPlaylist();" not in APP, "mobile search still uses the window self object")
 require("mob-search-img-${song.id}" not in APP, "external song id is still interpolated into mobile HTML")
 require(APP.count("const RECENT_HISTORY_KEY = 'cp_recent_history';") == 1, "recent history key is duplicated")
+require(APP.count("localStorage.") == 3, "production localStorage access bypasses the safe storage boundary")
 require((ROOT / "playlist.js").is_file(), "optional playlist.js hook is missing")
 require((ROOT / "js" / "app.js").is_file(), "production app module is missing")
 require((ROOT / "js" / "core-utils.js").is_file(), "core utility module is missing")
 require((ROOT / "tests" / "core-utils.test.mjs").is_file(), "core utility tests are missing")
 require("user-scalable=no" not in HTML and "maximum-scale" not in HTML, "viewport still blocks browser zoom")
 
-require("cplayer5-v58-runtime-background-resilience" in SW, "service worker cache version is not updated")
+require("cplayer5-v59-storage-resilience" in SW, "service worker cache version is not updated")
 require("'./js/app.js'" in SW, "production app module is not precached")
 require("./js/core-utils.js" in SW, "core utility module is not precached")
 require("./css/tailwind.css" in SW and "./js/tailwindcss.js" not in SW, "service worker Tailwind cache entry is stale")
@@ -120,11 +130,13 @@ require("url.pathname === scope.pathname" in SW, "app shell navigation does not 
 fetch_handler = SW[SW.index("self.addEventListener('fetch'"):]
 keyed_network_branch = fetch_handler.find("url.searchParams.has('apikey')")
 known_api_branch = fetch_handler.find("url.hostname === 'api.chksz.top'")
-first_cache_lookup = fetch_handler.find("caches.match(")
+first_cache_lookup = fetch_handler.find("caches.open(CACHE_NAME)")
 require(
     0 <= keyed_network_branch < known_api_branch < first_cache_lookup,
     "keyed and known ChKSz API requests must bypass every fetch-handler cache lookup",
 )
+require("isDynamicMusicApi(url)" in fetch_handler, "key-free dynamic music API requests are not network-only")
+require("caches.match(" not in SW, "service worker cache reads escape the current app cache namespace")
 image_branch = SW.find("url.hostname.includes('music.126.net') && url.pathname.match")
 cdn_network_branch = SW.find("url.hostname.includes('music.126.net'))")
 require(image_branch >= 0 and cdn_network_branch > image_branch, "cover cache branch is shadowed by CDN network branch")
@@ -183,8 +195,8 @@ require("apikey" in README and "localStorage" in README, "README does not explai
 api_endpoints = set(re.findall(r"ChKSzAPI\.buildUrl\('(/163_[a-z]+)'", APP))
 require(api_endpoints == {"/163_search", "/163_music", "/163_lyric", "/163_playlist"}, "not every ChKSz endpoint uses the central URL builder")
 require("search.set('apikey', key)" in APP, "API key is not appended through URLSearchParams")
-require("localStorage.setItem('cp_api_key', key)" in APP, "API key is not persisted from runtime input")
-require("localStorage.removeItem('cp_api_key')" in APP, "API key reset is missing")
+require("writeLocalStorage('cp_api_key', key)" in APP, "API key is not persisted from runtime input")
+require("removeLocalStorage('cp_api_key')" in APP, "API key reset is missing")
 production_source = "\n".join((HTML, APP, DOWNLOADER, SW, CORE_UTILS))
 require(not re.search(r"apikey\s*=\s*['\"][^'\"]{8,}['\"]", production_source, flags=re.IGNORECASE), "a literal API key appears to be hard-coded")
 require("serviceWorkers: 'block'" in API_CONFIG_E2E and "randomUUID" in API_CONFIG_E2E, "API config browser test is not deterministic or uses a fixed key")
@@ -208,6 +220,12 @@ for snippet in ["OLD_WORKER_PATH", "controller?.scriptURL", "UNRELATED_CACHE_NAM
     require(snippet in SW_UPDATE_E2E, f"service worker upgrade browser contract is missing: {snippet}")
 for snippet in ["randomUUID", "/manifest.json?apikey=", "cache.put", ".delete(url)", "caches.match(url)"]:
     require(snippet in SW_KEY_CACHE_E2E, f"service worker key-cache browser contract is missing: {snippet}")
+require("/__test__/" in TEST_SERVER and "testDynamicApiSequence" in TEST_SERVER,
+        "test server does not provide controlled successful dynamic API responses")
+require("serviceWorkers: 'block'" in STORAGE_RESILIENCE_E2E and "CPlayer5DB" in STORAGE_RESILIENCE_E2E,
+        "storage resilience browser tests do not isolate the real storage boundary")
+require(E2E_HELPERS.count("indexedDB.open('CPlayer5DB', 4)") >= 2,
+        "browser storage helpers do not use the current database version")
 for snippet in [
     "installRuntimeProbes", "PageTransitionEvent('pagehide'", "removeSongFromQueue",
     "system play resumes committed song A", "ended committed media",

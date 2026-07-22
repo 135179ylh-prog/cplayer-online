@@ -32,6 +32,73 @@
         // ================= 架构核心：ChKSz API (整合版) =================
 
         const apiBaseMeta = document.querySelector('meta[name="cplayer-api-base-url"]');
+        const STORAGE_WARNING = '浏览器存储不可用，本次修改可能无法保留';
+        const STORAGE_STATE_PRIORITY = {
+            initializing: -1,
+            ready: 0,
+            degraded: 1,
+            blocked: 2,
+            conflict: 3,
+            stale: 4
+        };
+        let storageState = 'initializing';
+        let storageStatePriority = STORAGE_STATE_PRIORITY.initializing;
+        let pendingStorageWarning = '';
+        let shownStorageWarning = '';
+        let storageWarningUiReady = false;
+
+        document.documentElement.dataset.cplayerStorageState = storageState;
+
+        function flushStorageWarning() {
+            if (!pendingStorageWarning || pendingStorageWarning === shownStorageWarning) return;
+            if (!storageWarningUiReady || typeof showToast !== 'function' || !document.getElementById('copyToast')) return;
+            shownStorageWarning = pendingStorageWarning;
+            showToast(pendingStorageWarning, true);
+        }
+
+        function setStorageState(nextState, message, error) {
+            const nextPriority = Object.prototype.hasOwnProperty.call(STORAGE_STATE_PRIORITY, nextState)
+                ? STORAGE_STATE_PRIORITY[nextState]
+                : STORAGE_STATE_PRIORITY.degraded;
+            if (nextPriority >= storageStatePriority) {
+                storageState = nextState;
+                storageStatePriority = nextPriority;
+                document.documentElement.dataset.cplayerStorageState = nextState;
+            }
+            if (message && nextPriority >= storageStatePriority) pendingStorageWarning = message;
+            if (error) console.warn('[storage]', message || nextState, error);
+            flushStorageWarning();
+        }
+
+        function readLocalStorage(key, fallback = null) {
+            try {
+                const value = localStorage.getItem(key);
+                return value === null ? fallback : value;
+            } catch (error) {
+                setStorageState('degraded', STORAGE_WARNING, error);
+                return fallback;
+            }
+        }
+
+        function writeLocalStorage(key, value) {
+            try {
+                localStorage.setItem(key, value);
+                return true;
+            } catch (error) {
+                setStorageState('degraded', STORAGE_WARNING, error);
+                return false;
+            }
+        }
+
+        function removeLocalStorage(key) {
+            try {
+                localStorage.removeItem(key);
+                return true;
+            } catch (error) {
+                setStorageState('degraded', STORAGE_WARNING, error);
+                return false;
+            }
+        }
 
         class ChKSzAPI {
             // 默认地址来自页面 meta，用户可在设置里覆盖（存 localStorage）。
@@ -42,14 +109,13 @@
             }
 
             static get baseUrl() {
-                let stored = '';
-                try { stored = (localStorage.getItem('cp_api_base') || '').trim(); } catch (e) {}
+                const stored = (readLocalStorage('cp_api_base', '') || '').trim();
                 return ChKSzAPI.normalizeBaseUrl(stored) || ChKSzAPI.defaultBaseUrl;
             }
 
             // 用户的个人密钥，只从 localStorage 读取，绝不写入代码。
             static get apiKey() {
-                try { return (localStorage.getItem('cp_api_key') || '').trim(); } catch (e) { return ''; }
+                return (readLocalStorage('cp_api_key', '') || '').trim();
             }
 
             static normalizeBaseUrl(value) {
@@ -106,14 +172,14 @@
 
             loadSettings() {
                 this.config = {
-                    quality: localStorage.getItem('cp_quality') || 'jymaster'
+                    quality: readLocalStorage('cp_quality', 'jymaster') || 'jymaster'
                 };
             }
 
             saveSettings(key, value) {
                 if (key === 'source') return;
                 this.config[key] = value;
-                localStorage.setItem(`cp_${key}`, value);
+                return writeLocalStorage(`cp_${key}`, value);
             }
 
             async search(query) {
@@ -235,7 +301,7 @@
             if (playMode === 'shuffle' && options.shuffle !== false && typeof shufflePlaylist === 'function') {
                 shufflePlaylist();
             }
-            try { localStorage.setItem('cp_play_mode', playMode); } catch (e) {}
+            writeLocalStorage('cp_play_mode', playMode);
             updatePlayModeUI();
             if (options.refresh !== false) {
                 if (typeof renderAllPlaylistItems === 'function' && dom.playlistContent) renderAllPlaylistItems();
@@ -267,21 +333,87 @@
 
         // ================= IndexedDB 缓存系统 =================
         const DB_NAME = 'CPlayer5DB';
-        const DB_VERSION = 3;
+        const DB_VERSION = 4;
+        const IMAGE_CACHE_LIMIT = 160;
+        const REMOTE_PLAYLIST_CACHE_LIMIT = 12;
         let db = null;
+        let databaseOpenPromise = null;
 
         async function initDatabase() {
-            return new Promise((resolve, reject) => {
-                const request = indexedDB.open(DB_NAME, DB_VERSION);
+            if (db) return db;
+            if (databaseOpenPromise) return databaseOpenPromise;
+            if (storageState === 'blocked' || storageState === 'stale') {
+                const error = new Error(storageState === 'blocked'
+                    ? 'IndexedDB upgrade remains blocked'
+                    : 'IndexedDB connection is stale');
+                error.name = storageState === 'blocked' ? 'StorageBlockedError' : 'VersionError';
+                throw error;
+            }
 
-                request.onerror = () => reject(request.error);
-                request.onsuccess = () => {
-                    db = request.result;
-                    resolve(db);
+            const pending = new Promise((resolve, reject) => {
+                let request;
+                let settled = false;
+                const settle = function (callback, value) {
+                    if (settled) return false;
+                    settled = true;
+                    callback(value);
+                    return true;
                 };
 
-                request.onupgradeneeded = (e) => {
-                    const database = e.target.result;
+                try {
+                    request = indexedDB.open(DB_NAME, DB_VERSION);
+                } catch (error) {
+                    setStorageState('degraded', STORAGE_WARNING, error);
+                    settle(reject, error);
+                    return;
+                }
+
+                request.onerror = () => {
+                    const error = request.error || new Error('IndexedDB 打开失败');
+                    const state = error && error.name === 'VersionError' ? 'stale' : 'degraded';
+                    const message = state === 'stale'
+                        ? '播放器数据已在其他页面升级，请刷新当前页面'
+                        : STORAGE_WARNING;
+                    setStorageState(state, message, error);
+                    settle(reject, error);
+                };
+                request.onblocked = () => {
+                    const error = new Error('IndexedDB upgrade blocked by another page');
+                    error.name = 'StorageBlockedError';
+                    setStorageState('blocked', '存储升级被其他播放器页面占用，请关闭其他页面后刷新', error);
+                    settle(reject, error);
+                };
+                request.onsuccess = () => {
+                    const connection = request.result;
+                    if (settled) {
+                        connection.close();
+                        return;
+                    }
+                    connection.onversionchange = () => {
+                        connection.close();
+                        if (db === connection) db = null;
+                        databaseOpenPromise = null;
+                        setStorageState('stale', '播放器数据已在其他页面升级，请刷新当前页面');
+                    };
+                    connection.onclose = () => {
+                        if (db === connection) {
+                            db = null;
+                            if (storageState !== 'stale') {
+                                setStorageState('degraded', STORAGE_WARNING);
+                            }
+                        }
+                    };
+                    db = connection;
+                    setStorageState('ready');
+                    settle(resolve, connection);
+                    void pruneTransientCaches(false).catch((error) => {
+                        console.warn('[storage] background cache pruning failed', error);
+                    });
+                };
+
+                request.onupgradeneeded = (event) => {
+                    const database = event.target.result;
+                    const upgradeTx = event.target.transaction;
 
                     // 歌单缓存表
                     if (!database.objectStoreNames.contains('playlists')) {
@@ -295,11 +427,130 @@
                     }
 
                     // 图片缓存表
+                    let imageStore;
                     if (!database.objectStoreNames.contains('images')) {
-                        database.createObjectStore('images', { keyPath: 'url' });
+                        imageStore = database.createObjectStore('images', { keyPath: 'url' });
+                    } else {
+                        imageStore = upgradeTx.objectStore('images');
                     }
+                    if (!imageStore.indexNames.contains('timestamp')) {
+                        imageStore.createIndex('timestamp', 'timestamp');
+                    }
+                    const legacyCursor = imageStore.openCursor();
+                    legacyCursor.onsuccess = function () {
+                        const cursor = legacyCursor.result;
+                        if (!cursor) return;
+                        const value = cursor.value;
+                        if (!Number.isFinite(Number(value.timestamp))) {
+                            value.timestamp = 0;
+                            cursor.update(value);
+                        }
+                        cursor.continue();
+                    };
                 };
             });
+
+            const tracked = pending.finally(() => {
+                if (databaseOpenPromise === tracked) databaseOpenPromise = null;
+            });
+            databaseOpenPromise = tracked;
+            return tracked;
+        }
+
+        function transactionDone(tx) {
+            return new Promise((resolve, reject) => {
+                let settled = false;
+                const finish = function (callback, value) {
+                    if (settled) return;
+                    settled = true;
+                    callback(value);
+                };
+                tx.addEventListener('complete', () => finish(resolve));
+                tx.addEventListener('error', (event) => {
+                    const requestError = event && event.target && event.target !== tx
+                        ? event.target.error
+                        : null;
+                    finish(reject, requestError || tx.error || new Error('数据库事务失败'));
+                });
+                tx.addEventListener('abort', () => finish(reject, tx.error || new Error('数据库事务中断')));
+            });
+        }
+
+        function isQuotaExceededError(error) {
+            let current = error;
+            for (let depth = 0; current && depth < 4; depth += 1) {
+                if (current.name === 'QuotaExceededError' || /quota|存储空间/i.test(String(current.message || ''))) return true;
+                current = current.cause;
+            }
+            return false;
+        }
+
+        async function pruneIndexedCache(storeName, indexName, limit, shouldInclude, aggressive) {
+            if (!db || !db.objectStoreNames.contains(storeName)) return;
+            const tx = db.transaction(storeName, 'readwrite');
+            const store = tx.objectStore(storeName);
+            const index = store.index(indexName);
+            let kept = 0;
+            const request = index.openCursor(null, 'prev');
+            request.onsuccess = function () {
+                const cursor = request.result;
+                if (!cursor) return;
+                if (!shouldInclude || shouldInclude(cursor.value)) {
+                    if (aggressive || kept >= limit) cursor.delete();
+                    else kept += 1;
+                }
+                cursor.continue();
+            };
+            await transactionDone(tx);
+        }
+
+        async function pruneTransientCaches(aggressive) {
+            if (!db) return;
+            const failures = [];
+            try {
+                await pruneIndexedCache('images', 'timestamp', IMAGE_CACHE_LIMIT, null, aggressive);
+            } catch (error) {
+                failures.push(error);
+            }
+            try {
+                await pruneIndexedCache('playlists', 'timestamp', REMOTE_PLAYLIST_CACHE_LIMIT, function (record) {
+                    if (!record || record.id == null) return false;
+                    const id = String(record.id);
+                    return id !== CURRENT_QUEUE_KEY && id.indexOf(USER_PL_PREFIX) !== 0;
+                }, aggressive);
+            } catch (error) {
+                failures.push(error);
+            }
+            if (failures.length) throw failures[0];
+        }
+
+        async function runCriticalStorageWrite(operation) {
+            try {
+                return await operation();
+            } catch (error) {
+                if (!isQuotaExceededError(error)) throw error;
+                try {
+                    await pruneTransientCaches(true);
+                } catch (pruneError) {
+                    console.warn('[storage] quota cleanup failed', pruneError);
+                }
+                return operation();
+            }
+        }
+
+        async function handleOptionalCacheFailure(label, error) {
+            console.warn('[storage] ' + label + ' cache failed', error);
+            if (isQuotaExceededError(error)) {
+                try {
+                    await pruneTransientCaches(true);
+                    setStorageState('degraded', '浏览器缓存空间不足，已清理临时缓存', error);
+                } catch (pruneError) {
+                    console.warn('[storage] optional cache cleanup failed', pruneError);
+                    setStorageState('degraded', '浏览器缓存空间不足，临时缓存清理失败，请刷新后重试', pruneError);
+                }
+            } else {
+                setStorageState('degraded', STORAGE_WARNING, error);
+            }
         }
 
         // ================= 歌单小图缓存逻辑（仅用于列表缩略图） =================
@@ -337,8 +588,14 @@
                                     // 写入缓存
                                     const writeTx = db.transaction('images', 'readwrite');
                                     writeTx.objectStore('images').put({ url: secureUrl, data: base64, timestamp: Date.now() });
+                                    transactionDone(writeTx).then(function () {
+                                        return pruneIndexedCache('images', 'timestamp', IMAGE_CACHE_LIMIT, null, false);
+                                    }).catch(function (error) {
+                                        void handleOptionalCacheFailure('image', error);
+                                    });
                                     resolve(base64);
                                 } catch (e) {
+                                    void handleOptionalCacheFailure('image', e);
                                     resolve(secureUrl); // 降级
                                 }
                             };
@@ -356,8 +613,8 @@
 
         // 保存歌单到 IndexedDB
         async function savePlaylistToCache(playlistId, songs) {
-            if (!db) return;
-            return new Promise((resolve, reject) => {
+            if (!db) return false;
+            try {
                 const tx = db.transaction('playlists', 'readwrite');
                 const store = tx.objectStore('playlists');
                 store.put({
@@ -365,20 +622,37 @@
                     songs: songs,
                     timestamp: Date.now()
                 });
-                tx.oncomplete = () => resolve();
-                tx.onerror = () => reject(tx.error);
-            });
+                await transactionDone(tx);
+                await pruneIndexedCache('playlists', 'timestamp', REMOTE_PLAYLIST_CACHE_LIMIT, function (record) {
+                    if (!record || record.id == null) return false;
+                    const id = String(record.id);
+                    return id !== CURRENT_QUEUE_KEY && id.indexOf(USER_PL_PREFIX) !== 0;
+                }, false);
+                return true;
+            } catch (error) {
+                await handleOptionalCacheFailure('playlist', error);
+                return false;
+            }
         }
 
         // 从 IndexedDB 获取歌单
         async function getPlaylistFromCache(playlistId) {
             if (!db) return null;
             return new Promise((resolve, reject) => {
-                const tx = db.transaction('playlists', 'readonly');
-                const store = tx.objectStore('playlists');
-                const request = store.get(playlistId);
-                request.onsuccess = () => resolve(request.result);
-                request.onerror = () => reject(request.error);
+                let tx;
+                let value = null;
+                let requestError = null;
+                try {
+                    tx = db.transaction('playlists', 'readonly');
+                    const store = tx.objectStore('playlists');
+                    const request = store.get(playlistId);
+                    request.onsuccess = () => { value = request.result || null; };
+                    request.onerror = () => { requestError = request.error; };
+                } catch (error) {
+                    reject(error);
+                    return;
+                }
+                transactionDone(tx).then(() => resolve(value), (error) => reject(requestError || error));
             });
         }
 
@@ -394,9 +668,14 @@
         const PLAYLIST_BACKUP_MAX_BYTES = 5 * 1024 * 1024;
         const PLAYLIST_BACKUP_MAX_PLAYLISTS = 500;
         const PLAYLIST_BACKUP_MAX_SONGS = 10000;
+        const QUEUE_WRITER_ID = (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
+            ? crypto.randomUUID()
+            : 'queue-' + Date.now() + '-' + Math.random().toString(36).slice(2);
         let queueSaveTimer = null;
         let queueSaveInFlight = null;
         let queueSavePendingReason = '';
+        let queueBaseRevision = 0;
+        let queueWriteBlocked = false;
         let suppressQueueAutosave = false;
         let pendingSongForPlaylist = null;
         let pendingPlaybackSession = null;
@@ -407,13 +686,13 @@
 
         function readPlaybackSession() {
             try {
-                const raw = localStorage.getItem(PLAYBACK_SESSION_KEY);
+                const raw = readLocalStorage(PLAYBACK_SESSION_KEY);
                 if (!raw) return null;
                 const normalized = normalizePlaybackSession(JSON.parse(raw));
-                if (!normalized) localStorage.removeItem(PLAYBACK_SESSION_KEY);
+                if (!normalized) removeLocalStorage(PLAYBACK_SESSION_KEY);
                 return normalized;
             } catch (error) {
-                try { localStorage.removeItem(PLAYBACK_SESSION_KEY); } catch (removeError) {}
+                removeLocalStorage(PLAYBACK_SESSION_KEY);
                 console.warn('[resume] invalid playback session ignored', error);
                 return null;
             }
@@ -421,9 +700,7 @@
 
         function clearPlaybackSession() {
             pendingPlaybackSession = null;
-            try { localStorage.removeItem(PLAYBACK_SESSION_KEY); } catch (error) {
-                console.warn('[resume] clear failed', error);
-            }
+            removeLocalStorage(PLAYBACK_SESSION_KEY);
         }
 
         function getQueueSongId(index) {
@@ -492,14 +769,9 @@
                 updatedAt: now,
                 reason: reason || 'auto'
             };
-            try {
-                localStorage.setItem(PLAYBACK_SESSION_KEY, JSON.stringify(payload));
-                playbackSessionLastSavedAt = now;
-                return true;
-            } catch (error) {
-                console.warn('[resume] save failed', error);
-                return false;
-            }
+            if (!writeLocalStorage(PLAYBACK_SESSION_KEY, JSON.stringify(payload))) return false;
+            playbackSessionLastSavedAt = now;
+            return true;
         }
 
         function preparePlaybackResume() {
@@ -555,9 +827,7 @@
             sleepTimerTimeout = null;
             sleepTimerInterval = null;
             sleepTimerEndAt = 0;
-            try { localStorage.removeItem(SLEEP_TIMER_KEY); } catch (error) {
-                console.warn('[sleep] clear failed', error);
-            }
+            removeLocalStorage(SLEEP_TIMER_KEY);
             updateSleepTimerUI();
             if (options.notify && typeof showToast === 'function') showToast('睡眠定时已取消');
         }
@@ -590,9 +860,7 @@
                 return;
             }
             sleepTimerEndAt = Date.now() + value * 60000;
-            try { localStorage.setItem(SLEEP_TIMER_KEY, String(sleepTimerEndAt)); } catch (error) {
-                console.warn('[sleep] persist failed', error);
-            }
+            writeLocalStorage(SLEEP_TIMER_KEY, String(sleepTimerEndAt));
             scheduleSleepTimer();
             if (typeof showToast === 'function') showToast('睡眠定时已设置：' + value + ' 分钟');
         }
@@ -613,7 +881,7 @@
                 }
                 setSleepTimer(select.value);
             });
-            try { sleepTimerEndAt = Number(localStorage.getItem(SLEEP_TIMER_KEY)) || 0; } catch (error) {}
+            sleepTimerEndAt = Number(readLocalStorage(SLEEP_TIMER_KEY, '0')) || 0;
             if (getSleepTimerRemainingMs(sleepTimerEndAt)) scheduleSleepTimer();
             else clearSleepTimer();
         }
@@ -637,7 +905,7 @@
 
         function readRecentHistory() {
             try {
-                const raw = localStorage.getItem(RECENT_HISTORY_KEY);
+                const raw = readLocalStorage(RECENT_HISTORY_KEY);
                 if (!raw) return [];
                 const parsed = JSON.parse(raw);
                 if (!Array.isArray(parsed)) return [];
@@ -655,13 +923,7 @@
 
         function writeRecentHistory(items) {
             const safeItems = Array.isArray(items) ? items.slice(0, RECENT_HISTORY_LIMIT) : [];
-            try {
-                localStorage.setItem(RECENT_HISTORY_KEY, JSON.stringify(safeItems));
-                return true;
-            } catch (error) {
-                console.warn('[recent] save failed', error);
-                return false;
-            }
+            return writeLocalStorage(RECENT_HISTORY_KEY, JSON.stringify(safeItems));
         }
 
         function recordRecentPlay(song) {
@@ -679,9 +941,7 @@
         }
 
         function clearRecentHistory() {
-            try { localStorage.removeItem(RECENT_HISTORY_KEY); } catch (error) {
-                console.warn('[recent] clear failed', error);
-            }
+            removeLocalStorage(RECENT_HISTORY_KEY);
             if (typeof refreshRecentHistory === 'function') refreshRecentHistory();
         }
 
@@ -689,11 +949,71 @@
             return playlist.some(s => String(typeof s === 'object' ? s.id : s) === String(songId));
         }
 
+        function normalizeQueueRevision(value) {
+            const revision = Number(value);
+            return Number.isSafeInteger(revision) && revision >= 0 ? revision : 0;
+        }
+
+        function commitQueuePayload(payload) {
+            return new Promise(function (resolve, reject) {
+                let tx;
+                let failure = null;
+                let nextRevision = null;
+                try {
+                    tx = db.transaction('playlists', 'readwrite');
+                    const store = tx.objectStore('playlists');
+                    const readRequest = store.get(CURRENT_QUEUE_KEY);
+                    readRequest.onsuccess = function () {
+                        try {
+                            const latest = readRequest.result || null;
+                            const latestRevision = normalizeQueueRevision(latest && latest.revision);
+                            if (latestRevision > queueBaseRevision && (!latest || latest.writerId !== QUEUE_WRITER_ID)) {
+                                failure = new Error('Queue was updated by another page');
+                                failure.name = 'QueueConflictError';
+                                tx.abort();
+                                return;
+                            }
+                            nextRevision = Math.max(queueBaseRevision, latestRevision) + 1;
+                            store.put(Object.assign({}, payload, {
+                                revision: nextRevision,
+                                writerId: QUEUE_WRITER_ID
+                            }));
+                        } catch (error) {
+                            failure = error;
+                            try { tx.abort(); } catch (abortError) {}
+                        }
+                    };
+                    readRequest.onerror = function () {
+                        failure = readRequest.error || new Error('队列读取失败');
+                        try { tx.abort(); } catch (abortError) {}
+                    };
+                } catch (error) {
+                    reject(error);
+                    return;
+                }
+
+                transactionDone(tx).then(function () {
+                    resolve(nextRevision);
+                }).catch(function (error) {
+                    reject(failure || error);
+                });
+            });
+        }
+
         async function saveCurrentQueue(reason) {
-            if (!db || suppressQueueAutosave) return;
+            if (suppressQueueAutosave) return false;
+            if (queueWriteBlocked) {
+                setStorageState('conflict', '播放列表已在其他页面更新，请刷新后再操作');
+                return false;
+            }
+            if (!db) {
+                setStorageState(storageState === 'stale' ? 'stale' : 'degraded',
+                    storageState === 'stale' ? '播放器数据已在其他页面升级，请刷新当前页面' : STORAGE_WARNING);
+                return false;
+            }
             if (queueSaveInFlight) {
                 queueSavePendingReason = reason || 'auto';
-                return queueSaveInFlight;
+                return queueSaveInFlight.then(function () { return true; }, function () { return false; });
             }
 
             const payload = {
@@ -704,32 +1024,37 @@
                 timestamp: Date.now(),
                 reason: reason || 'auto'
             };
-            const write = new Promise(function (resolve, reject) {
-                try {
-                    const tx = db.transaction('playlists', 'readwrite');
-                    tx.objectStore('playlists').put(payload);
-                    tx.oncomplete = function () { resolve(); };
-                    tx.onerror = function () { reject(tx.error || new Error('队列事务失败')); };
-                    tx.onabort = function () { reject(tx.error || new Error('队列事务中断')); };
-                } catch (error) {
-                    reject(error);
-                }
+            const write = runCriticalStorageWrite(function () {
+                return commitQueuePayload(payload);
             });
             queueSaveInFlight = write;
+            let saved = false;
             try {
-                await write;
-                try { localStorage.setItem('cp_queue_dirty', '1'); } catch (error) {}
+                queueBaseRevision = await write;
+                writeLocalStorage('cp_queue_dirty', '1');
+                saved = true;
             } catch (e) {
                 console.warn('[queue] save failed', e);
+                if (e && e.name === 'QueueConflictError') {
+                    queueWriteBlocked = true;
+                    queueSavePendingReason = '';
+                    setStorageState('conflict', '播放列表已在其他页面更新，请刷新后再操作', e);
+                } else {
+                    const message = isQuotaExceededError(e)
+                        ? '播放列表保存失败，浏览器存储空间不足'
+                        : STORAGE_WARNING;
+                    setStorageState('degraded', message, e);
+                }
             } finally {
                 queueSaveInFlight = null;
             }
 
-            if (queueSavePendingReason && !suppressQueueAutosave) {
+            if (queueSavePendingReason && !suppressQueueAutosave && !queueWriteBlocked) {
                 const nextReason = queueSavePendingReason;
                 queueSavePendingReason = '';
                 return saveCurrentQueue(nextReason);
             }
+            return saved;
         }
 
         function scheduleSaveCurrentQueue(reason) {
@@ -765,6 +1090,8 @@
             try {
                 const cached = await getPlaylistFromCache(CURRENT_QUEUE_KEY);
                 if (!cached || !Array.isArray(cached.songs)) return false;
+                queueBaseRevision = normalizeQueueRevision(cached.revision);
+                queueWriteBlocked = false;
                 suppressQueueAutosave = true;
                 playlist = cached.songs.map(normalizeSongObject).filter(function (song) {
                     return song && song.id != null && String(song.id).trim();
@@ -773,7 +1100,7 @@
                 currentIndex = (typeof cached.currentIndex === 'number' && cached.currentIndex >= 0 && cached.currentIndex < playlist.length) ? cached.currentIndex : -1;
                 if (cached.playMode) {
                     playMode = normalizePlayMode(cached.playMode);
-                    try { localStorage.setItem('cp_play_mode', playMode); } catch (error) {}
+                    writeLocalStorage('cp_play_mode', playMode);
                     updatePlayModeUI();
                 }
                 playlistTotalCount = playlist.length;
@@ -789,6 +1116,8 @@
             } catch (e) {
                 suppressQueueAutosave = false;
                 console.warn('[queue] restore failed', e);
+                setStorageState(storageState === 'stale' ? 'stale' : 'degraded',
+                    storageState === 'stale' ? '播放器数据已在其他页面升级，请刷新当前页面' : '播放列表恢复失败，请刷新后重试', e);
                 return false;
             }
         }
@@ -849,27 +1178,49 @@
             if (!db && typeof initDatabase === 'function') {
                 try { await initDatabase(); } catch (e) {}
             }
-            if (!db) return [];
-            return new Promise(function (resolve, reject) {
+            if (!db) {
+                setStorageState(storageState === 'stale' ? 'stale' : 'degraded',
+                    storageState === 'stale' ? '播放器数据已在其他页面升级，请刷新当前页面' : STORAGE_WARNING);
+                const error = new Error('浏览器存储不可用，无法读取自建歌单');
+                error.name = 'StorageUnavailableError';
+                throw error;
+            }
+            const read = new Promise(function (resolve, reject) {
+                let tx;
+                let requestError = null;
+                let all = [];
                 try {
-                    const tx = db.transaction('playlists', 'readonly');
+                    tx = db.transaction('playlists', 'readonly');
                     const store = tx.objectStore('playlists');
                     const req = store.getAll ? store.getAll() : null;
                     if (req) {
                         req.onsuccess = function () {
-                            const all = req.result || [];
-                            resolve(all.filter(function (x) {
-                                return x && typeof x.id === 'string' && x.id.indexOf(USER_PL_PREFIX) === 0;
-                            }).map(function (x) {
-                                return { id: x.id, name: x.name || '未命名歌单', songs: Array.isArray(x.songs) ? x.songs : [], timestamp: x.timestamp || 0 };
-                            }).sort(function (a, b) { return (b.timestamp || 0) - (a.timestamp || 0); }));
+                            all = req.result || [];
                         };
-                        req.onerror = function () { reject(req.error); };
+                        req.onerror = function () { requestError = req.error; };
                     } else {
-                        resolve([]);
+                        all = [];
                     }
-                } catch (e) { reject(e); }
+                } catch (e) {
+                    reject(e);
+                    return;
+                }
+                transactionDone(tx).then(function () {
+                    resolve(all.filter(function (x) {
+                        return x && typeof x.id === 'string' && x.id.indexOf(USER_PL_PREFIX) === 0;
+                    }).map(function (x) {
+                        return { id: x.id, name: x.name || '未命名歌单', songs: Array.isArray(x.songs) ? x.songs : [], timestamp: x.timestamp || 0 };
+                    }).sort(function (a, b) { return (b.timestamp || 0) - (a.timestamp || 0); }));
+                }, function (error) {
+                    reject(requestError || error);
+                });
             });
+            try {
+                return await read;
+            } catch (error) {
+                setStorageState('degraded', STORAGE_WARNING, error);
+                throw error;
+            }
         }
 
         async function saveUserPlaylistRecord(rec) {
@@ -880,12 +1231,18 @@
                 songs: Array.isArray(rec.songs) ? rec.songs : [],
                 timestamp: Date.now()
             };
-            const tx = db.transaction('playlists', 'readwrite');
-            tx.objectStore('playlists').put(payload);
-            await new Promise(function (resolve, reject) {
-                tx.oncomplete = function () { resolve(); };
-                tx.onerror = function () { reject(tx.error); };
-            });
+            try {
+                await runCriticalStorageWrite(async function () {
+                    const tx = db.transaction('playlists', 'readwrite');
+                    tx.objectStore('playlists').put(payload);
+                    await transactionDone(tx);
+                });
+            } catch (error) {
+                setStorageState('degraded', isQuotaExceededError(error)
+                    ? '歌单保存失败，浏览器存储空间不足'
+                    : STORAGE_WARNING, error);
+                throw error;
+            }
             return payload;
         }
 
@@ -1034,27 +1391,24 @@
                 };
             });
 
-            await new Promise(function (resolve, reject) {
-                let settled = false;
-                const finish = function (callback, value) {
-                    if (settled) return;
-                    settled = true;
-                    callback(value);
-                };
-                let tx;
-                try {
-                    tx = db.transaction('playlists', 'readwrite');
+            try {
+                await runCriticalStorageWrite(async function () {
+                    const tx = db.transaction('playlists', 'readwrite');
                     const store = tx.objectStore('playlists');
-                    records.forEach(function (record) { store.put(record); });
-                } catch (error) {
-                    if (tx) try { tx.abort(); } catch (abortError) {}
-                    reject(error);
-                    return;
-                }
-                tx.oncomplete = function () { finish(resolve); };
-                tx.onabort = function () { finish(reject, tx.error || new Error('导入事务已回滚')); };
-                tx.onerror = function () { finish(reject, tx.error || new Error('导入事务失败')); };
-            });
+                    try {
+                        records.forEach(function (record) { store.put(record); });
+                    } catch (error) {
+                        try { tx.abort(); } catch (abortError) {}
+                        throw error;
+                    }
+                    await transactionDone(tx);
+                });
+            } catch (error) {
+                setStorageState('degraded', isQuotaExceededError(error)
+                    ? '歌单导入失败，浏览器存储空间不足'
+                    : STORAGE_WARNING, error);
+                throw error;
+            }
             return records;
         }
 
@@ -1082,13 +1436,21 @@
         }
 
         async function deleteUserPlaylist(playlistId) {
-            if (!db) return;
-            const tx = db.transaction('playlists', 'readwrite');
-            tx.objectStore('playlists').delete(playlistId);
-            await new Promise(function (resolve, reject) {
-                tx.oncomplete = function () { resolve(); };
-                tx.onerror = function () { reject(tx.error); };
-            });
+            if (!db) {
+                const error = new Error('浏览器存储不可用，无法删除歌单');
+                error.name = 'StorageUnavailableError';
+                setStorageState(storageState === 'stale' ? 'stale' : 'degraded',
+                    storageState === 'stale' ? '播放器数据已在其他页面升级，请刷新当前页面' : STORAGE_WARNING, error);
+                throw error;
+            }
+            try {
+                const tx = db.transaction('playlists', 'readwrite');
+                tx.objectStore('playlists').delete(playlistId);
+                await transactionDone(tx);
+            } catch (error) {
+                setStorageState('degraded', STORAGE_WARNING, error);
+                throw error;
+            }
         }
 
         async function loadUserPlaylistIntoQueue(playlistId, autoPlay) {
@@ -1427,8 +1789,13 @@ async function refreshUserPlaylistLibrary() {
                     row.querySelector('[data-act="load"]').onclick = function () { loadUserPlaylistIntoQueue(pl.id, true); };
                     row.querySelector('[data-act="del"]').onclick = async function () {
                         if (!confirm('删除歌单「' + pl.name + '」？')) return;
-                        await deleteUserPlaylist(pl.id);
-                        refreshUserPlaylistLibrary();
+                        try {
+                            await deleteUserPlaylist(pl.id);
+                            refreshUserPlaylistLibrary();
+                        } catch (error) {
+                            console.error(error);
+                            if (typeof showToast === 'function') showToast('删除失败：浏览器存储不可用', true);
+                        }
                     };
                     box.appendChild(row);
                 });
@@ -1517,8 +1884,13 @@ async function refreshUserPlaylistLibrary() {
                         event.preventDefault();
                         event.stopPropagation();
                         if (!confirm('删除歌单「' + pl.name + '」？')) return;
-                        await deleteUserPlaylist(pl.id);
-                        await refreshMyPlaylists();
+                        try {
+                            await deleteUserPlaylist(pl.id);
+                            await refreshMyPlaylists();
+                        } catch (error) {
+                            console.error(error);
+                            if (typeof showToast === 'function') showToast('删除失败：浏览器存储不可用', true);
+                        }
                     };
                     actions.appendChild(playButton);
                     actions.appendChild(manageButton);
@@ -1947,7 +2319,7 @@ async function refreshUserPlaylistLibrary() {
                 currentPlaylistId = '';
                 playlistSource = 'empty';
                 playlistSourceName = '已清空';
-                try { localStorage.removeItem('cp_playlistId'); } catch (error) {}
+                removeLocalStorage('cp_playlistId');
                 scheduleSaveCurrentQueue('clear_empty');
                 if (typeof showToast === 'function') showToast('播放列表已为空');
                 return;
@@ -1960,7 +2332,7 @@ async function refreshUserPlaylistLibrary() {
             currentPlaylistId = '';
             playlistSource = 'empty';
             playlistSourceName = '已清空';
-            try { localStorage.removeItem('cp_playlistId'); } catch (error) {}
+            removeLocalStorage('cp_playlistId');
             shuffledOrder = [];
             playlistTotalCount = 0;
             if (typeof renderAllPlaylistItems === 'function') renderAllPlaylistItems();
@@ -2321,6 +2693,8 @@ async function refreshUserPlaylistLibrary() {
             // dom.playlistInfo = document.querySelector('.playlist-info');
             dom.albumArtWrapper = document.getElementById('albumArtWrapper');
             dom.html = document.documentElement;
+            storageWarningUiReady = true;
+            flushStorageWarning();
 
             // ★ 初始化 IndexedDB 缓存
             try {
@@ -2332,13 +2706,9 @@ async function refreshUserPlaylistLibrary() {
 
             initEventListeners();
             setupConnectivityFeedback();
-            try {
-                const saved = localStorage.getItem('cp_play_mode');
-                playMode = normalizePlayMode(saved || playMode);
-                localStorage.setItem('cp_play_mode', playMode);
-            } catch (e) {
-                playMode = normalizePlayMode(playMode);
-            }
+            const savedPlayMode = readLocalStorage('cp_play_mode');
+            playMode = normalizePlayMode(savedPlayMode || playMode);
+            writeLocalStorage('cp_play_mode', playMode);
             if (typeof updatePlayModeUI === 'function') updatePlayModeUI();
             initSettingsUI();
             setupSleepTimerUI();
@@ -2346,6 +2716,7 @@ async function refreshUserPlaylistLibrary() {
             setupPlaylistIdLoader();
             if (typeof bindUserPlaylistUI === 'function') bindUserPlaylistUI();  // 初始化歌单ID加载按钮
             await loadDefaultPlaylist();
+            flushStorageWarning();
             setupServiceWorkerUpdates();
             initVisualizer();
             initCanvasRenderers();
@@ -2786,7 +3157,7 @@ async function refreshUserPlaylistLibrary() {
 
             // 回显当前歌单 ID
             const idInput = document.getElementById('playlistIdInput');
-            const savedId = localStorage.getItem('cp_playlistId');
+            const savedId = readLocalStorage('cp_playlistId');
             if (idInput && savedId) idInput.value = savedId;
 
             // 回显 API 设置（密钥与地址，均只存在本机浏览器）
@@ -2805,10 +3176,8 @@ async function refreshUserPlaylistLibrary() {
             const keyInput = document.getElementById('settingsApiKeyInput');
             const baseInput = document.getElementById('settingsApiBaseInput');
             const status = document.getElementById('settingsApiStatus');
-            let savedKey = '';
-            let savedBase = '';
-            try { savedKey = (localStorage.getItem('cp_api_key') || '').trim(); } catch (e) {}
-            try { savedBase = (localStorage.getItem('cp_api_base') || '').trim(); } catch (e) {}
+            const savedKey = (readLocalStorage('cp_api_key', '') || '').trim();
+            const savedBase = (readLocalStorage('cp_api_base', '') || '').trim();
             let defaultBase = '';
             try { defaultBase = ChKSzAPI.defaultBaseUrl; } catch (e) { defaultBase = ''; }
             const effectiveBase = ChKSzAPI.normalizeBaseUrl(savedBase) || defaultBase;
@@ -2834,12 +3203,11 @@ async function refreshUserPlaylistLibrary() {
             }
             let defaultBase = '';
             try { defaultBase = ChKSzAPI.defaultBaseUrl; } catch (e) {}
-            try {
-                if (key) localStorage.setItem('cp_api_key', key);
-                else localStorage.removeItem('cp_api_key');
-                if (base && base !== defaultBase) localStorage.setItem('cp_api_base', base);
-                else localStorage.removeItem('cp_api_base');
-            } catch (e) {
+            const keySaved = key ? writeLocalStorage('cp_api_key', key) : removeLocalStorage('cp_api_key');
+            const baseSaved = base && base !== defaultBase
+                ? writeLocalStorage('cp_api_base', base)
+                : removeLocalStorage('cp_api_base');
+            if (!keySaved || !baseSaved) {
                 if (typeof showToast === 'function') showToast('无法保存设置（浏览器存储不可用）', true);
                 return;
             }
@@ -2849,10 +3217,9 @@ async function refreshUserPlaylistLibrary() {
 
         // 恢复默认：清空密钥与自定义地址，回到页面 meta 的默认地址。
         function resetApiSettings() {
-            try {
-                localStorage.removeItem('cp_api_key');
-                localStorage.removeItem('cp_api_base');
-            } catch (e) {
+            const keyRemoved = removeLocalStorage('cp_api_key');
+            const baseRemoved = removeLocalStorage('cp_api_base');
+            if (!keyRemoved || !baseRemoved) {
                 if (typeof showToast === 'function') showToast('无法恢复默认设置（浏览器存储不可用）', true);
                 return;
             }
@@ -3879,7 +4246,7 @@ async function refreshUserPlaylistLibrary() {
 
 
         // ================= 歌单逻辑 =================
-        let currentPlaylistId = localStorage.getItem('cp_playlistId') || '';
+        let currentPlaylistId = readLocalStorage('cp_playlistId', '') || '';
         let playlistTotalCount = 0;
         let isLoadingPlaylist = false;
         let allSongsLoaded = false;
@@ -3940,7 +4307,7 @@ async function refreshUserPlaylistLibrary() {
                         });
                         currentIndex = -1;
                         currentPlaylistId = '';
-                        try { localStorage.removeItem('cp_playlistId'); } catch (error) {}
+                        removeLocalStorage('cp_playlistId');
                         playlistTotalCount = playlist.length;
                         allSongsLoaded = true;
                         playlistSource = 'import-json';
@@ -3962,7 +4329,7 @@ async function refreshUserPlaylistLibrary() {
         // 加载指定歌单
         async function loadPlaylistById(listId) {
             currentPlaylistId = listId;
-            localStorage.setItem('cp_playlistId', listId);
+            writeLocalStorage('cp_playlistId', listId);
 
             playlist = [];
             currentIndex = -1;
@@ -4006,16 +4373,8 @@ async function refreshUserPlaylistLibrary() {
             try {
                 const freshSongs = await PlaylistService.fetchPlaylist(listId);
                 if (freshSongs.length > 0) {
-                    await savePlaylistToCache(listId, freshSongs);
-                    console.log('✅ 播放列表缓存已更新:', freshSongs.length, '首');
-                    // 后台更新成功后，来源标记为在线
-                    if (playlistSource === 'cache') {
-                        playlistSource = 'online';
-                        playlistSourceName = listId;
-                    }
-                    if (freshSongs.length !== playlist.length) {
-                        document.getElementById('playlistCount').textContent = `(${freshSongs.length}首)`;
-                    }
+                    const cached = await savePlaylistToCache(listId, freshSongs);
+                    if (cached) console.log('✅ 播放列表缓存已更新:', freshSongs.length, '首');
                 }
             } catch (e) {
                 const failure = classifyPlaybackFailure(e, navigator.onLine !== false);
@@ -4048,8 +4407,8 @@ async function refreshUserPlaylistLibrary() {
                 initPlaylistView();
 
                 // ★ 保存到 IndexedDB 缓存
-                await savePlaylistToCache(listId, playlist);
-                console.log('💾 播放列表已缓存:', playlist.length, '首');
+                const cached = await savePlaylistToCache(listId, playlist);
+                if (cached) console.log('💾 播放列表已缓存:', playlist.length, '首');
 
             } catch (e) {
                 console.error('播放列表加载失败:', e);
@@ -4071,6 +4430,15 @@ async function refreshUserPlaylistLibrary() {
         async function loadDefaultPlaylist() {
             try {
                 if (window.LOCAL_PLAYLIST && window.LOCAL_PLAYLIST.data && window.LOCAL_PLAYLIST.data.tracks) {
+                    if (db) {
+                        try {
+                            const existingQueue = await getPlaylistFromCache(CURRENT_QUEUE_KEY);
+                            queueBaseRevision = normalizeQueueRevision(existingQueue && existingQueue.revision);
+                            queueWriteBlocked = false;
+                        } catch (error) {
+                            console.warn('[queue] unable to adopt stored revision before playlist.js load', error);
+                        }
+                    }
                     const tracks = window.LOCAL_PLAYLIST.data.tracks;
                     suppressQueueAutosave = true;
                     playlist = tracks.map(function (item) {
@@ -4093,19 +4461,13 @@ async function refreshUserPlaylistLibrary() {
                     return;
                 }
 
-                const savedId = localStorage.getItem('cp_playlistId');
-                const queueDirty = localStorage.getItem('cp_queue_dirty') === '1';
-                let restored = false;
-                if (queueDirty || !savedId) {
-                    restored = await restoreCurrentQueue();
-                }
+                const savedId = readLocalStorage('cp_playlistId');
+                let restored = await restoreCurrentQueue();
                 if (restored) return;
                 if (savedId && typeof loadPlaylistById === 'function') {
                     await loadPlaylistById(savedId);
                     return;
                 }
-                restored = await restoreCurrentQueue();
-                if (restored) return;
 
                 // empty start - searchable, no forced modal
                 playlist = [];
@@ -4971,7 +5333,7 @@ async function refreshUserPlaylistLibrary() {
             }
 
             // 保存状态
-            localStorage.setItem('cp_immersiveMode', isImmersiveMode ? 'on' : 'off');
+            writeLocalStorage('cp_immersiveMode', isImmersiveMode ? 'on' : 'off');
         }
 
         function initImmersiveMode() {
@@ -4982,7 +5344,7 @@ async function refreshUserPlaylistLibrary() {
             }
 
             // 恢复保存的状态
-            const savedMode = localStorage.getItem('cp_immersiveMode');
+            const savedMode = readLocalStorage('cp_immersiveMode');
             if (savedMode === 'on') {
                 toggleImmersiveMode();
             }

@@ -91,13 +91,13 @@ that reads real storage.
 ### 2. Storage Map
 
 ```text
-IndexedDB CPlayer5DB v3, store `playlists` (keyPath id):
+IndexedDB CPlayer5DB v4, store `playlists` (keyPath id):
   id === 'current_queue'   -> the play queue record
   id startsWith 'user_pl_' -> user playlists
   other ids                -> cached remote playlists
 localStorage:
   cp_recent_history   -> recent-play list (max 50, newest first)
-  cp_queue_dirty='1'  -> set on every queue save; gates restore on reload
+  cp_queue_dirty='1'  -> legacy compatibility marker; does not gate restore
   cp_playback_session -> resume position
 ```
 
@@ -108,8 +108,9 @@ filter by id.
 ### 3. Contracts
 
 - Adding a searched song to the queue must persist the `current_queue` record
-  and set `cp_queue_dirty='1'`. On reload the queue restores from IndexedDB
-  when the dirty flag is set; an emptied queue must not stale-restore.
+  with its queue revision and may set `cp_queue_dirty='1'` for compatibility.
+  On reload any valid queue record restores before a saved remote playlist,
+  regardless of that marker; an emptied queue must not stale-restore.
 - Backup import is additive and atomic: imported playlists receive freshly
   minted `user_pl_` ids and de-duplicated names, all `put` calls run in one
   `readwrite` transaction, and validation throws before any DB access. A
@@ -128,7 +129,7 @@ filter by id.
 
 | Condition | Required result |
 | --- | --- |
-| Song added, then reload with `cp_queue_dirty='1'` | Queue restores identical order and contents from IndexedDB. |
+| Song added, then reload with or without `cp_queue_dirty` | Queue restores identical order and contents from IndexedDB. |
 | Only queued song removed, then reload | Queue stays empty; no stale restore. |
 | Valid backup imported | New `user_pl_` records added; queue untouched; toast `已导入 N 个歌单`. |
 | Invalid/corrupt backup imported | No DB write; existing playlists identical (count, id, songs); specific error toast. |
@@ -168,6 +169,145 @@ expect(await page.evaluate(() => window.playlist.length)).toBe(1);
 await expect.poll(async () => (await readQueueRecord(page))?.songs.length).toBe(1);
 await page.reload();
 await expect.poll(() => page.evaluate(() => window.playlist.length)).toBe(1);
+```
+
+## Browser Storage Resilience Contract
+
+### 1. Scope / Trigger
+
+This contract applies whenever localStorage, IndexedDB schema/opening,
+queue/user-playlist writes, disposable caches, multi-tab persistence, or a
+Service Worker cache lookup changes. Normal round-trip coverage is insufficient:
+the browser may deny storage, abort a transaction, block an upgrade, close a
+connection for `versionchange`, or exhaust the shared origin quota.
+
+### 2. Signatures
+
+```js
+readLocalStorage(key, fallback = null) // -> string | fallback; never throws
+writeLocalStorage(key, value)          // -> boolean; never throws
+removeLocalStorage(key)                // -> boolean; never throws
+
+initDatabase()                         // -> Promise<IDBDatabase>
+transactionDone(tx)                    // resolves complete; rejects error/abort
+runCriticalStorageWrite(operation)     // one quota cleanup + retry
+pruneTransientCaches(aggressive)       // never deletes user-owned records
+```
+
+`CPlayer5DB` is version 4. The existing stores remain `playlists`, `lyrics`, and
+`images`; version 4 adds `images.index('timestamp')` without replacing data.
+
+The queue record is backward-compatible and may include:
+
+```js
+{
+  id: 'current_queue',
+  songs, currentIndex, playMode, timestamp, reason,
+  revision, // non-negative monotonic integer; missing legacy value means 0
+  writerId  // random id for the page runtime
+}
+```
+
+Runtime storage status is exposed as
+`document.documentElement.dataset.cplayerStorageState` with `ready`,
+`degraded`, `blocked`, `conflict`, or `stale`.
+
+### 3. Contracts
+
+- Every production `localStorage.getItem`, `setItem`, and `removeItem` call lives
+  inside the three safe helpers. A denied read uses its fallback and queues one
+  warning; it must not terminate module evaluation.
+- `initDatabase` owns one in-flight open request. `request.onblocked` rejects the
+  startup wait so the application shell can finish. A late success after that
+  rejection is closed instead of becoming the active connection.
+- Every accepted connection closes itself on `versionchange`, clears the module
+  reference, enters `stale`, and tells the user to refresh. A blocked/stale page
+  must not keep opening or writing through the old database version.
+- A valid `current_queue` IndexedDB record is restored before `cp_playlistId`.
+  `cp_queue_dirty` is compatibility metadata, never the authority that hides a
+  valid queue record.
+- Queue save is compare-and-set in one `readwrite` transaction. It reads the
+  current revision, rejects a newer foreign writer, and only then writes revision
+  + 1. A conflict blocks later saves from that stale page until refresh.
+- A critical queue/user-playlist quota error may delete all disposable image and
+  remote-playlist cache records and retry once. It must never delete
+  `current_queue` or any `user_pl_*` record.
+- Normal cache limits are 160 `images` records and 12 remote `playlists` records.
+  Cache ordering uses `timestamp`; user-owned records are excluded by id before
+  any delete.
+- Image and remote-playlist caching is best effort. A cache write failure cannot
+  turn an already loaded image or online playlist into an overall load failure.
+- The Service Worker routes `apikey` URLs and path segments `163_search`,
+  `163_music`, `163_lyric`, and `163_playlist` network-only before cache access.
+  All app reads use the current `CACHE_NAME` instance, never global
+  `caches.match`, so preserved unrelated caches cannot supply app content.
+- Storage failure probes live in Playwright init scripts/pages only. Production
+  code has no fixture flag, injected failure branch, or exported test-only API.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required result |
+| --- | --- |
+| localStorage throws `SecurityError` during module start | App reaches ready with defaults; state `degraded`; warn that changes may not persist. |
+| Version-3 connection holds a version-4 upgrade | State `blocked`; tell user to close other pages; app shell becomes ready. |
+| Active connection receives `versionchange` | Close it, clear `db`, state `stale`, request refresh; later queue write does not persist. |
+| Queue record exists but `cp_queue_dirty` does not | Restore the IndexedDB queue, including an intentionally empty queue. |
+| Another page saved a newer queue revision | Abort stale transaction; state `conflict`; winning record remains byte-for-byte unchanged. |
+| First critical write throws `QuotaExceededError` | Aggressively prune disposable caches and retry exactly once. |
+| Retry still throws quota | State `degraded`; show storage-space failure; do not claim persistence. |
+| Optional cache write fails after online playlist fetch | Keep/render fetched songs; report cache/storage health separately. |
+| Cache exceeds normal limits | Keep newest 160 images / 12 remote lists; preserve queue and user playlists. |
+| Key-free same-origin `/163_*` request | Network response changes normally and no current/unrelated cache entry is read or written. |
+| Unrelated cache contains the same app URL | Ignore it; use current app cache or network. |
+
+### 5. Good / Base / Bad Cases
+
+- Good: two pages load revision 0; page A commits revision 1; page B's stale save
+  aborts and direct IndexedDB inspection still equals A's record.
+- Base: a version-3 database upgrades to version 4, preserves queue/user records,
+  creates the image timestamp index, and normal queue CRUD still round-trips.
+- Bad: catch an IndexedDB error, log it, continue showing a success toast, and
+  later let a stale `cp_queue_dirty` flag restore an older queue.
+
+### 6. Tests Required
+
+- Browser-only storage failure suite with Service Workers blocked: localStorage
+  `SecurityError`, real v3/v4 `blocked`, real v4/v5 `versionchange`, two-page
+  queue conflict, quota retry/persistent failure, and cache-limit preservation.
+- Assert both browser boundary state and persisted state. A toast or dataset alone
+  does not prove the queue/user record survived.
+- Optional remote-cache failure test must drive a successful mocked playlist
+  response through the real UI and reject only the IndexedDB cache `put`.
+- Service Worker suite uses controlled 200 responses and proves both repeated
+  network changes and absence from current/unrelated caches.
+- Existing queue, playlist, backup, Service Worker upgrade/offline, desktop, and
+  mobile regressions must remain green after a database/cache revision change.
+
+### 7. Wrong vs Correct
+
+```js
+// Wrong: module-start storage denial prevents every feature from loading.
+const quality = localStorage.getItem('cp_quality') || 'jymaster';
+
+// Correct: safe fallback records degraded health but keeps startup alive.
+const quality = readLocalStorage('cp_quality', 'jymaster') || 'jymaster';
+```
+
+```js
+// Wrong: whole-record last writer silently destroys another tab's queue.
+store.put(payload);
+
+// Correct: read and compare revision in the same readwrite transaction,
+// then put only when the page still owns the base revision.
+const readRequest = store.get('current_queue');
+readRequest.onsuccess = () => {
+  const latestRevision = normalizeQueueRevision(readRequest.result?.revision);
+  if (latestRevision > queueBaseRevision) {
+    tx.abort();
+    return;
+  }
+  store.put({ ...payload, revision: latestRevision + 1, writerId: QUEUE_WRITER_ID });
+};
 ```
 
 ## Release Quality Gate Contract

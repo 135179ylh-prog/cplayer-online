@@ -9,6 +9,13 @@ const cacheNameMatch = swSource.match(/const CACHE_NAME = '([^']+)'/);
 if (!cacheNameMatch) throw new Error('Unable to read the current Service Worker cache name');
 
 const CURRENT_CACHE_NAME = cacheNameMatch[1];
+const UNRELATED_CACHE_NAME = 'unrelated-service-worker-isolation';
+const DYNAMIC_API_PATH_SEGMENTS = [
+    '163_search',
+    '163_music',
+    '163_lyric',
+    '163_playlist'
+];
 
 async function installCurrentWorker(page) {
     await page.goto('/playlist-downloader.html');
@@ -67,4 +74,108 @@ test('same-origin apikey requests bypass CacheStorage reads and writes', async (
     expect(secondResponse.status).toBe(200);
     expect(JSON.parse(secondResponse.body).name).toBe('CPlayer 5');
     expect(await page.evaluate(async (url) => Boolean(await caches.match(url)), requestUrl)).toBe(false);
+});
+
+test('key-free same-origin dynamic API segments bypass CacheStorage reads and writes', async ({ page }) => {
+    await installCurrentWorker(page);
+
+    for (const segment of DYNAMIC_API_PATH_SEGMENTS) {
+        const requestUrl = `/__test__/${segment}?probe=${encodeURIComponent(randomUUID())}`;
+        const currentMarker = `current-cache-${randomUUID()}`;
+        const unrelatedMarker = `unrelated-cache-${randomUUID()}`;
+        await page.evaluate(async ({ currentName, unrelatedName, url, currentBody, unrelatedBody }) => {
+            await (await caches.open(currentName)).put(url, new Response(currentBody));
+            await (await caches.open(unrelatedName)).put(url, new Response(unrelatedBody));
+        }, {
+            currentName: CURRENT_CACHE_NAME,
+            unrelatedName: UNRELATED_CACHE_NAME,
+            url: requestUrl,
+            currentBody: currentMarker,
+            unrelatedBody: unrelatedMarker
+        });
+
+        const firstResponse = await fetchText(page, requestUrl);
+        expect(firstResponse.status).toBe(200);
+        expect(firstResponse.contentType).toBe('application/json; charset=utf-8');
+        expect(firstResponse.body).not.toBe(currentMarker);
+        expect(firstResponse.body).not.toBe(unrelatedMarker);
+        const firstPayload = JSON.parse(firstResponse.body);
+        expect(firstPayload).toMatchObject({ code: 200, endpoint: segment });
+        expect(firstPayload.sequence).toBeGreaterThan(0);
+
+        const seededBodies = await page.evaluate(async ({ currentName, unrelatedName, url }) => {
+            const current = await (await caches.open(currentName)).match(url);
+            const unrelated = await (await caches.open(unrelatedName)).match(url);
+            return {
+                current: current ? await current.text() : null,
+                unrelated: unrelated ? await unrelated.text() : null
+            };
+        }, {
+            currentName: CURRENT_CACHE_NAME,
+            unrelatedName: UNRELATED_CACHE_NAME,
+            url: requestUrl
+        });
+        expect(seededBodies.current).toBe(currentMarker);
+        expect(seededBodies.unrelated).toBe(unrelatedMarker);
+
+        await page.evaluate(async ({ currentName, unrelatedName, url }) => {
+            await (await caches.open(currentName)).delete(url);
+            await (await caches.open(unrelatedName)).delete(url);
+        }, {
+            currentName: CURRENT_CACHE_NAME,
+            unrelatedName: UNRELATED_CACHE_NAME,
+            url: requestUrl
+        });
+
+        const secondResponse = await fetchText(page, requestUrl);
+        expect(secondResponse.status).toBe(200);
+        expect(secondResponse.contentType).toBe('application/json; charset=utf-8');
+        const secondPayload = JSON.parse(secondResponse.body);
+        expect(secondPayload).toMatchObject({ code: 200, endpoint: segment });
+        expect(secondPayload.sequence).toBeGreaterThan(firstPayload.sequence);
+        expect(secondResponse.body).not.toBe(firstResponse.body);
+
+        const cachePresence = await page.evaluate(async ({ currentName, unrelatedName, url }) => ({
+            current: Boolean(await (await caches.open(currentName)).match(url)),
+            unrelated: Boolean(await (await caches.open(unrelatedName)).match(url))
+        }), {
+            currentName: CURRENT_CACHE_NAME,
+            unrelatedName: UNRELATED_CACHE_NAME,
+            url: requestUrl
+        });
+        expect(cachePresence).toEqual({ current: false, unrelated: false });
+    }
+});
+
+test('unrelated cache cannot supply an application resource with the same URL', async ({ page }) => {
+    await installCurrentWorker(page);
+
+    const requestUrl = `/manifest.json?isolation=${encodeURIComponent(randomUUID())}`;
+    const unrelatedMarker = `unrelated-cache-${randomUUID()}`;
+    await page.evaluate(async ({ cacheName, url, marker }) => {
+        await (await caches.open(cacheName)).put(url, new Response(marker, {
+            headers: { 'Content-Type': 'text/plain; charset=utf-8' }
+        }));
+    }, { cacheName: UNRELATED_CACHE_NAME, url: requestUrl, marker: unrelatedMarker });
+
+    const response = await fetchText(page, requestUrl);
+    expect(response.status).toBe(200);
+    expect(response.contentType).toBe('application/json; charset=utf-8');
+    expect(response.body).not.toBe(unrelatedMarker);
+    expect(JSON.parse(response.body).name).toBe('CPlayer 5');
+
+    const cacheBodies = await page.evaluate(async ({ currentName, unrelatedName, url }) => {
+        const current = await (await caches.open(currentName)).match(url);
+        const unrelated = await (await caches.open(unrelatedName)).match(url);
+        return {
+            current: current ? await current.text() : null,
+            unrelated: unrelated ? await unrelated.text() : null
+        };
+    }, {
+        currentName: CURRENT_CACHE_NAME,
+        unrelatedName: UNRELATED_CACHE_NAME,
+        url: requestUrl
+    });
+    expect(cacheBodies.current).toContain('"name": "CPlayer 5"');
+    expect(cacheBodies.unrelated).toBe(unrelatedMarker);
 });

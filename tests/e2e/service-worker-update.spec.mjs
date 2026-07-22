@@ -38,7 +38,7 @@ async function seedBrowserData(page) {
         }));
 
         await new Promise((resolve, reject) => {
-            const open = indexedDB.open('CPlayer5DB', 3);
+            const open = indexedDB.open('CPlayer5DB', 4);
             open.onupgradeneeded = () => {
                 const db = open.result;
                 if (!db.objectStoreNames.contains('playlists')) {

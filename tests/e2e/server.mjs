@@ -5,6 +5,13 @@ import { fileURLToPath } from 'node:url';
 
 const projectRoot = resolve(fileURLToPath(new URL('../..', import.meta.url)));
 const port = Number(process.argv[2] || process.env.PW_PORT || 4173);
+const testDynamicApiPaths = new Set([
+    '/__test__/163_search',
+    '/__test__/163_music',
+    '/__test__/163_lyric',
+    '/__test__/163_playlist'
+]);
+let testDynamicApiSequence = 0;
 const contentTypes = {
     '.css': 'text/css; charset=utf-8',
     '.gif': 'image/gif',
@@ -46,6 +53,23 @@ const server = createServer(async (request, response) => {
     if (!resolved) {
         response.writeHead(403);
         response.end('Forbidden');
+        return;
+    }
+
+    if (testDynamicApiPaths.has(resolved.pathname)) {
+        testDynamicApiSequence += 1;
+        const body = Buffer.from(JSON.stringify({
+            code: 200,
+            endpoint: resolved.pathname.split('/').at(-1),
+            sequence: testDynamicApiSequence
+        }));
+        response.writeHead(200, {
+            'Cache-Control': 'no-store',
+            'Content-Length': body.byteLength,
+            'Content-Type': 'application/json; charset=utf-8'
+        });
+        if (request.method === 'HEAD') response.end();
+        else response.end(body);
         return;
     }
 

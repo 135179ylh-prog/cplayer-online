@@ -1,5 +1,11 @@
-const CACHE_NAME = 'cplayer5-v58-runtime-background-resilience';
+const CACHE_NAME = 'cplayer5-v59-storage-resilience';
 const COVER_CACHE_LIMIT = 160;
+const DYNAMIC_API_PATH_SEGMENTS = new Set([
+  '163_search',
+  '163_music',
+  '163_lyric',
+  '163_playlist'
+]);
 
 // 核心资源 - 安装时缓存
 const CORE_ASSETS = [
@@ -23,6 +29,12 @@ function isAppShellNavigation(url) {
     (url.pathname === scope.pathname || url.pathname === indexPath);
 }
 
+function isDynamicMusicApi(url) {
+  return url.pathname
+    .split('/')
+    .some((segment) => DYNAMIC_API_PATH_SEGMENTS.has(segment));
+}
+
 async function cacheCoreAssets(cache) {
   const failedAssets = [];
   await Promise.all(CORE_ASSETS.map(async (asset) => {
@@ -32,7 +44,7 @@ async function cacheCoreAssets(cache) {
       if (!response.ok) throw new Error('HTTP ' + response.status);
       await cache.put(request, response);
     } catch (error) {
-      const previous = await caches.match(request);
+      const previous = await cache.match(request);
       if (previous) {
         await cache.put(request, previous);
       } else {
@@ -88,8 +100,8 @@ self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
   const url = new URL(event.request.url);
 
-  // 带密钥的请求可能使用任意自定义域名，始终直连且不读写缓存
-  if (url.searchParams.has('apikey')) {
+  // 带密钥或动态音乐接口的请求可能使用任意自定义域名，始终直连且不读写缓存
+  if (url.searchParams.has('apikey') || isDynamicMusicApi(url)) {
     event.respondWith(fetch(event.request));
     return;
   }
@@ -103,7 +115,7 @@ self.addEventListener('fetch', (event) => {
   // 封面图片：缓存优先 (网易云 CDN)
   if (url.hostname.includes('music.126.net') && url.pathname.match(/\.(jpg|jpeg|png|webp)/i)) {
     event.respondWith(
-      caches.match(event.request).then(cached => {
+      caches.open(CACHE_NAME).then((cache) => cache.match(event.request)).then(cached => {
         if (cached) return cached;
         return fetch(event.request).then(async resp => {
           if (resp.ok) {
@@ -133,14 +145,14 @@ self.addEventListener('fetch', (event) => {
           await storeRuntimeResponse('./index.html', clone, false);
         }
         return response;
-      }).catch(() => caches.match('./index.html'))
+      }).catch(() => caches.open(CACHE_NAME).then((cache) => cache.match('./index.html')))
     );
     return;
   }
 
   // 本地资源：缓存优先，回退网络
   event.respondWith(
-    caches.match(event.request).then(cached => {
+    caches.open(CACHE_NAME).then((cache) => cache.match(event.request)).then(cached => {
       if (cached) return cached;
       return fetch(event.request).then(async resp => {
         // 缓存成功的本地资源
@@ -151,7 +163,7 @@ self.addEventListener('fetch', (event) => {
         return resp;
       }).catch(() => {
         if (event.request.mode === 'navigate') {
-          return caches.match('./index.html');
+          return caches.open(CACHE_NAME).then((cache) => cache.match('./index.html'));
         }
         throw new Error('Network request failed');
       });
