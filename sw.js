@@ -1,4 +1,4 @@
-const CACHE_NAME = 'cplayer5-v56-main-app-module';
+const CACHE_NAME = 'cplayer5-v57-release-candidate';
 const COVER_CACHE_LIMIT = 160;
 
 // 核心资源 - 安装时缓存

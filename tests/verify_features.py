@@ -87,7 +87,7 @@ require((ROOT / "js" / "core-utils.js").is_file(), "core utility module is missi
 require((ROOT / "tests" / "core-utils.test.mjs").is_file(), "core utility tests are missing")
 require("user-scalable=no" not in HTML and "maximum-scale" not in HTML, "viewport still blocks browser zoom")
 
-require("cplayer5-v56-main-app-module" in SW, "service worker cache version is not updated")
+require("cplayer5-v57-release-candidate" in SW, "service worker cache version is not updated")
 require("'./js/app.js'" in SW, "production app module is not precached")
 require("./js/core-utils.js" in SW, "core utility module is not precached")
 require("./css/tailwind.css" in SW and "./js/tailwindcss.js" not in SW, "service worker Tailwind cache entry is stale")
@@ -103,6 +103,7 @@ require(image_branch >= 0 and cdn_network_branch > image_branch, "cover cache br
 
 require(MANIFEST.get("start_url") == "./index.html", "manifest start_url changed unexpectedly")
 require(any(icon.get("src") == "img/icon.png" for icon in MANIFEST.get("icons", [])), "PNG app icon is missing")
+require("超清母带" not in MANIFEST.get("description", ""), "manifest still overstates playback quality")
 require(PACKAGE.get("scripts", {}).get("build:css") == "tailwindcss -c tailwind.config.cjs -i css/tailwind.input.css -o css/tailwind.css --minify", "Tailwind build script changed unexpectedly")
 require(PACKAGE.get("devDependencies", {}).get("tailwindcss") == "3.4.17", "Tailwind version is not pinned")
 require(PACKAGE.get("scripts", {}).get("verify") == "node scripts/run-quality-gate.mjs", "unified quality gate is missing")

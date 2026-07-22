@@ -1,7 +1,7 @@
 {
   "name": "CPlayer 5",
   "short_name": "CPlayer",
-  "description": "超清母带在线音乐播放器",
+  "description": "支持歌单、播放恢复和 PWA 安装的在线音乐播放器",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
