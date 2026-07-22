@@ -5,12 +5,13 @@
 Command:
 
 ```powershell
-$env:PW_PORT='4201'; npm run verify
+$env:PW_PORT='4202'; npm run verify
 ```
 
-Result on 2026-07-23: all nine layers passed in 279.1 seconds. An earlier run
-used a 120-second command-wrapper limit and was terminated during Playwright with
-`EPIPE`; it contained no failed assertion. The longer rerun below completed.
+Result on 2026-07-23: all nine layers passed from the final staged snapshot in
+276.1 seconds. An earlier run used a 120-second command-wrapper limit and was
+terminated during Playwright with `EPIPE`; it contained no failed assertion. Two
+longer reruns then completed, including this final staged run.
 
 1. Committed Tailwind CSS rebuilt without drift.
 2. Unit tests: 25 passed, 0 failed, 0 skipped.

@@ -68,7 +68,7 @@ database-v4-safe release and rollback procedure. Do not push or deploy.
   claim.
 - [x] Unit, syntax, static contracts, dependency audit, full browser regression,
   generated CSS, repository checks, and focused artifact checks pass.
-- [ ] Product changes are committed locally, the task is archived, the journal
+- [x] Product changes are committed locally, the task is archived, the journal
   is recorded, and the final worktree is clean. Nothing is pushed or deployed.
 
 ## Out Of Scope

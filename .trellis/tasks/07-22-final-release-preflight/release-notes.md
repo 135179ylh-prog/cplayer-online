@@ -7,7 +7,7 @@ GitHub Pages directory passes the automated gate, but the mobile-runtime and
 user-library gaps listed below still need separate milestones. Nothing in this
 task was pushed, tagged, deployed, or run against a real ChKSz credential.
 
-Artifact implementation commit: recorded after the local product commit.
+Artifact implementation commit: `4bf4f2209727bdb6532df0d5ea6bbb68b0f4b414`.
 
 ## Verified release identity
 
