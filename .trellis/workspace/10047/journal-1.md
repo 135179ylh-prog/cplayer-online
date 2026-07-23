@@ -604,3 +604,36 @@ Replaced four complete-glyph Noto TTF assets with hinting-preserving WOFF2, redu
 ### Next Steps
 
 - None - task complete
+
+
+## Session 19: 完成可选账号与歌单云同步
+
+**Date**: 2026-07-23
+**Task**: 完成可选账号与歌单云同步
+**Branch**: `main`
+
+### Summary
+
+完成 Supabase 可选邮箱账号、歌单云同步、冲突选择、断网待同步、注销保留本机数据、RLS/RPC 数据库迁移与 v5 存储升级；补齐跨账号隔离、mutationId、HTTPS、认证请求缓存边界和 vendor 构建门禁。npm run verify 10 层通过：33 个单元、180 个浏览器场景通过、12 个预期跳过、0 个高危依赖漏洞。未创建真实 Supabase 项目、未推送、未部署。
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `db87562` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
