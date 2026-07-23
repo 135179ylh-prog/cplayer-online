@@ -62,11 +62,26 @@ button to its disabled/clean state. No real player account was created.
   0 failed.
 - repository text/whitespace checks passed.
 
-## Pending Release Evidence
+## Release Evidence
 
-- Commit and `main` push: pending.
-- GitHub Pages quality/deploy workflow: pending.
-- Signed-out production smoke test: pending.
+- Commit `06e811a38434182e23957ffe4d5da85e7426449a` was pushed to `main`;
+  local `main`, `origin/main`, and `origin/HEAD` resolve to that commit.
+- GitHub Pages run
+  [30004100490](https://github.com/135179ylh-prog/cplayer-online/actions/runs/30004100490)
+  completed successfully for the exact commit from `2026-07-23T11:41:50Z` to
+  `2026-07-23T11:49:11Z`.
+- Direct HTTPS checks of the live site returned the production module entry,
+  `cplayer5-v63-cloud-enabled`, an HTTPS Supabase project URL, and a publishable
+  browser key. The file contains no `sb_secret_` value or privileged credential;
+  its warning comment is the only place that mentions service-role keys.
+- A read-only Chrome smoke check opened the live `v32` site, reached
+  `data-cplayer-ready=true`, restored the user's existing authenticated session,
+  exposed `data-cplayer-cloud-state=synced`, and rendered
+  `歌单已经是最新状态`. The temporary background tab was then closed.
+- The signed-out/local-only behavior remains deterministic browser evidence in
+  the 26/26 focused desktop/mobile account and artifact cases above. The live
+  profile was intentionally not signed out because that would mutate the user's
+  real session after successful registration and login.
 
 ## Rollback
 

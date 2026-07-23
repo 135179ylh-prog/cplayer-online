@@ -10,10 +10,11 @@
    and update static/artifact tests, README, and quality contracts together.
 5. [x] Run focused checks and then a fresh full `npm run verify` on an unused port;
    fix any failure and record exact evidence.
-6. [ ] Review the diff for accidental credentials, commit the activation change,
+6. [x] Review the diff for accidental credentials, commit the activation change,
    push `main`, and monitor the Pages workflow to completion.
-7. [ ] Run a signed-out production smoke test, update verification/rollback notes,
-   archive the task, and record the Trellis journal entry.
+7. [x] Run the production smoke check, update verification/rollback notes, and
+   close the task. Deterministic browser tests retain the signed-out fallback;
+   the live browser restored the user's real session and reported `synced`.
 
 ## Risk Points
 
