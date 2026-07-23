@@ -19,7 +19,7 @@
 | 未配置/未登录本地可用 | browser fallback + existing storage/playback regressions | passed |
 | 响应式与无障碍 | six-project responsive/Axe suite | passed |
 | 完整发布门禁 | `npm run verify` from exact Pages artifact | passed |
-| Pages 与线上冒烟 | exact commit workflow + live read-only browser evidence | pending |
+| Pages 与线上冒烟 | exact commit workflow + live read-only browser evidence | passed |
 
 ## Results
 
@@ -60,6 +60,32 @@ Final `PW_PORT=48789 npm run verify` passed all 10 layers on 2026-07-24:
   layer found UTF-8 BOM in four edited legacy root Trellis docs. Removed only the
   BOM bytes and confirmed each file now starts with `#` (`0x23`).
 - Third complete run is the final passing evidence above.
+
+## Release Evidence
+
+- Independent feature commit
+  `c0d14083913fe2e323547a0c5d4930559e386059` was pushed to `main`; local
+  `main`, `origin/main`, and `origin/HEAD` resolved to that commit before task
+  closure.
+- Pages run
+  [30028816043](https://github.com/135179ylh-prog/cplayer-online/actions/runs/30028816043)
+  targeted the exact commit. Attempt 1 was canceled after the GitHub Runner spent
+  25m35s stuck installing Chromium and never entered the release gate. GitHub's
+  official status reported Actions/Pages operational. Attempt 2 used a fresh
+  runner, passed the quality job in 7m0s, and deployed in 9s.
+- Direct live HTTPS reads returned `cplayer5-v64-sync-status`, the new status-card
+  ids, `applyCloudStatusProjection`, and the pending-read race token.
+- The first background Chrome load intentionally demonstrated the PWA update
+  boundary: the new DOM was present while the already-open profile still ran the
+  old cached app module. The new v64 Worker installed and claimed the page; one
+  navigation then loaded the current module.
+- Final read-only live state: app ready `true`, authenticated cloud state
+  `synced`, badge `已同步`, pending `0`, conflicts `0`, last success `刚刚`, no
+  last error, both desktop/mobile settings labels read
+  `打开设置，云同步：已同步，0 项待同步，0 个冲突`, both dots were `synced`,
+  v64 was the only CPlayer cache, and the opened status card stayed inside the
+  viewport with its sync command visible. No sync/conflict/sign-out command was
+  clicked; the temporary tab was closed.
 
 ## Rollback
 

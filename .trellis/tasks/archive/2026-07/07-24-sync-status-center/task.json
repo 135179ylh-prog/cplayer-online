@@ -3,7 +3,7 @@
   "name": "sync-status-center",
   "title": "同步状态中心",
   "description": "让账号与歌单云同步状态在桌面和手机上可见、可理解、可重试，并准确展示待同步、冲突、最近成功时间和错误，不改变本地优先边界。",
-  "status": "in_progress",
+  "status": "completed",
   "dev_type": null,
   "scope": "Cloud sync status projection, desktop/mobile settings indicators, account status center, deterministic browser coverage, documentation, release, and production smoke verification.",
   "package": null,
@@ -11,11 +11,11 @@
   "creator": "10047",
   "assignee": "10047",
   "createdAt": "2026-07-24",
-  "completedAt": null,
-  "branch": null,
+  "completedAt": "2026-07-24",
+  "branch": "main",
   "base_branch": "main",
   "worktree_path": null,
-  "commit": null,
+  "commit": "c0d14083913fe2e323547a0c5d4930559e386059",
   "pr_url": null,
   "subtasks": [],
   "children": [],
@@ -29,6 +29,6 @@
     "tests/verify_features.py",
     "sw.js"
   ],
-  "notes": "",
+  "notes": "Pages run 30028816043 attempt 2 succeeded after attempt 1 was canceled for a stuck Chromium install; live v64 status center reported synced with 0 pending and 0 conflicts.",
   "meta": {}
 }
