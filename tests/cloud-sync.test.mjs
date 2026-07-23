@@ -3,11 +3,13 @@ import test from 'node:test';
 import {
     CPlayerCloudService,
     decidePlaylistSync,
+    formatCloudLastSuccessfulAt,
     isCloudConflictError,
     isSameCloudMutation,
     makeCloudOutboxId,
     normalizeCloudConfig,
     normalizeRemotePlaylist,
+    projectCloudSyncStatus,
     toCloudPlaylistInput
 } from '../js/cloud-sync.js';
 
@@ -57,6 +59,57 @@ test('cloud config accepts public project settings and rejects admin keys', () =
         url: 'http://project.supabase.co',
         publishableKey: 'runtime_public_key_123456'
     }), null);
+});
+
+test('cloud status projection uses one honest summary for counts and retry', () => {
+    assert.deepEqual(projectCloudSyncStatus({
+        state: 'synced',
+        signedIn: true,
+        pendingCount: 0,
+        conflictCount: 0,
+        lastSuccessfulAt: 1_000,
+        now: 40_000
+    }), {
+        state: 'synced',
+        visualState: 'synced',
+        label: '已同步',
+        pendingCount: 0,
+        conflictCount: 0,
+        lastSuccessfulText: '刚刚',
+        retrySuggested: false,
+        entryLabel: '打开设置，云同步：已同步，0 项待同步，0 个冲突'
+    });
+
+    const signedOutPending = projectCloudSyncStatus({
+        state: 'signed-out',
+        signedIn: false,
+        pendingCount: 2,
+        conflictCount: 0
+    });
+    assert.equal(signedOutPending.visualState, 'pending');
+    assert.equal(signedOutPending.label, '未登录 · 有待办');
+    assert.equal(signedOutPending.retrySuggested, false);
+    assert.match(signedOutPending.entryLabel, /2 项待同步/);
+
+    const conflict = projectCloudSyncStatus({
+        state: 'pending',
+        signedIn: true,
+        pendingCount: 3,
+        conflictCount: 2
+    });
+    assert.equal(conflict.visualState, 'conflict');
+    assert.equal(conflict.label, '有冲突');
+    assert.equal(conflict.retrySuggested, false);
+
+    const error = projectCloudSyncStatus({ state: 'error', signedIn: true });
+    assert.equal(error.visualState, 'error');
+    assert.equal(error.retrySuggested, true);
+});
+
+test('cloud last-success formatting distinguishes missing, minutes and hours', () => {
+    assert.equal(formatCloudLastSuccessfulAt(0, 100_000), '尚未成功同步');
+    assert.equal(formatCloudLastSuccessfulAt(40_000, 160_000), '2 分钟前');
+    assert.equal(formatCloudLastSuccessfulAt(1_000, 7_201_000), '2 小时前');
 });
 
 test('cloud playlist payload strips unrelated local fields', () => {

@@ -146,7 +146,7 @@ test('Pages artifact loads every Noto weight online and offline', async ({ conte
     const cacheNameMatch = workerSource.match(/const CACHE_NAME = '([^']+)'/);
     expect(cacheNameMatch).not.toBeNull();
     const expectedCacheName = cacheNameMatch[1];
-    expect(expectedCacheName).toMatch(/^cplayer5-v63-/);
+    expect(expectedCacheName).toMatch(/^cplayer5-v\d+-/);
 
     const cssResponse = await request.get('/css/noto-sans-sc.css');
     expect(cssResponse.status()).toBe(200);

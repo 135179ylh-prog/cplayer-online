@@ -1252,6 +1252,22 @@ artifact and cannot hide a server secret in shipped JavaScript.
 - Sync is local-first and single-flight. It runs after session restoration,
   explicit retry, a debounced local edit, and online recovery; it never delays
   the app-ready signal or playback.
+- Sync observability has one projection owner. `setCloudState` supplies the base
+  state; the real owner-scoped `cloud_outbox` count, current conflict Map size,
+  per-owner local last-success time, and current error feed
+  `projectCloudSyncStatus`. Desktop/mobile settings indicators, the account card,
+  and `data-cplayer-cloud-*` attributes consume that same projection.
+- Signed-out or unconfigured status may count all local outbox rows only to warn
+  that work remains. Upload still filters by the authenticated owner. A complete
+  successful pass atomically replaces that owner's detected conflicts so stale
+  conflicts disappear without letting a half-failed pass hide unresolved work.
+- Last success is local observation metadata `{ ownerId, at }`. Update it only
+  after both pending and conflict counts reach zero; never upload it or include it
+  in backups. A manual run with remaining work must not claim completion.
+- The account card keeps one polite live status region and displays state, pending
+  count, conflict count/position, last success, last error, and an actionable retry.
+  Both 44px settings triggers expose the same summary through their accessible
+  names; decorative status dots are never separate controls.
 - Different playlist ids merge. A clean local version pulls a newer cloud row;
   a dirty local version meeting a newer cloud row enters conflict and shows
   explicit “使用本机” and “使用云端” actions. No old row may silently replace
@@ -1295,6 +1311,10 @@ artifact and cannot hide a server secret in shipped JavaScript.
 | Local storage denies a session write | Report persistence failure instead of claiming a durable session. |
 | Authenticated GET hits the Service Worker | Network response wins; no CacheStorage read or write occurs. |
 | API key is configured | No cloud request body, outbox record, vendor bundle, or backup contains cp_api_key or its value. |
+| Offline edit writes one outbox row | Both entry and status center report one pending item; reconnect success reports zero. |
+| Two-way edit creates conflicts | Show the real count and current position; never reduce it until an explicit resolution or a successful fresh pass proves it gone. |
+| Cloud list request fails | Preserve local/outbox data, show the last error and retry action; a later successful retry clears the error. |
+| A pass has remaining outbox or conflicts | Do not update last success and do not toast `歌单同步完成`. |
 
 ### 5. Tests Required
 
@@ -1304,7 +1324,8 @@ artifact and cannot hide a server secret in shipped JavaScript.
 - Browser desktop 1280x800 and mobile 390x844: unconfigured fallback,
   registration/recovery feedback, sign-in upload, remote download, offline
   reconnect, conflict choice, session reload/sign-out, deletion tombstone,
-  foreign-owner isolation, and account deletion retention.
+  foreign-owner isolation, account deletion retention, status entry summaries,
+  real pending/conflict counts, persisted last success, and error retry.
 - Service Worker browser coverage must use a same-origin or routed cloud URL and
   prove authorized responses never enter the current or unrelated cache.
 - Browser coverage must include a same-id foreign-owner collision and prove the

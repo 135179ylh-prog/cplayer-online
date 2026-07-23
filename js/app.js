@@ -20,6 +20,7 @@
             isCloudConflictError,
             makeCloudOutboxId,
             normalizeCloudConfig,
+            projectCloudSyncStatus,
             toCloudPlaylistInput
         } from './cloud-sync.js';
 
@@ -725,8 +726,13 @@
         let cloudSyncTimer = null;
         let cloudSyncInFlight = null;
         let cloudSyncPendingReason = '';
+        let cloudPendingCount = 0;
+        let cloudPendingReadToken = 0;
+        let cloudLastSuccessfulAt = 0;
+        let cloudLastErrorMessage = '';
         const cloudConflicts = new Map();
         const CLOUD_DETACH_PENDING_KEY = 'cp_cloud_detach_pending';
+        const CLOUD_LAST_SUCCESS_KEY = 'cp_cloud_last_success';
 
         document.documentElement.dataset.cplayerCloudState = cloudState;
 
@@ -1009,7 +1015,8 @@
         }
 
         async function readCloudOutbox(ownerId) {
-            if (!hasCloudOutboxStore() || !ownerId) return [];
+            if (!hasCloudOutboxStore()) return [];
+            const requestedOwnerId = typeof ownerId === 'string' ? ownerId : '';
             return new Promise(function (resolve, reject) {
                 let tx;
                 let requestError = null;
@@ -1017,12 +1024,12 @@
                 try {
                     tx = db.transaction(CLOUD_OUTBOX_STORE, 'readonly');
                     const store = tx.objectStore(CLOUD_OUTBOX_STORE);
-                    const request = store.indexNames.contains('ownerId')
-                        ? store.index('ownerId').getAll(IDBKeyRange.only(ownerId))
+                    const request = requestedOwnerId && store.indexNames.contains('ownerId')
+                        ? store.index('ownerId').getAll(IDBKeyRange.only(requestedOwnerId))
                         : store.getAll();
                     request.onsuccess = function () {
                         records = (request.result || []).filter(function (item) {
-                            return item && item.ownerId === ownerId;
+                            return item && (!requestedOwnerId || item.ownerId === requestedOwnerId);
                         });
                     };
                     request.onerror = function () { requestError = request.error; };
@@ -1036,6 +1043,35 @@
                     reject(requestError || error);
                 });
             });
+        }
+
+        async function refreshCloudPendingCount(ownerId) {
+            const requestedOwnerId = typeof ownerId === 'string' ? ownerId : '';
+            const readToken = ++cloudPendingReadToken;
+            try {
+                const records = await readCloudOutbox(requestedOwnerId);
+                if (readToken !== cloudPendingReadToken) return;
+                if (requestedOwnerId) {
+                    if (cloudUserId !== requestedOwnerId) return;
+                } else if (cloudUserId) {
+                    return;
+                }
+                cloudPendingCount = records.length;
+                refreshCloudAccountUI();
+            } catch (error) {
+                if (readToken !== cloudPendingReadToken) return;
+                const sameOwner = requestedOwnerId ? cloudUserId === requestedOwnerId : !cloudUserId;
+                if (sameOwner) {
+                    setCloudState('error', '无法读取待同步项目，本机数据仍保留', error);
+                }
+            }
+        }
+
+        function setCloudPendingCount(value) {
+            const count = Number(value);
+            cloudPendingReadToken += 1;
+            cloudPendingCount = Number.isSafeInteger(count) && count >= 0 ? count : 0;
+            refreshCloudAccountUI();
         }
 
         async function readUserPlaylistRecords(options) {
@@ -1869,6 +1905,7 @@
                 return false;
             }
             await detachCloudOwner(ownerId);
+            forgetCloudSyncSuccess(ownerId);
             removeLocalStorage(CLOUD_DETACH_PENDING_KEY);
             return true;
         }
@@ -3570,9 +3607,119 @@ async function refreshUserPlaylistLibrary() {
             );
         }
 
+        function readCloudLastSuccessfulAt(ownerId) {
+            if (!ownerId) return 0;
+            try {
+                const record = JSON.parse(readLocalStorage(CLOUD_LAST_SUCCESS_KEY, 'null') || 'null');
+                const timestamp = Number(record && record.at);
+                return record && record.ownerId === ownerId && Number.isFinite(timestamp) && timestamp > 0
+                    ? timestamp
+                    : 0;
+            } catch (error) {
+                removeLocalStorage(CLOUD_LAST_SUCCESS_KEY);
+                return 0;
+            }
+        }
+
+        function rememberCloudSyncSuccess(ownerId) {
+            if (!ownerId || cloudUserId !== ownerId) return;
+            cloudLastSuccessfulAt = Date.now();
+            writeLocalStorage(CLOUD_LAST_SUCCESS_KEY, JSON.stringify({
+                ownerId,
+                at: cloudLastSuccessfulAt
+            }));
+        }
+
+        function forgetCloudSyncSuccess(ownerId) {
+            if (!ownerId) return;
+            try {
+                const record = JSON.parse(readLocalStorage(CLOUD_LAST_SUCCESS_KEY, 'null') || 'null');
+                if (record && record.ownerId === ownerId) removeLocalStorage(CLOUD_LAST_SUCCESS_KEY);
+            } catch (error) {
+                removeLocalStorage(CLOUD_LAST_SUCCESS_KEY);
+            }
+            if (cloudUserId === ownerId) cloudLastSuccessfulAt = 0;
+        }
+
+        const CLOUD_BADGE_TONE_CLASSES = [
+            'border-slate-300/20', 'bg-slate-400/20', 'text-slate-200',
+            'border-sky-200/30', 'bg-sky-300/15', 'text-sky-100',
+            'border-emerald-200/30', 'bg-emerald-300/15', 'text-emerald-100',
+            'border-amber-200/30', 'bg-amber-300/15', 'text-amber-100',
+            'border-red-200/30', 'bg-red-300/15', 'text-red-100'
+        ];
+        const CLOUD_BADGE_TONES = Object.freeze({
+            disabled: ['border-slate-300/20', 'bg-slate-400/20', 'text-slate-200'],
+            'signed-out': ['border-slate-300/20', 'bg-slate-400/20', 'text-slate-200'],
+            syncing: ['border-sky-200/30', 'bg-sky-300/15', 'text-sky-100'],
+            synced: ['border-emerald-200/30', 'bg-emerald-300/15', 'text-emerald-100'],
+            pending: ['border-amber-200/30', 'bg-amber-300/15', 'text-amber-100'],
+            conflict: ['border-amber-200/30', 'bg-amber-300/15', 'text-amber-100'],
+            error: ['border-red-200/30', 'bg-red-300/15', 'text-red-100']
+        });
+        const CLOUD_DOT_TONE_CLASSES = [
+            'bg-slate-400', 'bg-sky-400', 'bg-emerald-400', 'bg-amber-400', 'bg-red-400'
+        ];
+        const CLOUD_DOT_TONES = Object.freeze({
+            disabled: 'bg-slate-400',
+            'signed-out': 'bg-slate-400',
+            syncing: 'bg-sky-400',
+            synced: 'bg-emerald-400',
+            pending: 'bg-amber-400',
+            conflict: 'bg-amber-400',
+            error: 'bg-red-400'
+        });
+
+        function applyCloudStatusProjection(projection) {
+            document.documentElement.dataset.cplayerCloudPending = String(projection.pendingCount);
+            document.documentElement.dataset.cplayerCloudConflicts = String(projection.conflictCount);
+            document.documentElement.dataset.cplayerCloudLastSuccess = cloudLastSuccessfulAt
+                ? String(cloudLastSuccessfulAt)
+                : '';
+
+            ['settingsBtn', 'mobileSettingsBtn'].forEach(function (id) {
+                const button = document.getElementById(id);
+                if (!button) return;
+                button.title = projection.entryLabel;
+                button.setAttribute('aria-label', projection.entryLabel);
+            });
+            document.querySelectorAll('[data-cloud-status-indicator]').forEach(function (dot) {
+                dot.classList.remove(...CLOUD_DOT_TONE_CLASSES);
+                dot.classList.add(CLOUD_DOT_TONES[projection.visualState] || CLOUD_DOT_TONES.disabled);
+                dot.dataset.cloudState = projection.visualState;
+            });
+
+            const badge = document.getElementById('cloudStatusBadge');
+            if (badge) {
+                badge.textContent = projection.label;
+                badge.classList.remove(...CLOUD_BADGE_TONE_CLASSES);
+                const tone = CLOUD_BADGE_TONES[projection.visualState] || CLOUD_BADGE_TONES.disabled;
+                badge.classList.add(...tone);
+                badge.dataset.cloudState = projection.visualState;
+            }
+            const pending = document.getElementById('cloudPendingCount');
+            const conflicts = document.getElementById('cloudConflictCount');
+            const lastSuccess = document.getElementById('cloudLastSuccessfulAt');
+            if (pending) pending.textContent = String(projection.pendingCount);
+            if (conflicts) conflicts.textContent = String(projection.conflictCount);
+            if (lastSuccess) lastSuccess.textContent = projection.lastSuccessfulText;
+
+            const lastError = document.getElementById('cloudLastError');
+            setCloudSectionVisible(lastError, !!cloudLastErrorMessage);
+            if (lastError) lastError.textContent = cloudLastErrorMessage
+                ? '最近错误：' + cloudLastErrorMessage
+                : '';
+            const syncLabel = document.getElementById('cloudAccountSyncBtnLabel');
+            if (syncLabel) syncLabel.textContent = projection.retrySuggested ? '重试同步' : '立即同步';
+        }
+
         function setCloudState(nextState, message, error) {
             cloudState = nextState;
             if (message) cloudStateMessage = message;
+            if (nextState === 'error') cloudLastErrorMessage = message || '云同步操作失败';
+            else if (nextState === 'synced' || nextState === 'signed-out' || nextState === 'disabled') {
+                cloudLastErrorMessage = '';
+            }
             document.documentElement.dataset.cplayerCloudState = nextState;
             if (error) console.warn('[cloud]', message || nextState, error);
             refreshCloudAccountUI();
@@ -3608,20 +3755,31 @@ async function refreshUserPlaylistLibrary() {
         function refreshCloudConflictUI() {
             const panel = document.getElementById('cloudAccountConflict');
             const name = document.getElementById('cloudAccountConflictName');
+            const position = document.getElementById('cloudAccountConflictPosition');
             const conflict = cloudConflicts.values().next().value || null;
             setCloudSectionVisible(panel, !!conflict);
             if (name) name.textContent = conflict
                 ? (conflict.local && conflict.local.name) || (conflict.remote && conflict.remote.name) || '未命名歌单'
                 : '';
+            if (position) position.textContent = conflict ? '1 / ' + cloudConflicts.size : '0 / 0';
         }
 
         function refreshCloudAccountUI() {
-            const card = document.getElementById('cloudAccountCard');
-            if (!card) return;
             const config = getConfiguredCloud();
             const hasConfig = !!config;
             const configured = hasConfig && !!cloudService;
             const signedIn = configured && !!cloudSession && !!cloudUserId;
+            const projection = projectCloudSyncStatus({
+                state: cloudState,
+                signedIn,
+                pendingCount: cloudPendingCount,
+                conflictCount: cloudConflicts.size,
+                lastSuccessfulAt: cloudLastSuccessfulAt
+            });
+            applyCloudStatusProjection(projection);
+
+            const card = document.getElementById('cloudAccountCard');
+            if (!card) return;
             const signedOut = document.getElementById('cloudAccountSignedOut');
             const signedInPanel = document.getElementById('cloudAccountSignedIn');
             const recovery = document.getElementById('cloudAccountRecovery');
@@ -3635,9 +3793,17 @@ async function refreshUserPlaylistLibrary() {
             setCloudSectionVisible(recovery, configured && cloudRecoveryMode);
             if (email) email.textContent = cloudSession && cloudSession.user ? (cloudSession.user.email || '') : '';
             if (status) {
-                if (!hasConfig) status.textContent = '云同步尚未配置，播放器仍可本地使用';
-                else if (cloudRecoveryMode) status.textContent = '请设置新的登录密码';
-                else status.textContent = cloudStateMessage;
+                let statusText;
+                if (!hasConfig) statusText = '云同步尚未配置，播放器仍可本地使用';
+                else if (cloudRecoveryMode) statusText = '请设置新的登录密码';
+                else statusText = cloudStateMessage;
+                if (!signedIn && projection.pendingCount > 0) {
+                    statusText += '；本机有 ' + projection.pendingCount + ' 项待同步，登录对应账号后继续';
+                } else if (signedIn && projection.pendingCount > 0 &&
+                    cloudState !== 'conflict' && cloudState !== 'error') {
+                    statusText += '（' + projection.pendingCount + ' 项）';
+                }
+                status.textContent = statusText;
             }
             if (emailInput && signedIn && cloudSession.user && !emailInput.value) {
                 emailInput.value = cloudSession.user.email || '';
@@ -3709,16 +3875,22 @@ async function refreshUserPlaylistLibrary() {
             const previousUserId = cloudUserId;
             cloudSession = session || null;
             cloudUserId = cloudSession && cloudSession.user ? String(cloudSession.user.id || '') : '';
-            if (previousUserId && cloudUserId && previousUserId !== cloudUserId) {
+            const accountChanged = previousUserId !== cloudUserId;
+            if (accountChanged) {
                 cloudConflicts.clear();
+                cloudLastErrorMessage = '';
             }
+            cloudLastSuccessfulAt = cloudUserId ? readCloudLastSuccessfulAt(cloudUserId) : 0;
+            if (accountChanged) setCloudPendingCount(0);
             if (event === 'PASSWORD_RECOVERY') {
                 cloudRecoveryMode = true;
                 setCloudState('signed-out', '请设置新的登录密码');
+                void refreshCloudPendingCount(cloudUserId);
             } else if (cloudUserId) {
                 cloudRecoveryMode = false;
                 setCloudState('pending', '已登录，正在检查歌单同步状态');
-                if (previousUserId !== cloudUserId && typeof refreshMyPlaylists === 'function') {
+                void refreshCloudPendingCount(cloudUserId);
+                if (accountChanged && typeof refreshMyPlaylists === 'function') {
                     void refreshMyPlaylists();
                 }
                 scheduleCloudSync('auth_session', 0);
@@ -3726,6 +3898,7 @@ async function refreshUserPlaylistLibrary() {
                 cloudRecoveryMode = false;
                 cloudConflicts.clear();
                 setCloudState('signed-out', '已退出登录，本机歌单仍可继续使用');
+                void refreshCloudPendingCount('');
                 if (typeof refreshMyPlaylists === 'function') void refreshMyPlaylists();
             }
         }
@@ -3742,7 +3915,9 @@ async function refreshUserPlaylistLibrary() {
                 cloudService = null;
                 cloudSession = null;
                 cloudUserId = '';
+                cloudLastSuccessfulAt = 0;
                 setCloudState('disabled', '云同步尚未配置，播放器仍可本地使用');
+                void refreshCloudPendingCount('');
                 return;
             }
             if (typeof window.supabase === 'undefined' ||
@@ -3917,6 +4092,7 @@ async function refreshUserPlaylistLibrary() {
                 }));
                 try {
                     await detachCloudOwner(ownerId);
+                    forgetCloudSyncSuccess(ownerId);
                     removeLocalStorage(CLOUD_DETACH_PENDING_KEY);
                 } catch (error) {
                     detachError = error;
@@ -3975,6 +4151,7 @@ async function refreshUserPlaylistLibrary() {
 
         function scheduleCloudSync(reason, delay) {
             if (!cloudService || !cloudUserId) return;
+            void refreshCloudPendingCount(cloudUserId);
             if (navigator.onLine === false) {
                 setCloudState('pending', '歌单已保存在本机，联网后同步');
                 return;
@@ -3986,15 +4163,18 @@ async function refreshUserPlaylistLibrary() {
             }, Number.isFinite(delay) ? Math.max(0, delay) : 400);
         }
 
-        function rememberCloudConflict(ownerId, playlistId, local, remote, outbox) {
-            cloudConflicts.set(playlistId, {
+        function rememberCloudConflict(ownerId, playlistId, local, remote, outbox, target) {
+            const conflicts = target || cloudConflicts;
+            conflicts.set(playlistId, {
                 ownerId,
                 playlistId,
                 local: local || null,
                 remote: remote || null,
                 outbox: outbox || null
             });
-            setCloudState('conflict', '发现歌单冲突，请在设置中选择保留哪一份');
+            if (conflicts === cloudConflicts) {
+                setCloudState('conflict', '发现歌单冲突，请在设置中选择保留哪一份');
+            }
         }
 
         async function latestRemotePlaylist(playlistId) {
@@ -4007,6 +4187,7 @@ async function refreshUserPlaylistLibrary() {
             if (!cloudService || !ownerId) return false;
             if (navigator.onLine === false) {
                 setCloudState('pending', '歌单已保存在本机，联网后同步');
+                void refreshCloudPendingCount(ownerId);
                 return false;
             }
             setCloudState('syncing', '正在同步歌单…');
@@ -4024,6 +4205,7 @@ async function refreshUserPlaylistLibrary() {
             const outboxMap = new Map(results[1].map(function (record) {
                 return [record.playlistId, record];
             }));
+            setCloudPendingCount(results[1].length);
             const remoteMap = new Map(results[2].map(function (record) {
                 return [record.id, record];
             }));
@@ -4032,6 +4214,7 @@ async function refreshUserPlaylistLibrary() {
                 ...outboxMap.keys(),
                 ...remoteMap.keys()
             ]);
+            const detectedConflicts = new Map();
             let changed = 0;
 
             for (const playlistId of playlistIds) {
@@ -4053,7 +4236,7 @@ async function refreshUserPlaylistLibrary() {
                         continue;
                     }
                     if (decision.action === 'conflict') {
-                        rememberCloudConflict(ownerId, playlistId, local, remote, outbox);
+                        rememberCloudConflict(ownerId, playlistId, local, remote, outbox, detectedConflicts);
                         continue;
                     }
                     if (decision.action === 'push') {
@@ -4088,26 +4271,49 @@ async function refreshUserPlaylistLibrary() {
                 } catch (error) {
                     if (isCloudConflictError(error)) {
                         const latest = await latestRemotePlaylist(playlistId);
-                        rememberCloudConflict(ownerId, playlistId, local, latest || remote, outbox);
+                        rememberCloudConflict(
+                            ownerId,
+                            playlistId,
+                            local,
+                            latest || remote,
+                            outbox,
+                            detectedConflicts
+                        );
                         continue;
                     }
                     throw error;
                 }
             }
 
+            for (const [playlistId, conflict] of cloudConflicts) {
+                if (conflict && conflict.ownerId === ownerId) cloudConflicts.delete(playlistId);
+            }
+            for (const [playlistId, conflict] of detectedConflicts) {
+                cloudConflicts.set(playlistId, conflict);
+            }
             const remaining = await readCloudOutbox(ownerId);
+            setCloudPendingCount(remaining.length);
             if (cloudConflicts.size) {
-                setCloudState('conflict', '发现歌单冲突，请在设置中选择保留哪一份');
+                setCloudState('conflict', '发现 ' + cloudConflicts.size + ' 个歌单冲突，请选择保留哪一份');
             } else if (remaining.length) {
-                setCloudState('pending', '部分歌单仍在等待同步');
+                setCloudState('pending', '仍有 ' + remaining.length + ' 项歌单修改等待同步');
             } else {
+                rememberCloudSyncSuccess(ownerId);
                 setCloudState('synced', changed
                     ? '歌单同步完成'
                     : '歌单已经是最新状态');
             }
             if (typeof refreshMyPlaylists === 'function') await refreshMyPlaylists();
             if (typeof refreshUserPlaylistLibrary === 'function') await refreshUserPlaylistLibrary();
-            if (reason === 'manual' && !cloudConflicts.size) showToast('歌单同步完成');
+            if (reason === 'manual') {
+                if (cloudConflicts.size) {
+                    showToast('发现 ' + cloudConflicts.size + ' 个冲突，请先选择保留哪一份', true);
+                } else if (remaining.length) {
+                    showToast('仍有 ' + remaining.length + ' 项修改等待同步', true);
+                } else {
+                    showToast('歌单同步完成');
+                }
+            }
             return true;
         }
 
@@ -4128,6 +4334,7 @@ async function refreshUserPlaylistLibrary() {
             } catch (error) {
                 const message = cloudErrorMessage(error, '同步失败，修改已保存在本机');
                 setCloudState('error', message, error);
+                void refreshCloudPendingCount(cloudUserId);
                 if (reason === 'manual') showToast(message, true);
                 return false;
             } finally {

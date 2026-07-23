@@ -1,8 +1,9 @@
-﻿# Design - cplayer-online
+# Design - cplayer-online
 
 ## 架构
-- 纯前端 PWA（index.html + sw.js + manifest.json）
-- IndexedDB 存储：播放列表、歌单
+- 纯前端 PWA（index.html + js/app.js + sw.js + manifest.json）
+- IndexedDB 存储：播放队列、本地歌单、云同步 outbox；Supabase Free 只保存
+  登录账号的自建歌单
 - GitHub Pages 部署
 
 ## 关键设计
@@ -19,6 +20,10 @@
 - 搜索连续收藏：桌面侧栏和移动底部面板共用覆盖层事件边界；弹窗内点击不触发外部关闭，收藏成功只关闭选择弹窗
 - 歌单操作：资料库使用图标加文字的播放/管理/删除按钮；移动当前播放歌曲行通过“歌单”按钮复用 `openAddToPlaylistModal`
 - 移动搜索结果的队列/歌单按钮显示短文字标签，和桌面完整文案保持同一语义
+- 账号与云同步保持可选和本地优先；未登录完整可用。API 密钥、API 地址、
+  队列、最近播放、播放进度和设备设置永远不上传。
+- 云同步状态由一个状态 owner 投影到桌面/手机入口与设置状态中心；待同步数
+  取自真实 outbox，冲突必须显式选择，不允许静默覆盖。
 
 ## 稳定性加固
 - API 统一使用带超时和 HTTP 状态检查的 JSON 请求封装；桌面/移动搜索用请求编号丢弃旧响应。
@@ -27,7 +32,9 @@
 - 移动 UI 实例同时暴露为模块变量和 `window.mobileUI`，外部标题统一安全渲染。
 
 ## 文件结构
-- index.html：主页面（含所有 JS）
+- index.html：主页面结构与对话框
+- js/app.js：播放器与本地优先同步运行时
+- js/cloud-sync.js：Supabase 边界、同步决策与纯状态投影
 - sw.js：Service Worker 缓存
 - manifest.json：PWA 配置
 - .trellis/tasks/：任务文档

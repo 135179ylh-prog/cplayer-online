@@ -1,4 +1,4 @@
-﻿# Research - cplayer-online
+# Research - cplayer-online
 
 ## 后台播放
 - 问题：createMediaElementSource 导致 WebAudio 在后台被挂起
@@ -37,3 +37,12 @@
 - 发现封面缓存分支原先被 CDN 音频分支遮蔽；现先处理图片并限制缓存数量。
 - 发现队列导入旧路径未更新 `window.playlist` 或 IndexedDB；现统一规范化、刷新和保存。
 - 最终回归发现任意同域导航会覆盖 `index.html` 离线壳；现只允许播放器根路径和 `index.html` 更新该缓存，并以 `playlist-downloader.html` 作为防回归样本。
+
+## 2026-07-24 账号与云同步长期 Goal
+
+- Supabase Free 的账号与自建歌单同步已上线；播放器仍是本地优先，登录可选。
+- 当前可用状态只有设置账号卡的一条文本，缺少真实 outbox 数量、冲突数量、
+  最近成功时间、错误重试和桌面/手机入口摘要。
+- 第 1 里程碑复用既有状态机、outbox 和冲突 Map 做单一投影，不改云数据库。
+- 后续里程碑保持顺序发布，避免状态中心、数据模型和恢复能力同时变更而难以
+  定位回归。

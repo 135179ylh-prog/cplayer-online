@@ -5,6 +5,16 @@ export const CLOUD_PLAYLIST_ID_PREFIX = 'user_pl_';
 export const CLOUD_MAX_PLAYLISTS = 500;
 export const CLOUD_MAX_SONGS = 10000;
 
+const CLOUD_STATUS_META = Object.freeze({
+    disabled: Object.freeze({ label: '未配置', visualState: 'disabled' }),
+    'signed-out': Object.freeze({ label: '未登录', visualState: 'signed-out' }),
+    pending: Object.freeze({ label: '待同步', visualState: 'pending' }),
+    syncing: Object.freeze({ label: '同步中', visualState: 'syncing' }),
+    synced: Object.freeze({ label: '已同步', visualState: 'synced' }),
+    conflict: Object.freeze({ label: '有冲突', visualState: 'conflict' }),
+    error: Object.freeze({ label: '同步出错', visualState: 'error' })
+});
+
 function isPlainRecord(value) {
     return !!value && typeof value === 'object' && !Array.isArray(value);
 }
@@ -16,6 +26,67 @@ function cleanString(value, maxLength, required) {
     if (required && !clean) throw new Error('云端歌单字段不能为空');
     if (clean.length > maxLength) throw new Error('云端歌单字段过长');
     return clean;
+}
+
+function normalizeStatusCount(value) {
+    const count = Number(value);
+    return Number.isSafeInteger(count) && count >= 0 ? count : 0;
+}
+
+export function formatCloudLastSuccessfulAt(value, now = Date.now()) {
+    const timestamp = Number(value);
+    const current = Number(now);
+    if (!Number.isFinite(timestamp) || timestamp <= 0 || !Number.isFinite(current)) {
+        return '尚未成功同步';
+    }
+    const elapsed = Math.max(0, current - timestamp);
+    if (elapsed < 60_000) return '刚刚';
+    if (elapsed < 3_600_000) return Math.floor(elapsed / 60_000) + ' 分钟前';
+    if (elapsed < 86_400_000) return Math.floor(elapsed / 3_600_000) + ' 小时前';
+    return new Date(timestamp).toLocaleString('zh-CN', {
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false
+    });
+}
+
+export function projectCloudSyncStatus(input) {
+    const source = isPlainRecord(input) ? input : {};
+    const state = Object.hasOwn(CLOUD_STATUS_META, source.state) ? source.state : 'error';
+    const pendingCount = normalizeStatusCount(source.pendingCount);
+    const conflictCount = normalizeStatusCount(source.conflictCount);
+    const signedIn = source.signedIn === true;
+    let visualState = CLOUD_STATUS_META[state].visualState;
+    let label = CLOUD_STATUS_META[state].label;
+
+    if (state !== 'error' && conflictCount > 0) {
+        visualState = 'conflict';
+        label = '有冲突';
+    } else if (state !== 'error' && state !== 'syncing' && pendingCount > 0) {
+        visualState = 'pending';
+        if (state === 'signed-out') label = '未登录 · 有待办';
+        else if (state === 'disabled') label = '未配置 · 有待办';
+        else label = '待同步';
+    }
+
+    const lastSuccessfulText = formatCloudLastSuccessfulAt(
+        source.lastSuccessfulAt,
+        source.now
+    );
+    return {
+        state,
+        visualState,
+        label,
+        pendingCount,
+        conflictCount,
+        lastSuccessfulText,
+        retrySuggested: signedIn && conflictCount === 0 &&
+            (state === 'error' || state === 'pending' || pendingCount > 0),
+        entryLabel: '打开设置，云同步：' + label + '，' + pendingCount +
+            ' 项待同步，' + conflictCount + ' 个冲突'
+    };
 }
 
 function decodeJwtPayload(value) {

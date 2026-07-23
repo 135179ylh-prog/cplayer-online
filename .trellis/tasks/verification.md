@@ -1,4 +1,4 @@
-﻿# Verification - cplayer-online
+# Verification - cplayer-online
 
 ## 已验证
 - 后台播放：浏览器切后台继续播放
@@ -44,3 +44,14 @@
 - 真实 Chrome：停止独立本地服务器后仍从缓存打开 `v31`；访问同域下载器后离线壳仍为播放器。
 - 静态门禁：`verify_features.py`、主脚本/SW 语法、Python 编译与 `git diff --check` 通过；详细证据在 `07-19-stability-hardening/verification.md`。
 - 线上 `v31`：提交 `fdee705` 已推送；GitHub Pages 运行 `29683524137` 成功，线上 `playlist.js` 返回 200，真实搜索“周杰伦”返回 30 条结果和完整操作按钮；截图与详细记录在 `07-19-stability-hardening/verification.md`。
+
+## 2026-07-24 同步状态中心（本地发布门禁）
+
+- 状态中心统一显示设置入口摘要、真实 outbox/冲突数量、最近成功、错误与重试；
+  API 配置、队列、最近播放和进度仍未进入云数据流。
+- 桌面/手机账号同步聚焦回归 24/24 通过；六视口响应式与 Axe 55 通过、
+  11 个按项目设计跳过。
+- 最终 `PW_PORT=48789 npm run verify` 全部 10 层通过：35/35 单元，浏览器
+  182 通过、12 预期跳过、0 失败，Pages 产物 27 文件/18,564,730 字节，
+  依赖漏洞 0，仓库 UTF-8/空白检查通过。
+- 提交、Pages 工作流和线上只读冒烟待本任务发布后补录。

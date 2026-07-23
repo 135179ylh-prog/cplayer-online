@@ -108,6 +108,7 @@ async function installCloudMock(page, options = {}) {
         userId: options.userId || TEST_USER_ID,
         email: options.email || TEST_EMAIL,
         signUpSession: options.signUpSession === true,
+        playlistListUnavailable: options.playlistListUnavailable === true,
         accountDeleted: false
     };
     await page.route(CLOUD_URL + '/**', async (route) => {
@@ -169,6 +170,10 @@ async function installCloudMock(page, options = {}) {
         }
 
         if (url.pathname.endsWith('/rest/v1/cplayer_playlists') && request.method() === 'GET') {
+            if (state.playlistListUnavailable) {
+                await fulfillJson(route, 400, { message: 'network timeout' });
+                return;
+            }
             await fulfillJson(route, 200, state.rows);
             return;
         }
@@ -321,6 +326,10 @@ async function submitSignIn(page, expectedState = 'synced') {
         .toBe(expectedState);
 }
 
+function visibleSettingsTrigger(page) {
+    return page.locator('#settingsBtn:visible, #mobileSettingsBtn:visible').first();
+}
+
 test('unconfigured cloud keeps local-only account fallback visible', async ({ page }) => {
     await setUnconfiguredCloud(page);
     await page.goto('/index.html');
@@ -347,6 +356,17 @@ test('sign-in uploads a local playlist and persists clean cloud metadata', async
     expect(storage.outbox).toEqual([]);
     expect(mock.rows[0].playlist_id).toBe('user_pl_local');
     expect(mock.requests.some((request) => request.body.includes('apikey'))).toBe(false);
+    await expect(page.locator('#cloudStatusBadge')).toHaveText('已同步');
+    await expect(page.locator('#cloudPendingCount')).toHaveText('0');
+    await expect(page.locator('#cloudConflictCount')).toHaveText('0');
+    await expect(page.locator('#cloudLastSuccessfulAt')).toHaveText('刚刚');
+    await expect(visibleSettingsTrigger(page)).toHaveAttribute(
+        'aria-label',
+        /云同步：已同步，0 项待同步，0 个冲突/
+    );
+    const lastSuccess = await page.evaluate(() => JSON.parse(localStorage.getItem('cp_cloud_last_success')));
+    expect(lastSuccess.ownerId).toBe(TEST_USER_ID);
+    expect(Number.isFinite(lastSuccess.at)).toBe(true);
 });
 
 test('remote playlist downloads into the local playlist store', async ({ page }) => {
@@ -376,12 +396,16 @@ test('conflict choice can explicitly keep the cloud copy', async ({ page }) => {
     await openConfiguredApp(page, { rows: [row] }, local);
     await submitSignIn(page, 'conflict');
     await expect(page.locator('#cloudAccountConflict')).toBeVisible();
+    await expect(page.locator('#cloudStatusBadge')).toHaveText('有冲突');
+    await expect(page.locator('#cloudConflictCount')).toHaveText('1');
+    await expect(page.locator('#cloudAccountConflictPosition')).toHaveText('1 / 1');
     await page.locator('#cloudAccountUseCloudBtn').click();
     await expect.poll(() => page.evaluate(() => document.documentElement.dataset.cplayerCloudState))
         .toBe('synced');
     const storage = await readCloudStorage(page);
     expect(storage.playlist.name).toBe('云端版本');
     expect(storage.outbox).toEqual([]);
+    await expect(page.locator('#cloudConflictCount')).toHaveText('0');
 });
 
 test('registration and password recovery show clear feedback', async ({ page }) => {
@@ -445,6 +469,8 @@ test('offline playlist edit stays pending and syncs after reconnect', async ({ p
         await page.locator('#myCreatePlaylistBtn').click();
         await expect(page.locator('#myPlaylistsList')).toContainText('离线新建歌单');
         await expect(page.locator('html')).toHaveAttribute('data-cplayer-cloud-state', 'pending');
+        await expect(page.locator('html')).toHaveAttribute('data-cplayer-cloud-pending', '1');
+        await expect(visibleSettingsTrigger(page)).toHaveAttribute('aria-label', /1 项待同步/);
         expect((await readCloudStorage(page)).outbox).toHaveLength(1);
     } finally {
         await context.setOffline(false);
@@ -452,6 +478,7 @@ test('offline playlist edit stays pending and syncs after reconnect', async ({ p
 
     await expect.poll(() => page.evaluate(() => document.documentElement.dataset.cplayerCloudState))
         .toBe('synced');
+    await expect(page.locator('html')).toHaveAttribute('data-cplayer-cloud-pending', '0');
     expect((await readCloudStorage(page)).outbox).toEqual([]);
     expect(mock.rows.some((row) => row.name === '离线新建歌单')).toBe(true);
 });
@@ -459,17 +486,49 @@ test('offline playlist edit stays pending and syncs after reconnect', async ({ p
 test('signed-in session restores after reload and local sign-out clears it', async ({ page }) => {
     await openConfiguredApp(page);
     await submitSignIn(page);
+    const firstLastSuccess = await page.evaluate(() => JSON.parse(localStorage.getItem('cp_cloud_last_success')));
+    expect(firstLastSuccess.ownerId).toBe(TEST_USER_ID);
     await page.reload();
     await waitForAppReady(page);
     await expect.poll(() => page.evaluate(() => document.documentElement.dataset.cplayerCloudState))
         .toBe('synced');
     await openSettings(page);
     await expect(page.locator('#cloudAccountUserEmail')).toHaveText(TEST_EMAIL);
+    await expect(page.locator('#cloudLastSuccessfulAt')).not.toHaveText('尚未成功同步');
     await page.locator('#cloudAccountSignOutBtn').click();
     await expect.poll(() => page.evaluate(() => document.documentElement.dataset.cplayerCloudState))
         .toBe('signed-out');
     const sessionKeys = await page.evaluate(() => Object.keys(localStorage).filter((key) => key.startsWith('sb-')));
     expect(sessionKeys).toEqual([]);
+});
+
+test('sync error keeps pending data visible and succeeds through retry', async ({ page }) => {
+    const local = {
+        id: 'user_pl_local',
+        name: '等待重试',
+        songs: [LOCAL_SONG],
+        timestamp: Date.now()
+    };
+    const mock = await openConfiguredApp(page, { playlistListUnavailable: true }, local);
+    await submitSignIn(page, 'error');
+
+    await expect(page.locator('#cloudStatusBadge')).toHaveText('同步出错');
+    await expect(page.locator('#cloudLastError')).toBeVisible();
+    await expect(page.locator('#cloudLastError')).toContainText('最近错误');
+    await expect(page.locator('#cloudAccountSyncBtnLabel')).toHaveText('重试同步');
+    await expect.poll(() => page.evaluate(() => document.documentElement.dataset.cplayerCloudPending))
+        .toBe('1');
+    expect((await readCloudStorage(page)).outbox).toHaveLength(1);
+
+    mock.playlistListUnavailable = false;
+    await page.locator('#cloudAccountSyncBtn').click();
+    await expect.poll(() => page.evaluate(() => document.documentElement.dataset.cplayerCloudState))
+        .toBe('synced');
+    await expect(page.locator('#cloudLastError')).toBeHidden();
+    await expect(page.locator('#cloudAccountSyncBtnLabel')).toHaveText('立即同步');
+    await expect(page.locator('#cloudPendingCount')).toHaveText('0');
+    expect((await readCloudStorage(page)).outbox).toEqual([]);
+    expect(mock.rows.some((row) => row.name === '等待重试')).toBe(true);
 });
 
 test('playlist deletion writes a cloud tombstone before clearing local pending work', async ({ page }) => {
