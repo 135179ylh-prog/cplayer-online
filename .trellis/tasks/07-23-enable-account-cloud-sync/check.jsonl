@@ -1,0 +1,3 @@
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Verify production public config, secret rejection, cache bump, artifact tests, and the full release gate."}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"Verify additive SQL, RLS ownership, restricted grants, and safe rollback."}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"Trace the production boundary from Pages configuration through Auth/RPC to per-user rows."}

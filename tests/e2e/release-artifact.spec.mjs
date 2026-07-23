@@ -6,6 +6,8 @@ import { waitForAppReady } from './helpers.mjs';
 test.skip(!process.env.PW_WEB_ROOT, 'release artifact checks require the explicit Pages web root');
 
 const ARTIFACT_BYTE_BUDGET = 20_000_000;
+const PRODUCTION_CLOUD_URL = 'https://fgebuqieitvmxjiwjnbh.supabase.co';
+const PUBLISHABLE_KEY_PATTERN = /^sb_publishable_[A-Za-z0-9_-]{20,}$/;
 
 function measureArtifactBytes(directory) {
     return readdirSync(directory, { withFileTypes: true }).reduce((total, entry) => {
@@ -98,8 +100,31 @@ test('verified Pages artifact exposes only the deployable runtime and reloads of
         expect(response.status(), `${path} must stay outside the Pages artifact`).toBe(404);
     }
 
+    const cloudConfigResponse = await request.get('/js/cloud-config.js');
+    const cloudConfigSource = await cloudConfigResponse.text();
+    expect(cloudConfigSource).toContain(PRODUCTION_CLOUD_URL);
+    expect(cloudConfigSource).not.toMatch(/sb_secret_|service_role/i);
+
     await page.goto('/index.html');
     await waitForAppReady(page);
+    const cloudConfigSafety = await page.evaluate(({ expectedUrl, keyPattern }) => {
+        const config = window.CPLAYER_CLOUD_CONFIG || {};
+        return {
+            urlMatches: config.url === expectedUrl,
+            keyMatches: new RegExp(keyPattern).test(String(config.publishableKey || '')),
+            hasOnlyPublicFields: Object.keys(config).sort().join(',') === 'publishableKey,url',
+            frozen: Object.isFrozen(config)
+        };
+    }, {
+        expectedUrl: PRODUCTION_CLOUD_URL,
+        keyPattern: PUBLISHABLE_KEY_PATTERN.source
+    });
+    expect(cloudConfigSafety).toEqual({
+        urlMatches: true,
+        keyMatches: true,
+        hasOnlyPublicFields: true,
+        frozen: true
+    });
     await page.evaluate(() => navigator.serviceWorker.ready);
     await expect.poll(() => page.evaluate(() => navigator.serviceWorker.controller?.scriptURL || ''))
         .toMatch(/\/sw\.js$/);
@@ -116,6 +141,12 @@ test('verified Pages artifact exposes only the deployable runtime and reloads of
 
 test('Pages artifact loads every Noto weight online and offline', async ({ context, page, request }) => {
     expect(measureArtifactBytes(process.env.PW_WEB_ROOT)).toBeLessThanOrEqual(ARTIFACT_BYTE_BUDGET);
+
+    const workerSource = await (await request.get('/sw.js')).text();
+    const cacheNameMatch = workerSource.match(/const CACHE_NAME = '([^']+)'/);
+    expect(cacheNameMatch).not.toBeNull();
+    const expectedCacheName = cacheNameMatch[1];
+    expect(expectedCacheName).toMatch(/^cplayer5-v63-/);
 
     const cssResponse = await request.get('/css/noto-sans-sc.css');
     expect(cssResponse.status()).toBe(200);
@@ -171,17 +202,17 @@ test('Pages artifact loads every Noto weight online and offline', async ({ conte
             `${face.path} should be requested by the browser`).toBe(true);
     }
 
-    const cachedFonts = await page.evaluate(async () => {
+    const cachedFonts = await page.evaluate(async (cacheName) => {
         const names = await caches.keys();
-        const currentName = names.find((name) => name.startsWith('cplayer5-v62-'));
+        const currentName = names.find((name) => name === cacheName);
         if (!currentName) return { currentName: null, urls: [] };
         const keys = await (await caches.open(currentName)).keys();
         return {
             currentName,
             urls: keys.map((request) => new URL(request.url).pathname)
         };
-    });
-    expect(cachedFonts.currentName).toBe('cplayer5-v62-account-cloud-sync');
+    }, expectedCacheName);
+    expect(cachedFonts.currentName).toBe(expectedCacheName);
     for (const face of FONT_FACES) expect(cachedFonts.urls).toContain(face.path);
 
     await context.setOffline(true);

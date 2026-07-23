@@ -234,6 +234,12 @@ async function setCloudConfig(page) {
     });
 }
 
+async function setUnconfiguredCloud(page) {
+    await page.addInitScript(() => {
+        window.CPLAYER_CLOUD_CONFIG = { url: '', publishableKey: '' };
+    });
+}
+
 async function seedPlaylist(page, record) {
     await page.goto('/playlist-downloader.html');
     await page.evaluate(async (value) => {
@@ -316,6 +322,7 @@ async function submitSignIn(page, expectedState = 'synced') {
 }
 
 test('unconfigured cloud keeps local-only account fallback visible', async ({ page }) => {
+    await setUnconfiguredCloud(page);
     await page.goto('/index.html');
     await waitForAppReady(page);
     await openSettings(page);

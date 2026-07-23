@@ -1,4 +1,4 @@
-const CACHE_NAME = 'cplayer5-v62-account-cloud-sync';
+const CACHE_NAME = 'cplayer5-v63-cloud-enabled';
 const COVER_CACHE_LIMIT = 160;
 const DYNAMIC_API_PATH_SEGMENTS = new Set([
   '163_search',

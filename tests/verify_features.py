@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
+from urllib.parse import urlparse
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -146,7 +147,7 @@ require((ROOT / "js" / "vendor" / "supabase.js").stat().st_size > 100_000, "vend
 require((ROOT / "tests" / "core-utils.test.mjs").is_file(), "core utility tests are missing")
 require("user-scalable=no" not in HTML and "maximum-scale" not in HTML, "viewport still blocks browser zoom")
 
-require("cplayer5-v62-account-cloud-sync" in SW, "service worker cache version is not updated")
+require("cplayer5-v63-cloud-enabled" in SW, "service worker cache version is not updated")
 require("'./js/app.js'" in SW, "production app module is not precached")
 require("./js/core-utils.js" in SW, "core utility module is not precached")
 for cloud_asset in ("./js/cloud-config.js", "./js/cloud-sync.js", "./js/vendor/supabase.js"):
@@ -284,11 +285,29 @@ require("const DB_VERSION = 5;" in APP, "account sync IndexedDB upgrade is missi
 require("database.createObjectStore(CLOUD_OUTBOX_STORE" in APP, "cloud outbox store creation is missing")
 require("db.transaction(['playlists', CLOUD_OUTBOX_STORE], 'readwrite')" in APP,
         "playlist and cloud outbox writes are not transactionally coupled")
-require("CPLAYER_CLOUD_CONFIG" in CLOUD_CONFIG and "url: ''" in CLOUD_CONFIG
-        and "publishableKey: ''" in CLOUD_CONFIG,
-        "tracked cloud config must remain public and empty until deployment configuration")
-require("service-role key" in CLOUD_CONFIG and "sb_secret_" not in CLOUD_CONFIG,
-        "cloud config does not forbid administrator credentials or contains a secret-shaped key")
+cloud_url_match = re.search(r"\burl:\s*'([^']+)'", CLOUD_CONFIG)
+cloud_key_match = re.search(r"\bpublishableKey:\s*'([^']+)'", CLOUD_CONFIG)
+require("CPLAYER_CLOUD_CONFIG" in CLOUD_CONFIG and cloud_url_match is not None
+        and cloud_key_match is not None,
+        "tracked cloud config does not expose the expected public fields")
+cloud_url = cloud_url_match.group(1)
+cloud_key = cloud_key_match.group(1)
+parsed_cloud_url = urlparse(cloud_url)
+require(
+    cloud_url == "https://fgebuqieitvmxjiwjnbh.supabase.co"
+    and parsed_cloud_url.scheme == "https"
+    and bool(parsed_cloud_url.hostname)
+    and parsed_cloud_url.username is None
+    and parsed_cloud_url.password is None
+    and not parsed_cloud_url.params
+    and not parsed_cloud_url.query
+    and not parsed_cloud_url.fragment,
+    "production cloud project URL must be the expected credential-free HTTPS origin",
+)
+require(re.fullmatch(r"sb_publishable_[A-Za-z0-9_-]{20,}", cloud_key) is not None,
+        "production cloud key must be a Supabase publishable browser key")
+require("service-role key" in CLOUD_CONFIG and not re.match(r"(?:sb_secret_|service_role)", cloud_key, re.IGNORECASE),
+        "cloud config does not forbid administrator credentials or contains an unsafe key")
 require("cp_api_key" not in CLOUD_SYNC and "cp_api_base" not in CLOUD_SYNC,
         "music API settings leaked into the cloud sync module")
 require("toCloudPlaylistInput" in CLOUD_SYNC and "p_expected_version" in CLOUD_SYNC,
@@ -318,6 +337,8 @@ for schema_snippet in [
 
 require("serviceWorkers: 'block'" in ACCOUNT_CLOUD_E2E and "page.route" in ACCOUNT_CLOUD_E2E,
         "account browser tests do not own the cloud HTTP boundary")
+require("window.CPLAYER_CLOUD_CONFIG = { url: '', publishableKey: '' };" in ACCOUNT_CLOUD_E2E,
+        "local-only cloud fallback test does not explicitly override production configuration")
 for snippet in [
     "randomUUID", "offline playlist edit stays pending", "persists clean cloud metadata",
     "conflict choice can explicitly keep the cloud copy", "does not sync a foreign local playlist",
@@ -353,7 +374,10 @@ for snippet in [
 require("/__test__/" in TEST_SERVER and "testDynamicApiSequence" in TEST_SERVER
         and "testCloudApiPaths" in TEST_SERVER,
         "test server does not provide controlled successful dynamic API responses")
-for snippet in ["PUBLIC_PATHS", "PRIVATE_PATHS", "serviceWorker.ready", "setOffline(true)"]:
+for snippet in [
+    "PUBLIC_PATHS", "PRIVATE_PATHS", "serviceWorker.ready", "setOffline(true)",
+    "PRODUCTION_CLOUD_URL", "keyMatches", "hasOnlyPublicFields",
+]:
     require(snippet in RELEASE_ARTIFACT_E2E, f"Pages artifact browser contract is missing: {snippet}")
 for snippet in [
     "FONT_FACES", "LEGACY_FONT_PATHS", "ARTIFACT_BYTE_BUDGET", "measureArtifactBytes",

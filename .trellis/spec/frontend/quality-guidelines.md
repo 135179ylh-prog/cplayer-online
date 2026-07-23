@@ -1234,8 +1234,9 @@ artifact and cannot hide a server secret in shipped JavaScript.
 ### 3. Contracts
 
 - The only shipped cloud configuration is a project URL and a publishable/anon
-  key. A service-role, secret, or administrator key is rejected and must never
-  appear in source, build output, tests, browser storage, or task docs.
+  key. A production Pages artifact may commit these two public browser values.
+  A service-role, secret, or administrator key is rejected and must never appear
+  in source, build output, tests, browser storage, or task docs.
 - The Supabase project URL must use HTTPS. A plaintext HTTP URL is rejected so
   passwords and session tokens cannot use an unencrypted connection.
 - The SDK receives the safe localStorage adapter. Auth tokens are session data,
@@ -1309,8 +1310,9 @@ artifact and cannot hide a server secret in shipped JavaScript.
 - Browser coverage must include a same-id foreign-owner collision and prove the
   foreign local record remains intact.
 - SQL/static checks must assert RLS, owner policies, restricted RPC grants,
-  pinned vendor dependency, empty public config, DB v5, and no administrator
-  credential.
+  pinned vendor dependency, DB v5, a non-empty HTTPS production URL with a
+  publishable/anon browser key, and no administrator credential. The local-only
+  fallback remains covered by a test that explicitly injects an empty config.
 - Tests mock only the HTTP boundary with generated users, tokens, URLs, and
   keys; no live Supabase or ChKSz account is permitted.
 

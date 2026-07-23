@@ -1,0 +1,3 @@
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Owns account/cloud public-config, Service Worker, Pages artifact, and release-gate contracts."}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"Applies to the real Supabase schema, RLS policies, RPC permissions, and migration safety."}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"The activation spans browser config, auth, database, tests, and deployment boundaries."}
