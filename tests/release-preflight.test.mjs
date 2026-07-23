@@ -695,10 +695,10 @@ test('current rollback floor includes residual JavaScript modules', async () => 
 });
 
 test('rollback guard rejects a schema downgrade and accepts the current floor', () => {
-    assert.deepEqual(assertRollbackVersion(4, 4), { currentVersion: 4, targetVersion: 4 });
-    assert.deepEqual(assertRollbackVersion(4, 5), { currentVersion: 4, targetVersion: 5 });
-    assert.throws(() => assertRollbackVersion(4, 3), /Unsafe rollback/);
-    assert.throws(() => assertRollbackVersion(4, null), /could not be determined/);
+    assert.deepEqual(assertRollbackVersion(5, 5), { currentVersion: 5, targetVersion: 5 });
+    assert.deepEqual(assertRollbackVersion(5, 6), { currentVersion: 5, targetVersion: 6 });
+    assert.throws(() => assertRollbackVersion(5, 4), /Unsafe rollback/);
+    assert.throws(() => assertRollbackVersion(5, null), /could not be determined/);
 });
 
 test('repository inspection enforces UTF-8 text and skips known binary assets only', () => {

@@ -8,6 +8,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 HTML = (ROOT / "index.html").read_text(encoding="utf-8")
 APP = (ROOT / "js" / "app.js").read_text(encoding="utf-8")
+CLOUD_SYNC = (ROOT / "js" / "cloud-sync.js").read_text(encoding="utf-8")
+CLOUD_CONFIG = (ROOT / "js" / "cloud-config.js").read_text(encoding="utf-8")
+CLOUD_VENDOR_BUILD = (ROOT / "scripts" / "build-cloud-vendor.mjs").read_text(encoding="utf-8")
+CLOUD_SCHEMA = (ROOT / "supabase" / "migrations" / "202607230001_account_cloud_sync.sql").read_text(encoding="utf-8")
 DOWNLOADER = (ROOT / "playlist-downloader.html").read_text(encoding="utf-8")
 SW = (ROOT / "sw.js").read_text(encoding="utf-8")
 NOTO_CSS = (ROOT / "css" / "noto-sans-sc.css").read_text(encoding="utf-8")
@@ -24,6 +28,7 @@ ROLLBACK_CHECK = (ROOT / "scripts" / "check-rollback-target.mjs").read_text(enco
 SEARCH_E2E = (ROOT / "tests" / "e2e" / "search-recovery.spec.mjs").read_text(encoding="utf-8")
 SHELL_E2E = (ROOT / "tests" / "e2e" / "app-shell.spec.mjs").read_text(encoding="utf-8")
 API_CONFIG_E2E = (ROOT / "tests" / "e2e" / "api-config.spec.mjs").read_text(encoding="utf-8")
+ACCOUNT_CLOUD_E2E = (ROOT / "tests" / "e2e" / "account-cloud-sync.spec.mjs").read_text(encoding="utf-8")
 SW_UPDATE_E2E = (ROOT / "tests" / "e2e" / "service-worker-update.spec.mjs").read_text(encoding="utf-8")
 SW_KEY_CACHE_E2E = (ROOT / "tests" / "e2e" / "service-worker-key-cache.spec.mjs").read_text(encoding="utf-8")
 STORAGE_RESILIENCE_E2E = (ROOT / "tests" / "e2e" / "storage-resilience.spec.mjs").read_text(encoding="utf-8")
@@ -51,6 +56,10 @@ required_html = {
     "decorative canvas semantics": 'id="fluidBg" class="fixed inset-0 w-full h-full -z-10 pointer-events-none" aria-hidden="true"',
     "explicit mobile view toggle": 'id="mobileViewToggle"',
     "closed mobile sheet isolation": 'id="mobilePlaylistSheet" role="region" aria-label="移动播放列表和搜索" aria-hidden="true" inert',
+    "public cloud config": '<script src="./js/cloud-config.js"></script>',
+    "vendored cloud SDK": '<script src="./js/vendor/supabase.js"></script>',
+    "optional cloud account card": 'id="cloudAccountCard"',
+    "cloud status region": 'id="cloudAccountStatus" role="status" aria-live="polite"',
 }
 
 required_app = {
@@ -94,6 +103,11 @@ required_app = {
     "critical quota recovery": "async function runCriticalStorageWrite(operation)",
     "bounded image cache": "const IMAGE_CACHE_LIMIT = 160;",
     "bounded remote playlist cache": "const REMOTE_PLAYLIST_CACHE_LIMIT = 12;",
+    "cloud outbox store": "const CLOUD_OUTBOX_STORE = 'cloud_outbox';",
+    "cloud auth initialization": "async function initializeCloudAccount()",
+    "cloud single-flight sync": "async function syncCloudPlaylists(reason)",
+    "cloud conflict choices": "async function resolveCloudConflict(useLocal)",
+    "cloud account deletion": "async function cloudDeleteAccount()",
 }
 
 for label, snippet in required_html.items():
@@ -110,9 +124,15 @@ boot_order = [
     APP.index("markCPlayerReady();", APP.index("await loadDefaultPlaylist();")),
 ]
 require(boot_order == sorted(boot_order) and len(set(boot_order)) == len(boot_order), "app-ready signal precedes required boot work")
+require(
+    APP.index("markCPlayerReady();", APP.index("await loadDefaultPlaylist();"))
+    < APP.index("void initializeCloudAccount();", APP.index("await loadDefaultPlaylist();")),
+    "optional cloud initialization blocks or precedes app readiness",
+)
 
 require('<script type="module">' not in HTML, "main app module is still inline")
 require("from './core-utils.js';" in APP and "./js/core-utils.js" not in APP, "app module import path is invalid")
+require("from './cloud-sync.js';" in APP, "cloud sync module import path is invalid")
 require("self.loadPlaylist();" not in APP, "mobile search still uses the window self object")
 require("mob-search-img-${song.id}" not in APP, "external song id is still interpolated into mobile HTML")
 require(APP.count("const RECENT_HISTORY_KEY = 'cp_recent_history';") == 1, "recent history key is duplicated")
@@ -120,12 +140,17 @@ require(APP.count("localStorage.") == 3, "production localStorage access bypasse
 require((ROOT / "playlist.js").is_file(), "optional playlist.js hook is missing")
 require((ROOT / "js" / "app.js").is_file(), "production app module is missing")
 require((ROOT / "js" / "core-utils.js").is_file(), "core utility module is missing")
+require((ROOT / "js" / "cloud-sync.js").is_file(), "cloud sync module is missing")
+require((ROOT / "js" / "cloud-config.js").is_file(), "public cloud config is missing")
+require((ROOT / "js" / "vendor" / "supabase.js").stat().st_size > 100_000, "vendored Supabase browser bundle is missing")
 require((ROOT / "tests" / "core-utils.test.mjs").is_file(), "core utility tests are missing")
 require("user-scalable=no" not in HTML and "maximum-scale" not in HTML, "viewport still blocks browser zoom")
 
-require("cplayer5-v61-font-footprint-optimization" in SW, "service worker cache version is not updated")
+require("cplayer5-v62-account-cloud-sync" in SW, "service worker cache version is not updated")
 require("'./js/app.js'" in SW, "production app module is not precached")
 require("./js/core-utils.js" in SW, "core utility module is not precached")
+for cloud_asset in ("./js/cloud-config.js", "./js/cloud-sync.js", "./js/vendor/supabase.js"):
+    require(cloud_asset in SW, f"cloud asset is not precached: {cloud_asset}")
 require("./css/tailwind.css" in SW and "./js/tailwindcss.js" not in SW, "service worker Tailwind cache entry is stale")
 require("cacheCoreAssets" in SW and "new Request(new URL(asset, self.registration.scope)" in SW, "core cache refresh is not explicit")
 require("const COVER_CACHE_LIMIT = 160;" in SW, "cover cache has no bounded limit")
@@ -147,11 +172,18 @@ fetch_handler = SW[SW.index("self.addEventListener('fetch'"):]
 keyed_network_branch = fetch_handler.find("url.searchParams.has('apikey')")
 known_api_branch = fetch_handler.find("url.hostname === 'api.chksz.top'")
 first_cache_lookup = fetch_handler.find("caches.open(CACHE_NAME)")
+cloud_network_branch = fetch_handler.find("isCloudApiRequest(url, event.request)")
 require(
     0 <= keyed_network_branch < known_api_branch < first_cache_lookup,
     "keyed and known ChKSz API requests must bypass every fetch-handler cache lookup",
 )
 require("isDynamicMusicApi(url)" in fetch_handler, "key-free dynamic music API requests are not network-only")
+require(
+    0 <= cloud_network_branch < first_cache_lookup
+    and "request.headers.has('authorization')" in SW
+    and "CLOUD_API_PATH_SEGMENTS" in SW,
+    "authenticated cloud requests must bypass every Service Worker cache lookup",
+)
 require("caches.match(" not in SW, "service worker cache reads escape the current app cache namespace")
 image_branch = SW.find("url.hostname.includes('music.126.net') && url.pathname.match")
 cdn_network_branch = SW.find("url.hostname.includes('music.126.net'))")
@@ -162,6 +194,14 @@ require(any(icon.get("src") == "img/icon.png" for icon in MANIFEST.get("icons", 
 require("超清母带" not in MANIFEST.get("description", ""), "manifest still overstates playback quality")
 require(PACKAGE.get("scripts", {}).get("build:css") == "tailwindcss -c tailwind.config.cjs -i css/tailwind.input.css -o css/tailwind.css --minify", "Tailwind build script changed unexpectedly")
 require(PACKAGE.get("scripts", {}).get("build:pages") == "node scripts/build-pages-artifact.mjs", "Pages artifact build command is missing")
+require(PACKAGE.get("scripts", {}).get("build:cloud-vendor") == "node scripts/build-cloud-vendor.mjs",
+        "Supabase vendor build command is missing")
+require(PACKAGE.get("devDependencies", {}).get("@supabase/supabase-js") == "2.110.8",
+        "Supabase browser dependency is not exactly pinned")
+require("'@supabase'" in CLOUD_VENDOR_BUILD and "'supabase-js'" in CLOUD_VENDOR_BUILD
+        and "'dist'" in CLOUD_VENDOR_BUILD and "'umd'" in CLOUD_VENDOR_BUILD
+        and "copyFile" in CLOUD_VENDOR_BUILD,
+        "Supabase vendor build does not copy the pinned UMD bundle")
 require(PACKAGE.get("devDependencies", {}).get("tailwindcss") == "3.4.17", "Tailwind version is not pinned")
 require(PACKAGE.get("devDependencies", {}).get("acorn") == "8.15.0", "Acorn parser version is not pinned")
 require(PACKAGE.get("devDependencies", {}).get("parse5") == "7.3.0", "parse5 version is not pinned")
@@ -214,7 +254,7 @@ require(not (ROOT / "_headers").exists(), "unsupported Pages _headers file is st
 required_ignore_rules = [
     "/.agents/skills/*", "/.claude/", "/.codex/", "/.trellis/config.yaml",
     "/.trellis/scripts/*", "!/.trellis/scripts/get_context.py", "/.trellis/spec/",
-    "output/playwright/", "/output/pages/",
+    "output/playwright/", "/output/pages/", ".env*",
 ]
 for rule in required_ignore_rules:
     require(rule in GITIGNORE, f"missing local runtime ignore rule: {rule}")
@@ -223,7 +263,12 @@ require("Service Worker 的缓存修订号" in README, "README does not explain 
 require("npm run verify" in README, "README does not document the release quality gate")
 require("apikey" in README and "localStorage" in README, "README does not explain API key storage and transport")
 require("Node.js 22" in README and "output/pages" in README, "README does not document the supported runtime and exact Pages artifact")
-require("npm run check:rollback --" in README and "DB v4" in README, "README does not document the safe rollback guard")
+require(
+    "npm run check:rollback --" in README
+    and "当前浏览器数据库已经是 DB v5" in README
+    and "不能直接把线上代码退回只会打开 DB v4" in README,
+    "README does not document the safe DB v5 rollback guard",
+)
 
 api_endpoints = set(re.findall(r"ChKSzAPI\.buildUrl\('(/163_[a-z]+)'", APP))
 require(api_endpoints == {"/163_search", "/163_music", "/163_lyric", "/163_playlist"}, "not every ChKSz endpoint uses the central URL builder")
@@ -234,6 +279,51 @@ production_source = "\n".join((HTML, APP, DOWNLOADER, SW, CORE_UTILS))
 require(not re.search(r"apikey\s*=\s*['\"][^'\"]{8,}['\"]", production_source, flags=re.IGNORECASE), "a literal API key appears to be hard-coded")
 require("serviceWorkers: 'block'" in API_CONFIG_E2E and "randomUUID" in API_CONFIG_E2E, "API config browser test is not deterministic or uses a fixed key")
 require("searchParams.has('apikey')" in API_CONFIG_E2E, "browser test does not prove key-free compatibility")
+
+require("const DB_VERSION = 5;" in APP, "account sync IndexedDB upgrade is missing")
+require("database.createObjectStore(CLOUD_OUTBOX_STORE" in APP, "cloud outbox store creation is missing")
+require("db.transaction(['playlists', CLOUD_OUTBOX_STORE], 'readwrite')" in APP,
+        "playlist and cloud outbox writes are not transactionally coupled")
+require("CPLAYER_CLOUD_CONFIG" in CLOUD_CONFIG and "url: ''" in CLOUD_CONFIG
+        and "publishableKey: ''" in CLOUD_CONFIG,
+        "tracked cloud config must remain public and empty until deployment configuration")
+require("service-role key" in CLOUD_CONFIG and "sb_secret_" not in CLOUD_CONFIG,
+        "cloud config does not forbid administrator credentials or contains a secret-shaped key")
+require("cp_api_key" not in CLOUD_SYNC and "cp_api_base" not in CLOUD_SYNC,
+        "music API settings leaked into the cloud sync module")
+require("toCloudPlaylistInput" in CLOUD_SYNC and "p_expected_version" in CLOUD_SYNC,
+        "cloud payload or optimistic version boundary is missing")
+require("parsed.protocol !== 'https:'" in CLOUD_SYNC, "cloud auth config does not require HTTPS")
+require("mutationId" in APP and "isSameCloudMutation" in CLOUD_SYNC,
+        "cloud outbox does not have a non-clock mutation identity")
+require("CloudOwnerCollisionError" in APP and "same-id foreign playlist" in ACCOUNT_CLOUD_E2E,
+        "foreign owner collision protection is not covered")
+require("CLOUD_DETACH_PENDING_KEY" in APP and "repairPendingCloudDetach" in APP,
+        "account deletion recovery marker is missing")
+
+for schema_snippet in [
+    "alter table public.cplayer_playlists enable row level security",
+    "alter table public.cplayer_playlists force row level security",
+    "using ((select auth.uid()) = user_id)",
+    "with check ((select auth.uid()) = user_id)",
+    "sync_cplayer_playlist",
+    "delete_cplayer_playlist",
+    "delete_cplayer_account",
+    "cplayer_playlist_conflict",
+    "playlist_limit_reached",
+    "pg_advisory_xact_lock",
+    "revoke all on table public.cplayer_playlists from anon, authenticated",
+]:
+    require(schema_snippet in CLOUD_SCHEMA, f"cloud database security contract is missing: {schema_snippet}")
+
+require("serviceWorkers: 'block'" in ACCOUNT_CLOUD_E2E and "page.route" in ACCOUNT_CLOUD_E2E,
+        "account browser tests do not own the cloud HTTP boundary")
+for snippet in [
+    "randomUUID", "offline playlist edit stays pending", "persists clean cloud metadata",
+    "conflict choice can explicitly keep the cloud copy", "does not sync a foreign local playlist",
+    "account deletion removes cloud state", "request.body.includes('apikey')",
+]:
+    require(snippet in ACCOUNT_CLOUD_E2E, f"account browser contract is missing: {snippet}")
 
 require("name: 'desktop-chromium'" in PLAYWRIGHT and "name: 'mobile-chromium'" in PLAYWRIGHT, "desktop/mobile browser projects are incomplete")
 require("viewport: { width: 1280, height: 800 }" in PLAYWRIGHT, "desktop quality viewport changed unexpectedly")
@@ -255,9 +345,13 @@ require("Service-Worker-Allowed" in TEST_SERVER and "tests/e2e/fixtures/sw-old.j
 require("cplayer5-test-old" in OLD_SW_FIXTURE and "self.clients.claim()" in OLD_SW_FIXTURE, "old Worker fixture does not establish an active prior installation")
 for snippet in ["OLD_WORKER_PATH", "controller?.scriptURL", "UNRELATED_CACHE_NAME", "setOffline(true)", "readQueueRecord", "'/js/app.js'"]:
     require(snippet in SW_UPDATE_E2E, f"service worker upgrade browser contract is missing: {snippet}")
-for snippet in ["randomUUID", "/manifest.json?apikey=", "cache.put", ".delete(url)", "caches.match(url)"]:
+for snippet in [
+    "randomUUID", "/manifest.json?apikey=", "Authorization", "/__test__/auth/v1/session",
+    "cache.put", ".delete(url)", "caches.match(url)"
+]:
     require(snippet in SW_KEY_CACHE_E2E, f"service worker key-cache browser contract is missing: {snippet}")
-require("/__test__/" in TEST_SERVER and "testDynamicApiSequence" in TEST_SERVER,
+require("/__test__/" in TEST_SERVER and "testDynamicApiSequence" in TEST_SERVER
+        and "testCloudApiPaths" in TEST_SERVER,
         "test server does not provide controlled successful dynamic API responses")
 for snippet in ["PUBLIC_PATHS", "PRIVATE_PATHS", "serviceWorker.ready", "setOffline(true)"]:
     require(snippet in RELEASE_ARTIFACT_E2E, f"Pages artifact browser contract is missing: {snippet}")
@@ -268,7 +362,7 @@ for snippet in [
     require(snippet in RELEASE_ARTIFACT_E2E, f"font artifact browser contract is missing: {snippet}")
 require("serviceWorkers: 'block'" in STORAGE_RESILIENCE_E2E and "CPlayer5DB" in STORAGE_RESILIENCE_E2E,
         "storage resilience browser tests do not isolate the real storage boundary")
-require(E2E_HELPERS.count("indexedDB.open('CPlayer5DB', 4)") >= 2,
+require(E2E_HELPERS.count("indexedDB.open('CPlayer5DB', 5)") >= 2,
         "browser storage helpers do not use the current database version")
 for snippet in [
     "installRuntimeProbes", "PageTransitionEvent('pagehide'", "removeSongFromQueue",
@@ -302,7 +396,7 @@ require("mobileLayoutQuery" in APP and "this.isMobile = isMobileLayoutViewport()
         "runtime mobile-layout ownership does not match the responsive CSS boundary")
 require("tests/e2e" not in WORKFLOW and "tests/e2e" not in PAGES_BUILDER,
         "test-only Worker/server files must not enter the Pages artifact")
-for gate_step in ["build:css", "test:unit", "check:module", "check:sw", "check:features", "audit", "build:pages", "test:e2e", "check:repo"]:
+for gate_step in ["build:css", "build:cloud-vendor", "test:unit", "check:module", "check:sw", "check:features", "audit", "build:pages", "test:e2e", "check:repo"]:
     require(gate_step in QUALITY_GATE, f"quality gate is missing step: {gate_step}")
 require("PW_WEB_ROOT" in QUALITY_GATE and "output', 'pages'" in QUALITY_GATE,
         "quality gate does not run browser regression from the Pages artifact")

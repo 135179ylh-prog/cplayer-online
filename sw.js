@@ -1,10 +1,16 @@
-const CACHE_NAME = 'cplayer5-v61-font-footprint-optimization';
+const CACHE_NAME = 'cplayer5-v62-account-cloud-sync';
 const COVER_CACHE_LIMIT = 160;
 const DYNAMIC_API_PATH_SEGMENTS = new Set([
   '163_search',
   '163_music',
   '163_lyric',
   '163_playlist'
+]);
+const CLOUD_API_PATH_SEGMENTS = new Set([
+  'auth',
+  'rest',
+  'functions',
+  'realtime'
 ]);
 
 // 核心资源 - 安装时缓存
@@ -15,6 +21,9 @@ const CORE_ASSETS = [
   './css/noto-sans-sc.css',
   './css/tailwind.css',
   './js/color-thief.umd.js',
+  './js/cloud-config.js',
+  './js/cloud-sync.js',
+  './js/vendor/supabase.js',
   './js/app.js',
   './js/core-utils.js',
   './img/icon.svg',
@@ -33,6 +42,14 @@ function isDynamicMusicApi(url) {
   return url.pathname
     .split('/')
     .some((segment) => DYNAMIC_API_PATH_SEGMENTS.has(segment));
+}
+
+function isCloudApiRequest(url, request) {
+  if (request.headers.has('authorization')) return true;
+  const segments = url.pathname.split('/').filter(Boolean);
+  return segments.some((segment, index) =>
+    CLOUD_API_PATH_SEGMENTS.has(segment) && segments[index + 1] === 'v1'
+  );
 }
 
 async function cacheCoreAssets(cache) {
@@ -102,6 +119,12 @@ self.addEventListener('fetch', (event) => {
 
   // 带密钥或动态音乐接口的请求可能使用任意自定义域名，始终直连且不读写缓存
   if (url.searchParams.has('apikey') || isDynamicMusicApi(url)) {
+    event.respondWith(fetch(event.request));
+    return;
+  }
+
+  // Authenticated/session and Supabase data requests are never cached.
+  if (isCloudApiRequest(url, event.request)) {
     event.respondWith(fetch(event.request));
     return;
   }

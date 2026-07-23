@@ -23,6 +23,9 @@ const PUBLIC_PATHS = [
     '/css/tailwind.css',
     '/js/app.js',
     '/js/core-utils.js',
+    '/js/cloud-config.js',
+    '/js/cloud-sync.js',
+    '/js/vendor/supabase.js',
     '/img/icon.png'
 ];
 
@@ -32,7 +35,8 @@ const PRIVATE_PATHS = [
     '/AGENTS.md',
     '/package.json',
     '/scripts/run-quality-gate.mjs',
-    '/tests/e2e/server.mjs'
+    '/tests/e2e/server.mjs',
+    '/supabase/migrations/202607230001_account_cloud_sync.sql'
 ];
 
 const FONT_FACES = [
@@ -169,7 +173,7 @@ test('Pages artifact loads every Noto weight online and offline', async ({ conte
 
     const cachedFonts = await page.evaluate(async () => {
         const names = await caches.keys();
-        const currentName = names.find((name) => name.startsWith('cplayer5-v61-'));
+        const currentName = names.find((name) => name.startsWith('cplayer5-v62-'));
         if (!currentName) return { currentName: null, urls: [] };
         const keys = await (await caches.open(currentName)).keys();
         return {
@@ -177,7 +181,7 @@ test('Pages artifact loads every Noto weight online and offline', async ({ conte
             urls: keys.map((request) => new URL(request.url).pathname)
         };
     });
-    expect(cachedFonts.currentName).toBe('cplayer5-v61-font-footprint-optimization');
+    expect(cachedFonts.currentName).toBe('cplayer5-v62-account-cloud-sync');
     for (const face of FONT_FACES) expect(cachedFonts.urls).toContain(face.path);
 
     await context.setOffline(true);

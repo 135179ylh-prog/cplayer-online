@@ -1206,3 +1206,116 @@ so a page-text-only subset is not sufficient evidence of font coverage.
   alone do not prove deployment or offline behavior.
 - A development-time cmap comparison is recorded when converting a font, but
   FontTools is not required as a runtime or CI dependency.
+
+## Optional Account And Cloud Playlist Contract
+
+### 1. Scope / Trigger
+
+This contract applies whenever account UI, Supabase configuration, browser
+sessions, playlist synchronization, IndexedDB schema, cloud deletion, or
+authenticated network requests change. The site is still a public static Pages
+artifact and cannot hide a server secret in shipped JavaScript.
+
+### 2. Boundaries
+
+    settings account UI
+      -> js/cloud-sync.js
+      -> public Supabase URL + publishable/anon key
+      -> Auth session + RLS-protected playlist RPC
+      -> local CPlayer5DB v5 playlists/cloud_outbox
+
+- Login is optional. An empty or invalid js/cloud-config.js must leave the
+  player fully usable in local-only mode.
+- The official Supabase browser bundle is pinned, vendored, and loaded locally;
+  the application must not depend on a runtime CDN.
+- CPlayer5DB opens at version 5. The additive cloud_outbox store has ownerId
+  and updatedAt indexes.
+
+### 3. Contracts
+
+- The only shipped cloud configuration is a project URL and a publishable/anon
+  key. A service-role, secret, or administrator key is rejected and must never
+  appear in source, build output, tests, browser storage, or task docs.
+- The Supabase project URL must use HTTPS. A plaintext HTTP URL is rejected so
+  passwords and session tokens cannot use an unencrypted connection.
+- The SDK receives the safe localStorage adapter. Auth tokens are session data,
+  not ChKSz API credentials, and are never included in playlist payloads or
+  backups.
+- A playlist mutation writes its local record and the matching owner-scoped
+  outbox row in one readwrite transaction. Remote-applied writes remove the
+  outbox row instead of creating a feedback loop.
+- Outbox operations are upsert or delete, carry an expected server version, and
+  are collapsed by owner plus playlist id. Each operation also carries a random
+  `mutationId`; `updatedAt` is ordering metadata only and never identifies a
+  mutation. A delete is a cloud tombstone, not an untracked local hard delete.
+- Sync is local-first and single-flight. It runs after session restoration,
+  explicit retry, a debounced local edit, and online recovery; it never delays
+  the app-ready signal or playback.
+- Different playlist ids merge. A clean local version pulls a newer cloud row;
+  a dirty local version meeting a newer cloud row enters conflict and shows
+  explicit “使用本机” and “使用云端” actions. No old row may silently replace
+  a newer row.
+- Only the current authenticated owner may be adopted or uploaded. A different
+  account's owned local record is filtered and its outbox cannot flush under the
+  new account.
+- A remote row must never overwrite or delete a local record owned by another
+  account, including an accidental same-id collision. Cleanup may remove only
+  the current owner's outbox and record.
+- Sign-out keeps device data but removes the SDK session. Successful account
+  deletion removes cloud data first, then strips that owner's cloud metadata
+  locally while retaining the device playlist. A confirmed server deletion has
+  a recovery marker until local cleanup succeeds, and the session is cleared
+  even when that cleanup needs a retry.
+- The cloud RPC and local create/import paths enforce a 500-playlist limit.
+- The Supabase storage adapter rejects failed localStorage writes/removals; it
+  never reports a session as persisted when the browser denied storage.
+- RLS is enabled and forced on public.cplayer_playlists. Policies compare
+  auth.uid() to user_id; browser RPCs derive the user id from the session and
+  use optimistic versions. Direct authenticated table writes are not granted.
+- The Service Worker routes requests with an Authorization header and
+  /auth/v1/, /rest/v1/, /functions/v1/, or /realtime/v1/ path directly to the
+  network before every cache lookup.
+- ChKSz cp_api_key, cp_api_base, playback session, recent history, queue, sleep
+  timer, and device settings remain local-only.
+
+### 4. Validation Matrix
+
+| Condition | Required result |
+| --- | --- |
+| Cloud config is empty | Account controls are disabled; local playback and playlists remain usable. |
+| Sign-up returns no session | Show email-confirmation feedback; do not claim login. |
+| Invalid login or network failure | Show an actionable message; preserve local data and pending outbox. |
+| Local playlist is edited offline | Local record and outbox persist; reconnect retries without data loss. |
+| Remote row is newer and local is clean | Pull the row/tombstone. |
+| Remote row is newer and local is dirty | Show conflict choices; do not overwrite silently. |
+| Another account is signed in | Foreign owner records are not uploaded or shown as that account's cloud data. |
+| Account deletion succeeds | Server RPC runs first; local record becomes device-only; other owners remain. |
+| Same playlist id exists for another owner locally | Keep the foreign record unchanged and surface an actionable error. |
+| Local storage denies a session write | Report persistence failure instead of claiming a durable session. |
+| Authenticated GET hits the Service Worker | Network response wins; no CacheStorage read or write occurs. |
+| API key is configured | No cloud request body, outbox record, vendor bundle, or backup contains cp_api_key or its value. |
+
+### 5. Tests Required
+
+- Unit: cloud config/admin-key rejection, song/payload projection, optimistic
+  merge decisions, tombstone decisions, conflict classification, and mutation
+  identity.
+- Browser desktop 1280x800 and mobile 390x844: unconfigured fallback,
+  registration/recovery feedback, sign-in upload, remote download, offline
+  reconnect, conflict choice, session reload/sign-out, deletion tombstone,
+  foreign-owner isolation, and account deletion retention.
+- Service Worker browser coverage must use a same-origin or routed cloud URL and
+  prove authorized responses never enter the current or unrelated cache.
+- Browser coverage must include a same-id foreign-owner collision and prove the
+  foreign local record remains intact.
+- SQL/static checks must assert RLS, owner policies, restricted RPC grants,
+  pinned vendor dependency, empty public config, DB v5, and no administrator
+  credential.
+- Tests mock only the HTTP boundary with generated users, tokens, URLs, and
+  keys; no live Supabase or ChKSz account is permitted.
+
+### 6. Rollback
+
+Once any user has opened DB v5, rollback targets that open v4 are unsafe. Run
+the command npm run check:rollback -- <ref> and retain DB version 5 in any
+forward revert.

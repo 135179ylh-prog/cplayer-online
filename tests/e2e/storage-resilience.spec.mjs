@@ -4,7 +4,7 @@ import { openLibrary, openSettings, waitForAppReady } from './helpers.mjs';
 test.use({ serviceWorkers: 'block' });
 
 const DB_NAME = 'CPlayer5DB';
-const DB_VERSION = 4;
+const DB_VERSION = 5;
 const HARNESS_PATH = '/__cplayer_storage_harness__.html';
 
 const WINNER_SONG = {
@@ -126,6 +126,21 @@ async function openTestDatabase(page, version, { hold = false } = {}) {
             if (targetVersion >= 4 && !imageStore.indexNames.contains('timestamp')) {
                 imageStore.createIndex('timestamp', 'timestamp');
             }
+
+            if (targetVersion >= 5) {
+                let outboxStore;
+                if (!database.objectStoreNames.contains('cloud_outbox')) {
+                    outboxStore = database.createObjectStore('cloud_outbox', { keyPath: 'id' });
+                } else {
+                    outboxStore = tx.objectStore('cloud_outbox');
+                }
+                if (!outboxStore.indexNames.contains('ownerId')) {
+                    outboxStore.createIndex('ownerId', 'ownerId');
+                }
+                if (!outboxStore.indexNames.contains('updatedAt')) {
+                    outboxStore.createIndex('updatedAt', 'updatedAt');
+                }
+            }
         };
         request.onsuccess = () => {
             const database = request.result;
@@ -158,7 +173,8 @@ async function readStorageSnapshot(page) {
         request.onsuccess = () => {
             const database = request.result;
             if (!database.objectStoreNames.contains('playlists') ||
-                !database.objectStoreNames.contains('images')) {
+                !database.objectStoreNames.contains('images') ||
+                !database.objectStoreNames.contains('cloud_outbox')) {
                 database.close();
                 reject(new Error('storage schema is incomplete'));
                 return;
@@ -367,7 +383,7 @@ test('localStorage SecurityError keeps the app ready and warns that changes may 
     await expect(page.locator('#settingsModal')).toBeVisible();
 });
 
-test('a real version-3 connection blocks version 4 without hanging application startup', async ({ page, context }) => {
+test('a real version-3 connection blocks version 5 without hanging application startup', async ({ page, context }) => {
     const holder = await context.newPage();
     await openStorageHarness(holder);
     const legacy = await openTestDatabase(holder, 3, { hold: true });
@@ -384,15 +400,15 @@ test('a real version-3 connection blocks version 4 without hanging application s
     }
 });
 
-test('a later version-5 upgrade makes the old application page stale', async ({ page, context }) => {
+test('a later version-6 upgrade makes the old application page stale', async ({ page, context }) => {
     await page.goto('/index.html');
     await waitForAppReady(page);
     await expect(page.locator('html')).toHaveAttribute('data-cplayer-storage-state', 'ready');
 
     const upgrader = await context.newPage();
     await openStorageHarness(upgrader);
-    const upgraded = await openTestDatabase(upgrader, 5, { hold: true });
-    expect(upgraded.version).toBe(5);
+    const upgraded = await openTestDatabase(upgrader, 6, { hold: true });
+    expect(upgraded.version).toBe(6);
 
     try {
         await expect(page.locator('html')).toHaveAttribute('data-cplayer-storage-state', 'stale');

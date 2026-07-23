@@ -7,6 +7,7 @@
   },
   "scripts": {
     "build:css": "tailwindcss -c tailwind.config.cjs -i css/tailwind.input.css -o css/tailwind.css --minify",
+    "build:cloud-vendor": "node scripts/build-cloud-vendor.mjs",
     "build:pages": "node scripts/build-pages-artifact.mjs",
     "test": "npm run test:unit",
     "test:unit": "node --test tests/*.test.mjs",
@@ -21,6 +22,7 @@
   "devDependencies": {
     "@axe-core/playwright": "4.10.2",
     "@playwright/test": "1.61.1",
+    "@supabase/supabase-js": "2.110.8",
     "acorn": "8.15.0",
     "parse5": "7.3.0",
     "tailwindcss": "3.4.17"

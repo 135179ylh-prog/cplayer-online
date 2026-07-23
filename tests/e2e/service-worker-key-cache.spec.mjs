@@ -29,15 +29,15 @@ async function installCurrentWorker(page) {
     await page.waitForFunction(() => navigator.serviceWorker.controller?.scriptURL.endsWith('/sw.js'));
 }
 
-async function fetchText(page, requestUrl) {
-    return page.evaluate(async (url) => {
-        const response = await fetch(url, { cache: 'no-store' });
+async function fetchText(page, requestUrl, headers = {}) {
+    return page.evaluate(async ({ url, requestHeaders }) => {
+        const response = await fetch(url, { cache: 'no-store', headers: requestHeaders });
         return {
             body: await response.text(),
             contentType: response.headers.get('content-type'),
             status: response.status
         };
-    }, requestUrl);
+    }, { url: requestUrl, requestHeaders: headers });
 }
 
 test('same-origin apikey requests bypass CacheStorage reads and writes', async ({ page }) => {
@@ -73,6 +73,68 @@ test('same-origin apikey requests bypass CacheStorage reads and writes', async (
     const secondResponse = await fetchText(page, requestUrl);
     expect(secondResponse.status).toBe(200);
     expect(JSON.parse(secondResponse.body).name).toBe('CPlayer 5');
+    expect(await page.evaluate(async (url) => Boolean(await caches.match(url)), requestUrl)).toBe(false);
+});
+
+test('authorized same-origin requests bypass CacheStorage reads and writes', async ({ page }) => {
+    await installCurrentWorker(page);
+
+    const requestUrl = `/manifest.json?auth-probe=${encodeURIComponent(randomUUID())}`;
+    const cachedMarker = `authorized-cached-response-${randomUUID()}`;
+    const authorization = `Bearer ${randomUUID()}`;
+    await page.evaluate(async ({ cacheName, url, marker }) => {
+        await (await caches.open(cacheName)).put(url, new Response(marker, {
+            headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+            status: 200
+        }));
+    }, { cacheName: CURRENT_CACHE_NAME, url: requestUrl, marker: cachedMarker });
+
+    const firstResponse = await fetchText(page, requestUrl, { Authorization: authorization });
+    expect(firstResponse.status).toBe(200);
+    expect(firstResponse.contentType).toBe('application/json; charset=utf-8');
+    expect(firstResponse.body).not.toBe(cachedMarker);
+    expect(JSON.parse(firstResponse.body).name).toBe('CPlayer 5');
+
+    const cachedBody = await page.evaluate(async ({ cacheName, url }) => {
+        const response = await (await caches.open(cacheName)).match(url);
+        return response ? response.text() : null;
+    }, { cacheName: CURRENT_CACHE_NAME, url: requestUrl });
+    expect(cachedBody).toBe(cachedMarker);
+
+    await page.evaluate(async ({ cacheName, url }) => {
+        await (await caches.open(cacheName)).delete(url);
+    }, { cacheName: CURRENT_CACHE_NAME, url: requestUrl });
+    expect(await page.evaluate(async (url) => Boolean(await caches.match(url)), requestUrl)).toBe(false);
+
+    const secondResponse = await fetchText(page, requestUrl, { Authorization: authorization });
+    expect(secondResponse.status).toBe(200);
+    expect(JSON.parse(secondResponse.body).name).toBe('CPlayer 5');
+    expect(await page.evaluate(async (url) => Boolean(await caches.match(url)), requestUrl)).toBe(false);
+});
+
+test('known Supabase auth paths bypass CacheStorage without an authorization header', async ({ page }) => {
+    await installCurrentWorker(page);
+
+    const requestUrl = `/__test__/auth/v1/session?auth-path-probe=${encodeURIComponent(randomUUID())}`;
+    const cachedMarker = `auth-path-cached-response-${randomUUID()}`;
+    await page.evaluate(async ({ cacheName, url, marker }) => {
+        await (await caches.open(cacheName)).put(url, new Response(marker, {
+            headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+            status: 200
+        }));
+    }, { cacheName: CURRENT_CACHE_NAME, url: requestUrl, marker: cachedMarker });
+
+    const firstResponse = await fetchText(page, requestUrl);
+    expect(firstResponse.status).toBe(200);
+    expect(firstResponse.body).not.toBe(cachedMarker);
+    expect(JSON.parse(firstResponse.body).endpoint).toBe('auth-v1');
+
+    await page.evaluate(async ({ cacheName, url }) => {
+        await (await caches.open(cacheName)).delete(url);
+    }, { cacheName: CURRENT_CACHE_NAME, url: requestUrl });
+    const secondResponse = await fetchText(page, requestUrl);
+    expect(secondResponse.status).toBe(200);
+    expect(JSON.parse(secondResponse.body).endpoint).toBe('auth-v1');
     expect(await page.evaluate(async (url) => Boolean(await caches.match(url)), requestUrl)).toBe(false);
 });
 

@@ -13,6 +13,9 @@ const testDynamicApiPaths = new Set([
     '/__test__/163_lyric',
     '/__test__/163_playlist'
 ]);
+const testCloudApiPaths = new Set([
+    '/__test__/auth/v1/session'
+]);
 let testDynamicApiSequence = 0;
 const contentTypes = {
     '.css': 'text/css; charset=utf-8',
@@ -64,6 +67,23 @@ const server = createServer(async (request, response) => {
         const body = Buffer.from(JSON.stringify({
             code: 200,
             endpoint: resolved.pathname.split('/').at(-1),
+            sequence: testDynamicApiSequence
+        }));
+        response.writeHead(200, {
+            'Cache-Control': 'no-store',
+            'Content-Length': body.byteLength,
+            'Content-Type': 'application/json; charset=utf-8'
+        });
+        if (request.method === 'HEAD') response.end();
+        else response.end(body);
+        return;
+    }
+
+    if (testCloudApiPaths.has(resolved.pathname)) {
+        testDynamicApiSequence += 1;
+        const body = Buffer.from(JSON.stringify({
+            code: 200,
+            endpoint: 'auth-v1',
             sequence: testDynamicApiSequence
         }));
         response.writeHead(200, {

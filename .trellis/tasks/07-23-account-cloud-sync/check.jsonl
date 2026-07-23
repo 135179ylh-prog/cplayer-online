@@ -1,0 +1,2 @@
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Account UI, Supabase sessions, IndexedDB v5, Service Worker cache boundaries, and release-gate contracts."}
+{"file":".trellis/tasks/07-23-account-cloud-sync/research.md","reason":"Static Pages constraints, Supabase pricing boundary, RLS and credential conclusions."}

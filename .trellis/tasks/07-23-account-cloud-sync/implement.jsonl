@@ -1,0 +1,2 @@
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Executable frontend quality and privacy contracts used while implementing account cloud sync."}
+{"file":".trellis/tasks/07-23-account-cloud-sync/design.md","reason":"Approved architecture, data flow, conflict handling, and rollback decisions for this implementation."}

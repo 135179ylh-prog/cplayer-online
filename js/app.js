@@ -12,6 +12,16 @@
             normalizePlaybackSession,
             normalizeSongObject
         } from './core-utils.js';
+        import {
+            CLOUD_MAX_PLAYLISTS,
+            CPlayerCloudService,
+            decidePlaylistSync,
+            isSameCloudMutation,
+            isCloudConflictError,
+            makeCloudOutboxId,
+            normalizeCloudConfig,
+            toCloudPlaylistInput
+        } from './cloud-sync.js';
 
         // 监听 plusready 事件，增加原生能力支持
         document.addEventListener('plusready', function () {
@@ -340,7 +350,8 @@
 
         // ================= IndexedDB 缓存系统 =================
         const DB_NAME = 'CPlayer5DB';
-        const DB_VERSION = 4;
+        const DB_VERSION = 5;
+        const CLOUD_OUTBOX_STORE = 'cloud_outbox';
         const IMAGE_CACHE_LIMIT = 160;
         const REMOTE_PLAYLIST_CACHE_LIMIT = 12;
         let db = null;
@@ -454,6 +465,19 @@
                         }
                         cursor.continue();
                     };
+
+                    let outboxStore;
+                    if (!database.objectStoreNames.contains(CLOUD_OUTBOX_STORE)) {
+                        outboxStore = database.createObjectStore(CLOUD_OUTBOX_STORE, { keyPath: 'id' });
+                    } else {
+                        outboxStore = upgradeTx.objectStore(CLOUD_OUTBOX_STORE);
+                    }
+                    if (!outboxStore.indexNames.contains('ownerId')) {
+                        outboxStore.createIndex('ownerId', 'ownerId');
+                    }
+                    if (!outboxStore.indexNames.contains('updatedAt')) {
+                        outboxStore.createIndex('updatedAt', 'updatedAt');
+                    }
                 };
             });
 
@@ -690,6 +714,21 @@
         let sleepTimerEndAt = 0;
         let sleepTimerTimeout = null;
         let sleepTimerInterval = null;
+        let cloudService = null;
+        let cloudSession = null;
+        let cloudUserId = '';
+        let cloudAuthSubscription = null;
+        let cloudAccountBusy = false;
+        let cloudRecoveryMode = false;
+        let cloudState = 'disabled';
+        let cloudStateMessage = '云同步尚未配置，播放器仍可本地使用';
+        let cloudSyncTimer = null;
+        let cloudSyncInFlight = null;
+        let cloudSyncPendingReason = '';
+        const cloudConflicts = new Map();
+        const CLOUD_DETACH_PENDING_KEY = 'cp_cloud_detach_pending';
+
+        document.documentElement.dataset.cplayerCloudState = cloudState;
 
         function readPlaybackSession() {
             try {
@@ -907,6 +946,158 @@
                 resetBtn.addEventListener('click', function () {
                     if (typeof resetApiSettings === 'function') resetApiSettings();
                 });
+            }
+        }
+
+        function normalizeCloudVersion(value) {
+            const version = Number(value);
+            return Number.isSafeInteger(version) && version >= 0 ? version : 0;
+        }
+
+        function normalizeLocalCloudFields(record) {
+            record = record || {};
+            return {
+                cloudOwnerId: typeof record.cloudOwnerId === 'string' ? record.cloudOwnerId : '',
+                cloudVersion: normalizeCloudVersion(record.cloudVersion),
+                cloudDirty: record.cloudDirty === true
+            };
+        }
+
+        function makeCloudOwnerCollisionError() {
+            const error = new Error('本机已有其他账号的同 ID 歌单');
+            error.name = 'CloudOwnerCollisionError';
+            return error;
+        }
+
+        function makeCloudPlaylistSnapshot(record) {
+            const normalizedSongs = Array.isArray(record && record.songs)
+                ? record.songs.map(normalizeSongObject).filter(function (song) {
+                    return song && song.id != null && String(song.id).trim();
+                })
+                : [];
+            return {
+                id: String(record && record.id || ''),
+                name: String(record && record.name || '未命名歌单').trim().slice(0, 100) || '未命名歌单',
+                songs: normalizedSongs
+            };
+        }
+
+        function makeCloudMutationId() {
+            if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+                return crypto.randomUUID();
+            }
+            return 'cloud-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2);
+        }
+
+        function makeCloudOutboxRecord(ownerId, record, operation, expectedVersion) {
+            const playlistId = String(record && (record.id || record.playlistId) || '');
+            const base = {
+                id: makeCloudOutboxId(ownerId, playlistId),
+                ownerId: ownerId,
+                playlistId: playlistId,
+                operation: operation,
+                mutationId: makeCloudMutationId(),
+                expectedVersion: normalizeCloudVersion(expectedVersion),
+                updatedAt: Date.now()
+            };
+            if (operation === 'upsert') base.playlist = makeCloudPlaylistSnapshot(record);
+            return base;
+        }
+
+        function hasCloudOutboxStore() {
+            return !!(db && db.objectStoreNames && db.objectStoreNames.contains(CLOUD_OUTBOX_STORE));
+        }
+
+        async function readCloudOutbox(ownerId) {
+            if (!hasCloudOutboxStore() || !ownerId) return [];
+            return new Promise(function (resolve, reject) {
+                let tx;
+                let requestError = null;
+                let records = [];
+                try {
+                    tx = db.transaction(CLOUD_OUTBOX_STORE, 'readonly');
+                    const store = tx.objectStore(CLOUD_OUTBOX_STORE);
+                    const request = store.indexNames.contains('ownerId')
+                        ? store.index('ownerId').getAll(IDBKeyRange.only(ownerId))
+                        : store.getAll();
+                    request.onsuccess = function () {
+                        records = (request.result || []).filter(function (item) {
+                            return item && item.ownerId === ownerId;
+                        });
+                    };
+                    request.onerror = function () { requestError = request.error; };
+                } catch (error) {
+                    reject(error);
+                    return;
+                }
+                transactionDone(tx).then(function () {
+                    resolve(records);
+                }, function (error) {
+                    reject(requestError || error);
+                });
+            });
+        }
+
+        async function readUserPlaylistRecords(options) {
+            options = options || {};
+            if (!db && typeof initDatabase === 'function') {
+                try { await initDatabase(); } catch (e) {}
+            }
+            if (!db) {
+                setStorageState(storageState === 'stale' ? 'stale' : 'degraded',
+                    storageState === 'stale' ? '播放器数据已在其他页面升级，请刷新当前页面' : STORAGE_WARNING);
+                const error = new Error('浏览器存储不可用，无法读取自建歌单');
+                error.name = 'StorageUnavailableError';
+                throw error;
+            }
+            const includeForeign = options.includeForeign === true;
+            const ownerId = options.ownerId || cloudUserId;
+            const read = new Promise(function (resolve, reject) {
+                let tx;
+                let requestError = null;
+                let all = [];
+                try {
+                    tx = db.transaction('playlists', 'readonly');
+                    const store = tx.objectStore('playlists');
+                    const request = store.getAll();
+                    request.onsuccess = function () {
+                        all = request.result || [];
+                    };
+                    request.onerror = function () { requestError = request.error; };
+                } catch (error) {
+                    reject(error);
+                    return;
+                }
+                transactionDone(tx).then(function () {
+                    const records = all.filter(function (item) {
+                        if (!item || typeof item.id !== 'string' || item.id.indexOf(USER_PL_PREFIX) !== 0) return false;
+                        const fields = normalizeLocalCloudFields(item);
+                        if (!includeForeign && ownerId && fields.cloudOwnerId && fields.cloudOwnerId !== ownerId) return false;
+                        return true;
+                    }).map(function (item) {
+                        const fields = normalizeLocalCloudFields(item);
+                        return {
+                            id: item.id,
+                            name: item.name || '未命名歌单',
+                            songs: Array.isArray(item.songs) ? item.songs : [],
+                            timestamp: item.timestamp || 0,
+                            cloudOwnerId: fields.cloudOwnerId,
+                            cloudVersion: fields.cloudVersion,
+                            cloudDirty: fields.cloudDirty
+                        };
+                    }).sort(function (a, b) {
+                        return (b.timestamp || 0) - (a.timestamp || 0);
+                    });
+                    resolve(records);
+                }, function (error) {
+                    reject(requestError || error);
+                });
+            });
+            try {
+                return await read;
+            } catch (error) {
+                setStorageState('degraded', STORAGE_WARNING, error);
+                throw error;
             }
         }
 
@@ -1181,67 +1372,40 @@
             return true;
         };
 
-        async function listUserPlaylists() {
-            if (!db && typeof initDatabase === 'function') {
-                try { await initDatabase(); } catch (e) {}
-            }
-            if (!db) {
-                setStorageState(storageState === 'stale' ? 'stale' : 'degraded',
-                    storageState === 'stale' ? '播放器数据已在其他页面升级，请刷新当前页面' : STORAGE_WARNING);
-                const error = new Error('浏览器存储不可用，无法读取自建歌单');
-                error.name = 'StorageUnavailableError';
-                throw error;
-            }
-            const read = new Promise(function (resolve, reject) {
-                let tx;
-                let requestError = null;
-                let all = [];
-                try {
-                    tx = db.transaction('playlists', 'readonly');
-                    const store = tx.objectStore('playlists');
-                    const req = store.getAll ? store.getAll() : null;
-                    if (req) {
-                        req.onsuccess = function () {
-                            all = req.result || [];
-                        };
-                        req.onerror = function () { requestError = req.error; };
-                    } else {
-                        all = [];
-                    }
-                } catch (e) {
-                    reject(e);
-                    return;
-                }
-                transactionDone(tx).then(function () {
-                    resolve(all.filter(function (x) {
-                        return x && typeof x.id === 'string' && x.id.indexOf(USER_PL_PREFIX) === 0;
-                    }).map(function (x) {
-                        return { id: x.id, name: x.name || '未命名歌单', songs: Array.isArray(x.songs) ? x.songs : [], timestamp: x.timestamp || 0 };
-                    }).sort(function (a, b) { return (b.timestamp || 0) - (a.timestamp || 0); }));
-                }, function (error) {
-                    reject(requestError || error);
-                });
-            });
-            try {
-                return await read;
-            } catch (error) {
-                setStorageState('degraded', STORAGE_WARNING, error);
-                throw error;
-            }
+        async function listUserPlaylists(options) {
+            return readUserPlaylistRecords(options);
         }
 
-        async function saveUserPlaylistRecord(rec) {
+        async function saveUserPlaylistRecord(rec, options) {
+            options = options || {};
             if (!db) throw new Error('数据库未就绪');
+            const cloudFields = normalizeLocalCloudFields(rec || {});
+            const ownerId = options.remote
+                ? cloudFields.cloudOwnerId
+                : (cloudFields.cloudOwnerId || cloudUserId || '');
+            const cloudVersion = cloudFields.cloudVersion;
+            const cloudDirty = options.remote ? false : !!ownerId;
             const payload = {
                 id: rec.id,
                 name: rec.name || '未命名歌单',
                 songs: Array.isArray(rec.songs) ? rec.songs : [],
-                timestamp: Date.now()
+                timestamp: options.preserveTimestamp && Number.isFinite(Number(rec.timestamp))
+                    ? Number(rec.timestamp)
+                    : Date.now(),
+                cloudOwnerId: ownerId,
+                cloudVersion: cloudVersion,
+                cloudDirty: cloudDirty
             };
+            const outbox = !options.remote && ownerId
+                ? makeCloudOutboxRecord(ownerId, payload, 'upsert', cloudVersion)
+                : null;
             try {
                 await runCriticalStorageWrite(async function () {
-                    const tx = db.transaction('playlists', 'readwrite');
+                    if (outbox && !hasCloudOutboxStore()) throw new Error('云同步存储未就绪');
+                    const stores = outbox ? ['playlists', CLOUD_OUTBOX_STORE] : ['playlists'];
+                    const tx = db.transaction(stores, 'readwrite');
                     tx.objectStore('playlists').put(payload);
+                    if (outbox) tx.objectStore(CLOUD_OUTBOX_STORE).put(outbox);
                     await transactionDone(tx);
                 });
             } catch (error) {
@@ -1249,6 +1413,12 @@
                     ? '歌单保存失败，浏览器存储空间不足'
                     : STORAGE_WARNING, error);
                 throw error;
+            }
+            if (outbox) {
+                setCloudState('pending', navigator.onLine === false
+                    ? '歌单已保存在本机，联网后同步'
+                    : '歌单有待同步的修改');
+                scheduleCloudSync('playlist_save');
             }
             return payload;
         }
@@ -1386,6 +1556,9 @@
             if (!db) throw new Error('数据库未就绪');
 
             const existing = await listUserPlaylists();
+            if (cloudUserId && existing.length + parsed.playlists.length > CLOUD_MAX_PLAYLISTS) {
+                throw new Error('云端歌单数量达到上限');
+            }
             const usedNames = new Set(existing.map(function (item) { return item.name.toLocaleLowerCase(); }));
             const usedIds = new Set(existing.map(function (item) { return item.id; }));
             const now = Date.now();
@@ -1394,16 +1567,30 @@
                     id: createUserPlaylistId(usedIds),
                     name: getUniqueImportedPlaylistName(item.name, usedNames),
                     songs: item.songs,
-                    timestamp: now - index
+                    timestamp: now - index,
+                    cloudOwnerId: cloudUserId || '',
+                    cloudVersion: 0,
+                    cloudDirty: !!cloudUserId
                 };
             });
+            const outboxRecords = cloudUserId
+                ? records.map(function (record) {
+                    return makeCloudOutboxRecord(cloudUserId, record, 'upsert', 0);
+                })
+                : [];
 
             try {
                 await runCriticalStorageWrite(async function () {
-                    const tx = db.transaction('playlists', 'readwrite');
+                    const stores = outboxRecords.length
+                        ? ['playlists', CLOUD_OUTBOX_STORE]
+                        : ['playlists'];
+                    const tx = db.transaction(stores, 'readwrite');
                     const store = tx.objectStore('playlists');
                     try {
                         records.forEach(function (record) { store.put(record); });
+                        outboxRecords.forEach(function (record) {
+                            tx.objectStore(CLOUD_OUTBOX_STORE).put(record);
+                        });
                     } catch (error) {
                         try { tx.abort(); } catch (abortError) {}
                         throw error;
@@ -1416,6 +1603,10 @@
                     : STORAGE_WARNING, error);
                 throw error;
             }
+            if (outboxRecords.length) {
+                setCloudState('pending', '导入的歌单已保存在本机，等待同步');
+                scheduleCloudSync('playlist_import');
+            }
             return records;
         }
 
@@ -1424,6 +1615,9 @@
                 try { await initDatabase(); } catch (e) {}
             }
             if (!db) throw new Error('数据库未就绪');
+            if (cloudUserId && (await listUserPlaylists()).length >= CLOUD_MAX_PLAYLISTS) {
+                throw new Error('云端歌单数量达到上限');
+            }
             const clean = String(name || '').trim() || ('我的歌单 ' + new Date().toLocaleDateString());
             if (clean.length > 100) throw new Error('歌单名称不能超过 100 个字符');
             const id = createUserPlaylistId();
@@ -1451,13 +1645,232 @@
                 throw error;
             }
             try {
-                const tx = db.transaction('playlists', 'readwrite');
-                tx.objectStore('playlists').delete(playlistId);
+                const tx = db.transaction(
+                    hasCloudOutboxStore() ? ['playlists', CLOUD_OUTBOX_STORE] : ['playlists'],
+                    'readwrite'
+                );
+                const playlistStore = tx.objectStore('playlists');
+                const existingRequest = playlistStore.get(playlistId);
+                let existing = null;
+                existingRequest.onsuccess = function () {
+                    existing = existingRequest.result || null;
+                    playlistStore.delete(playlistId);
+                    const fields = normalizeLocalCloudFields(existing || {});
+                    if (fields.cloudOwnerId && hasCloudOutboxStore()) {
+                        tx.objectStore(CLOUD_OUTBOX_STORE).put(
+                            makeCloudOutboxRecord(fields.cloudOwnerId, { id: playlistId }, 'delete', fields.cloudVersion)
+                        );
+                    }
+                };
+                existingRequest.onerror = function () {
+                    try { tx.abort(); } catch (abortError) {}
+                };
                 await transactionDone(tx);
+                if (existing && normalizeLocalCloudFields(existing).cloudOwnerId) {
+                    setCloudState('pending', '歌单删除已保存在本机，等待同步');
+                    scheduleCloudSync('playlist_delete');
+                }
             } catch (error) {
                 setStorageState('degraded', STORAGE_WARNING, error);
                 throw error;
             }
+        }
+
+        async function adoptLocalPlaylistsForCloud(ownerId) {
+            if (!db || !ownerId || !hasCloudOutboxStore()) return 0;
+            let adopted = 0;
+            const tx = db.transaction(['playlists', CLOUD_OUTBOX_STORE], 'readwrite');
+            const store = tx.objectStore('playlists');
+            const request = store.getAll();
+            request.onsuccess = function () {
+                (request.result || []).forEach(function (record) {
+                    if (!record || typeof record.id !== 'string' ||
+                        record.id.indexOf(USER_PL_PREFIX) !== 0) return;
+                    const fields = normalizeLocalCloudFields(record);
+                    if (fields.cloudOwnerId) return;
+                    const next = Object.assign({}, record, {
+                        cloudOwnerId: ownerId,
+                        cloudVersion: 0,
+                        cloudDirty: true
+                    });
+                    store.put(next);
+                    tx.objectStore(CLOUD_OUTBOX_STORE).put(
+                        makeCloudOutboxRecord(ownerId, next, 'upsert', 0)
+                    );
+                    adopted += 1;
+                });
+            };
+            await transactionDone(tx);
+            return adopted;
+        }
+
+        async function acknowledgeCloudUpsert(ownerId, sentOutbox, remote) {
+            if (!db || !hasCloudOutboxStore() || !sentOutbox || !remote) return;
+            const tx = db.transaction(['playlists', CLOUD_OUTBOX_STORE], 'readwrite');
+            const playlistStore = tx.objectStore('playlists');
+            const outboxStore = tx.objectStore(CLOUD_OUTBOX_STORE);
+            const playlistRequest = playlistStore.get(sentOutbox.playlistId);
+            const outboxRequest = outboxStore.get(sentOutbox.id);
+            let local = null;
+            let currentOutbox = null;
+            playlistRequest.onsuccess = function () { local = playlistRequest.result || null; };
+            outboxRequest.onsuccess = function () { currentOutbox = outboxRequest.result || null; };
+            await transactionDone(tx);
+            if (!local || normalizeLocalCloudFields(local).cloudOwnerId !== ownerId) return;
+
+            const nextTx = db.transaction(['playlists', CLOUD_OUTBOX_STORE], 'readwrite');
+            const nextPlaylistStore = nextTx.objectStore('playlists');
+            const nextOutboxStore = nextTx.objectStore(CLOUD_OUTBOX_STORE);
+            const currentRequest = nextOutboxStore.get(sentOutbox.id);
+            currentRequest.onsuccess = function () {
+                const latestOutbox = currentRequest.result || null;
+                const latestLocalRequest = nextPlaylistStore.get(sentOutbox.playlistId);
+                latestLocalRequest.onsuccess = function () {
+                    const latestLocal = latestLocalRequest.result || null;
+                    if (!latestLocal || normalizeLocalCloudFields(latestLocal).cloudOwnerId !== ownerId) return;
+                    const sameMutation = isSameCloudMutation(latestOutbox, sentOutbox);
+                    const updated = Object.assign({}, latestLocal, {
+                        cloudOwnerId: ownerId,
+                        cloudVersion: remote.version,
+                        cloudDirty: !sameMutation
+                    });
+                    nextPlaylistStore.put(updated);
+                    if (sameMutation) {
+                        nextOutboxStore.delete(sentOutbox.id);
+                    } else if (latestOutbox) {
+                        nextOutboxStore.put(Object.assign({}, latestOutbox, {
+                            expectedVersion: remote.version
+                        }));
+                    }
+                };
+            };
+            await transactionDone(nextTx);
+        }
+
+        async function applyRemotePlaylistToLocal(ownerId, remote) {
+            if (!db || !hasCloudOutboxStore() || !remote) return;
+            const tx = db.transaction(['playlists', CLOUD_OUTBOX_STORE], 'readwrite');
+            const playlistStore = tx.objectStore('playlists');
+            const outboxStore = tx.objectStore(CLOUD_OUTBOX_STORE);
+            const localRequest = playlistStore.get(remote.id);
+            let collisionError = null;
+            localRequest.onsuccess = function () {
+                const local = localRequest.result || null;
+                const localOwner = normalizeLocalCloudFields(local).cloudOwnerId;
+                if (local && localOwner && localOwner !== ownerId) {
+                    collisionError = makeCloudOwnerCollisionError();
+                    return;
+                }
+                if (remote.deletedAt) {
+                    playlistStore.delete(remote.id);
+                    outboxStore.delete(makeCloudOutboxId(ownerId, remote.id));
+                    return;
+                }
+                playlistStore.put({
+                    id: remote.id,
+                    name: remote.name,
+                    songs: remote.songs,
+                    timestamp: remote.updatedAt,
+                    cloudOwnerId: ownerId,
+                    cloudVersion: remote.version,
+                    cloudDirty: false
+                });
+                outboxStore.delete(makeCloudOutboxId(ownerId, remote.id));
+                if (local && typeof refreshMyPlaylists === 'function') {
+                    setTimeout(function () { refreshMyPlaylists(); }, 0);
+                }
+            };
+            await transactionDone(tx);
+            if (collisionError) throw collisionError;
+        }
+
+        async function removeLocalCloudPlaylist(ownerId, playlistId) {
+            if (!db || !hasCloudOutboxStore()) return;
+            const tx = db.transaction(['playlists', CLOUD_OUTBOX_STORE], 'readwrite');
+            const playlistStore = tx.objectStore('playlists');
+            const outboxStore = tx.objectStore(CLOUD_OUTBOX_STORE);
+            const localRequest = playlistStore.get(playlistId);
+            localRequest.onsuccess = function () {
+                const local = localRequest.result || null;
+                const localOwner = normalizeLocalCloudFields(local).cloudOwnerId;
+                if (!local || localOwner === ownerId) {
+                    playlistStore.delete(playlistId);
+                }
+                outboxStore.delete(makeCloudOutboxId(ownerId, playlistId));
+            };
+            await transactionDone(tx);
+        }
+
+        async function acknowledgeCloudDelete(ownerId, sentOutbox, remote) {
+            if (!db || !hasCloudOutboxStore() || !sentOutbox || !remote) return;
+            const tx = db.transaction(['playlists', CLOUD_OUTBOX_STORE], 'readwrite');
+            const playlistStore = tx.objectStore('playlists');
+            const outboxStore = tx.objectStore(CLOUD_OUTBOX_STORE);
+            const outboxRequest = outboxStore.get(sentOutbox.id);
+            outboxRequest.onsuccess = function () {
+                const latest = outboxRequest.result || null;
+                if (!latest || isSameCloudMutation(latest, sentOutbox)) {
+                    const localRequest = playlistStore.get(sentOutbox.playlistId);
+                    localRequest.onsuccess = function () {
+                        const local = localRequest.result || null;
+                        const localOwner = normalizeLocalCloudFields(local).cloudOwnerId;
+                        if (!local || localOwner === ownerId) {
+                            playlistStore.delete(sentOutbox.playlistId);
+                        }
+                        outboxStore.delete(sentOutbox.id);
+                    };
+                } else {
+                    outboxStore.put(Object.assign({}, latest, { expectedVersion: remote.version }));
+                }
+            };
+            await transactionDone(tx);
+        }
+
+        async function detachCloudOwner(ownerId) {
+            if (!ownerId) throw new Error('缺少待清理的云账号');
+            if (!db || !hasCloudOutboxStore()) throw new Error('本机数据库未就绪，无法清理云账号标记');
+            const tx = db.transaction(['playlists', CLOUD_OUTBOX_STORE], 'readwrite');
+            const playlistStore = tx.objectStore('playlists');
+            const outboxStore = tx.objectStore(CLOUD_OUTBOX_STORE);
+            const playlistRequest = playlistStore.getAll();
+            const outboxRequest = outboxStore.indexNames.contains('ownerId')
+                ? outboxStore.index('ownerId').getAll(IDBKeyRange.only(ownerId))
+                : outboxStore.getAll();
+            playlistRequest.onsuccess = function () {
+                (playlistRequest.result || []).forEach(function (record) {
+                    if (normalizeLocalCloudFields(record).cloudOwnerId !== ownerId) return;
+                    const next = Object.assign({}, record);
+                    delete next.cloudOwnerId;
+                    delete next.cloudVersion;
+                    delete next.cloudDirty;
+                    playlistStore.put(next);
+                });
+            };
+            outboxRequest.onsuccess = function () {
+                (outboxRequest.result || []).forEach(function (record) {
+                    if (!record || record.ownerId === ownerId) outboxStore.delete(record.id);
+                });
+            };
+            await transactionDone(tx);
+        }
+
+        async function repairPendingCloudDetach() {
+            const raw = readLocalStorage(CLOUD_DETACH_PENDING_KEY, '');
+            if (!raw) return false;
+            let ownerId = '';
+            try {
+                const parsed = JSON.parse(raw);
+                ownerId = parsed && parsed.confirmed === true && typeof parsed.ownerId === 'string'
+                    ? parsed.ownerId.trim()
+                    : '';
+            } catch (error) {}
+            if (!ownerId) {
+                removeLocalStorage(CLOUD_DETACH_PENDING_KEY);
+                return false;
+            }
+            await detachCloudOwner(ownerId);
+            removeLocalStorage(CLOUD_DETACH_PENDING_KEY);
+            return true;
         }
 
         async function loadUserPlaylistIntoQueue(playlistId, autoPlay) {
@@ -2720,6 +3133,7 @@ async function refreshUserPlaylistLibrary() {
             initSettingsUI();
             setupSleepTimerUI();
             setupApiSettingsUI();
+            setupCloudAccountUI();
             setupPlaylistIdLoader();
             if (typeof bindUserPlaylistUI === 'function') bindUserPlaylistUI();  // 初始化歌单ID加载按钮
             await loadDefaultPlaylist();
@@ -2752,6 +3166,7 @@ async function refreshUserPlaylistLibrary() {
             });
 
             markCPlayerReady();
+            void initializeCloudAccount();
         });
 
         function initEventListeners() {
@@ -3140,10 +3555,653 @@ async function refreshUserPlaylistLibrary() {
             connectivityFeedbackBound = true;
 
             const notifyOffline = () => showToast('已离线，已保存的歌单和最近播放仍可使用', true);
-            const notifyOnline = () => showToast('网络已恢复');
+            const notifyOnline = () => {
+                showToast('网络已恢复');
+                scheduleCloudSync('online', 0);
+            };
             window.addEventListener('offline', notifyOffline);
             window.addEventListener('online', notifyOnline);
             if (navigator.onLine === false) setTimeout(notifyOffline, 300);
+        }
+
+        function getConfiguredCloud() {
+            return normalizeCloudConfig(
+                typeof window !== 'undefined' ? window.CPLAYER_CLOUD_CONFIG : null
+            );
+        }
+
+        function setCloudState(nextState, message, error) {
+            cloudState = nextState;
+            if (message) cloudStateMessage = message;
+            document.documentElement.dataset.cplayerCloudState = nextState;
+            if (error) console.warn('[cloud]', message || nextState, error);
+            refreshCloudAccountUI();
+        }
+
+        function cloudErrorMessage(error, fallback) {
+            const text = [
+                error && error.message,
+                error && error.details,
+                error && error.hint,
+                error && error.code
+            ].filter(Boolean).join(' ');
+            if (isCloudConflictError(error)) return '云端歌单刚刚被其他设备修改，请选择保留哪一份';
+            if (error && error.name === 'CloudOwnerCollisionError') {
+                return '本机已有其他账号的同 ID 歌单，未覆盖本地数据；请退出其他账号或删除冲突歌单后重试';
+            }
+            if (/invalid login credentials|invalid password|invalid email/i.test(text)) return '邮箱或密码不正确';
+            if (/user already registered|already been registered/i.test(text)) return '这个邮箱已经注册，请直接登录';
+            if (/email not confirmed|confirm your email/i.test(text)) return '请先完成邮箱验证，再登录';
+            if (/playlist_limit_reached|歌单数量达到上限/i.test(text)) return '云端歌单已达到 500 个上限，请先删除不需要的歌单';
+            if (/rate limit|too many requests/i.test(text)) return '操作太频繁，请稍后再试';
+            if (/storage|localstorage|持久|存储/i.test(text)) return '浏览器存储不可用，登录状态无法可靠保存';
+            if (/fetch|network|timeout|offline|failed to/i.test(text)) return '云同步暂时无法连接，已保留本机数据';
+            return fallback || '云同步操作失败，本机数据未受影响';
+        }
+
+        function setCloudSectionVisible(element, visible) {
+            if (!element) return;
+            element.classList.toggle('hidden', !visible);
+            element.inert = !visible;
+        }
+
+        function refreshCloudConflictUI() {
+            const panel = document.getElementById('cloudAccountConflict');
+            const name = document.getElementById('cloudAccountConflictName');
+            const conflict = cloudConflicts.values().next().value || null;
+            setCloudSectionVisible(panel, !!conflict);
+            if (name) name.textContent = conflict
+                ? (conflict.local && conflict.local.name) || (conflict.remote && conflict.remote.name) || '未命名歌单'
+                : '';
+        }
+
+        function refreshCloudAccountUI() {
+            const card = document.getElementById('cloudAccountCard');
+            if (!card) return;
+            const config = getConfiguredCloud();
+            const hasConfig = !!config;
+            const configured = hasConfig && !!cloudService;
+            const signedIn = configured && !!cloudSession && !!cloudUserId;
+            const signedOut = document.getElementById('cloudAccountSignedOut');
+            const signedInPanel = document.getElementById('cloudAccountSignedIn');
+            const recovery = document.getElementById('cloudAccountRecovery');
+            const status = document.getElementById('cloudAccountStatus');
+            const email = document.getElementById('cloudAccountUserEmail');
+            const emailInput = document.getElementById('cloudAccountEmail');
+            const allButtons = card.querySelectorAll('button');
+
+            setCloudSectionVisible(signedOut, configured && !signedIn && !cloudRecoveryMode);
+            setCloudSectionVisible(signedInPanel, signedIn && !cloudRecoveryMode);
+            setCloudSectionVisible(recovery, configured && cloudRecoveryMode);
+            if (email) email.textContent = cloudSession && cloudSession.user ? (cloudSession.user.email || '') : '';
+            if (status) {
+                if (!hasConfig) status.textContent = '云同步尚未配置，播放器仍可本地使用';
+                else if (cloudRecoveryMode) status.textContent = '请设置新的登录密码';
+                else status.textContent = cloudStateMessage;
+            }
+            if (emailInput && signedIn && cloudSession.user && !emailInput.value) {
+                emailInput.value = cloudSession.user.email || '';
+            }
+            allButtons.forEach(function (button) {
+                button.disabled = cloudAccountBusy || !configured;
+            });
+            const conflict = cloudConflicts.size > 0;
+            const localButton = document.getElementById('cloudAccountUseLocalBtn');
+            const remoteButton = document.getElementById('cloudAccountUseCloudBtn');
+            if (localButton) localButton.disabled = cloudAccountBusy || !conflict;
+            if (remoteButton) remoteButton.disabled = cloudAccountBusy || !conflict;
+            refreshCloudConflictUI();
+        }
+
+        function setCloudAccountBusy(value) {
+            cloudAccountBusy = !!value;
+            refreshCloudAccountUI();
+        }
+
+        function getCloudEmailInput() {
+            const input = document.getElementById('cloudAccountEmail');
+            const email = input ? input.value.trim() : '';
+            if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+                throw new Error('请输入有效的邮箱地址');
+            }
+            return email;
+        }
+
+        function getCloudPasswordInput(id) {
+            const input = document.getElementById(id || 'cloudAccountPassword');
+            const password = input ? input.value : '';
+            if (password.length < 8) throw new Error('密码至少需要 8 个字符');
+            return password;
+        }
+
+        function clearCloudPasswordInputs() {
+            ['cloudAccountPassword', 'cloudAccountNewPassword'].forEach(function (id) {
+                const input = document.getElementById(id);
+                if (input) input.value = '';
+            });
+        }
+
+        function cloudRedirectUrl() {
+            return new URL('./index.html', window.location.href).href;
+        }
+
+        function makeCloudStorageAdapter() {
+            return {
+                getItem: function (key) {
+                    return Promise.resolve(readLocalStorage(key, null));
+                },
+                setItem: function (key, value) {
+                    if (!writeLocalStorage(key, value)) {
+                        return Promise.reject(new Error('登录会话无法保存到浏览器存储'));
+                    }
+                    return Promise.resolve();
+                },
+                removeItem: function (key) {
+                    if (!removeLocalStorage(key)) {
+                        return Promise.reject(new Error('登录会话无法从浏览器存储中移除'));
+                    }
+                    return Promise.resolve();
+                }
+            };
+        }
+
+        function handleCloudSession(event, session) {
+            const previousUserId = cloudUserId;
+            cloudSession = session || null;
+            cloudUserId = cloudSession && cloudSession.user ? String(cloudSession.user.id || '') : '';
+            if (previousUserId && cloudUserId && previousUserId !== cloudUserId) {
+                cloudConflicts.clear();
+            }
+            if (event === 'PASSWORD_RECOVERY') {
+                cloudRecoveryMode = true;
+                setCloudState('signed-out', '请设置新的登录密码');
+            } else if (cloudUserId) {
+                cloudRecoveryMode = false;
+                setCloudState('pending', '已登录，正在检查歌单同步状态');
+                if (previousUserId !== cloudUserId && typeof refreshMyPlaylists === 'function') {
+                    void refreshMyPlaylists();
+                }
+                scheduleCloudSync('auth_session', 0);
+            } else {
+                cloudRecoveryMode = false;
+                cloudConflicts.clear();
+                setCloudState('signed-out', '已退出登录，本机歌单仍可继续使用');
+                if (typeof refreshMyPlaylists === 'function') void refreshMyPlaylists();
+            }
+        }
+
+        async function initializeCloudAccount() {
+            try {
+                await repairPendingCloudDetach();
+            } catch (error) {
+                setCloudState('error', '上次注销已删除云端账号，但本机标记尚未清理；请刷新后重试', error);
+                return;
+            }
+            const config = getConfiguredCloud();
+            if (!config) {
+                cloudService = null;
+                cloudSession = null;
+                cloudUserId = '';
+                setCloudState('disabled', '云同步尚未配置，播放器仍可本地使用');
+                return;
+            }
+            if (typeof window.supabase === 'undefined' ||
+                typeof window.supabase.createClient !== 'function') {
+                setCloudState('error', '云同步组件未加载，本机功能不受影响');
+                return;
+            }
+            try {
+                cloudService = new CPlayerCloudService({
+                    config: config,
+                    supabase: window.supabase,
+                    storage: makeCloudStorageAdapter()
+                });
+                if (cloudAuthSubscription && typeof cloudAuthSubscription.unsubscribe === 'function') {
+                    cloudAuthSubscription.unsubscribe();
+                }
+                cloudAuthSubscription = cloudService.onAuthStateChange(function (event, session) {
+                    void Promise.resolve().then(function () {
+                        handleCloudSession(event, session);
+                    });
+                });
+                const session = await cloudService.getSession();
+                handleCloudSession('INITIAL_SESSION', session);
+            } catch (error) {
+                cloudService = null;
+                setCloudState('error', cloudErrorMessage(error, '云同步初始化失败，本机功能不受影响'), error);
+            }
+        }
+
+        async function cloudSignIn() {
+            if (!cloudService) return;
+            let email;
+            let password;
+            try {
+                email = getCloudEmailInput();
+                password = getCloudPasswordInput();
+            } catch (error) {
+                showToast(error.message, true);
+                return;
+            }
+            setCloudAccountBusy(true);
+            try {
+                const result = await cloudService.signIn(email, password);
+                handleCloudSession('SIGNED_IN', result && result.session);
+                showToast('登录成功');
+            } catch (error) {
+                setCloudState('error', cloudErrorMessage(error, '登录失败'), error);
+                showToast(cloudErrorMessage(error, '登录失败'), true);
+            } finally {
+                clearCloudPasswordInputs();
+                setCloudAccountBusy(false);
+            }
+        }
+
+        async function cloudSignUp() {
+            if (!cloudService) return;
+            let email;
+            let password;
+            try {
+                email = getCloudEmailInput();
+                password = getCloudPasswordInput();
+            } catch (error) {
+                showToast(error.message, true);
+                return;
+            }
+            setCloudAccountBusy(true);
+            try {
+                const result = await cloudService.signUp(email, password);
+                if (result && result.session) {
+                    handleCloudSession('SIGNED_IN', result.session);
+                    showToast('注册成功，已登录');
+                } else {
+                    setCloudState('signed-out', '注册成功，请查收邮箱完成验证');
+                    showToast('注册成功，请查收验证邮件');
+                }
+            } catch (error) {
+                setCloudState('error', cloudErrorMessage(error, '注册失败'), error);
+                showToast(cloudErrorMessage(error, '注册失败'), true);
+            } finally {
+                clearCloudPasswordInputs();
+                setCloudAccountBusy(false);
+            }
+        }
+
+        async function cloudRequestPasswordReset() {
+            if (!cloudService) return;
+            let email;
+            try {
+                email = getCloudEmailInput();
+            } catch (error) {
+                showToast(error.message, true);
+                return;
+            }
+            setCloudAccountBusy(true);
+            try {
+                await cloudService.requestPasswordReset(email, cloudRedirectUrl());
+                setCloudState('signed-out', '重置邮件已发送，请在邮箱中打开链接');
+                showToast('重置邮件已发送');
+            } catch (error) {
+                setCloudState('error', cloudErrorMessage(error, '重置邮件发送失败'), error);
+                showToast(cloudErrorMessage(error, '重置邮件发送失败'), true);
+            } finally {
+                clearCloudPasswordInputs();
+                setCloudAccountBusy(false);
+            }
+        }
+
+        async function cloudUpdatePassword() {
+            if (!cloudService) return;
+            let password;
+            try {
+                password = getCloudPasswordInput('cloudAccountNewPassword');
+            } catch (error) {
+                showToast(error.message, true);
+                return;
+            }
+            setCloudAccountBusy(true);
+            try {
+                await cloudService.updatePassword(password);
+                cloudRecoveryMode = false;
+                const session = await cloudService.getSession();
+                handleCloudSession('SIGNED_IN', session);
+                showToast('密码已更新');
+            } catch (error) {
+                setCloudState('error', cloudErrorMessage(error, '密码更新失败'), error);
+                showToast(cloudErrorMessage(error, '密码更新失败'), true);
+            } finally {
+                clearCloudPasswordInputs();
+                setCloudAccountBusy(false);
+            }
+        }
+
+        async function cloudSignOut() {
+            if (!cloudService) return;
+            setCloudAccountBusy(true);
+            try {
+                await cloudService.signOut();
+                handleCloudSession('SIGNED_OUT', null);
+                showToast('已退出登录');
+            } catch (error) {
+                setCloudState('error', cloudErrorMessage(error, '退出登录失败'), error);
+                showToast(cloudErrorMessage(error, '退出登录失败'), true);
+            } finally {
+                setCloudAccountBusy(false);
+            }
+        }
+
+        async function cloudDeleteAccount() {
+            if (!cloudService || !cloudUserId) return;
+            if (!confirm('注销后会删除云端账号和云端歌单，本机歌单会保留为本地数据。确定继续吗？')) return;
+            const ownerId = cloudUserId;
+            setCloudAccountBusy(true);
+            let cloudDeleted = false;
+            let detachError = null;
+            let signOutError = null;
+            const finishLocalSignOut = async function () {
+                try { await cloudService.signOut(); } catch (error) { signOutError = error; }
+                handleCloudSession('SIGNED_OUT', null);
+            };
+            try {
+                if (!writeLocalStorage(CLOUD_DETACH_PENDING_KEY, JSON.stringify({
+                    ownerId,
+                    confirmed: false
+                }))) {
+                    throw new Error('注销前无法写入本机恢复标记');
+                }
+                await cloudService.deleteAccount();
+                cloudDeleted = true;
+                writeLocalStorage(CLOUD_DETACH_PENDING_KEY, JSON.stringify({
+                    ownerId,
+                    confirmed: true
+                }));
+                try {
+                    await detachCloudOwner(ownerId);
+                    removeLocalStorage(CLOUD_DETACH_PENDING_KEY);
+                } catch (error) {
+                    detachError = error;
+                }
+                await finishLocalSignOut();
+                if (detachError) {
+                    const message = '账号已注销，但本机歌单标记清理失败；请刷新后重试，歌单内容仍保留';
+                    setCloudState('error', message, detachError);
+                    showToast(message, true);
+                    return;
+                }
+                if (signOutError) {
+                    const message = '账号已注销，本机歌单已保留；登录状态清理将在刷新后完成';
+                    setCloudState('error', message, signOutError);
+                    showToast(message, true);
+                    return;
+                }
+                showToast('账号已注销，本机歌单已保留');
+            } catch (error) {
+                if (!cloudDeleted) {
+                    removeLocalStorage(CLOUD_DETACH_PENDING_KEY);
+                    const message = cloudErrorMessage(error, '账号注销失败，本机数据未改变');
+                    setCloudState('error', message, error);
+                    showToast(message, true);
+                } else {
+                    await finishLocalSignOut();
+                    const message = '账号已注销，但本机清理步骤未完成；请刷新后重试，歌单内容仍保留';
+                    setCloudState('error', message, error);
+                    showToast(message, true);
+                }
+            } finally {
+                setCloudAccountBusy(false);
+            }
+        }
+
+        async function persistCloudOutbox(ownerId, localRecord, operation, expectedVersion) {
+            if (!db || !hasCloudOutboxStore()) throw new Error('云同步存储未就绪');
+            const outbox = makeCloudOutboxRecord(
+                ownerId,
+                operation === 'delete' ? { id: localRecord.id } : localRecord,
+                operation,
+                expectedVersion
+            );
+            const tx = db.transaction(['playlists', CLOUD_OUTBOX_STORE], 'readwrite');
+            if (operation === 'upsert') {
+                tx.objectStore('playlists').put(Object.assign({}, localRecord, {
+                    cloudOwnerId: ownerId,
+                    cloudVersion: normalizeCloudVersion(expectedVersion),
+                    cloudDirty: true
+                }));
+            }
+            tx.objectStore(CLOUD_OUTBOX_STORE).put(outbox);
+            await transactionDone(tx);
+            return outbox;
+        }
+
+        function scheduleCloudSync(reason, delay) {
+            if (!cloudService || !cloudUserId) return;
+            if (navigator.onLine === false) {
+                setCloudState('pending', '歌单已保存在本机，联网后同步');
+                return;
+            }
+            if (cloudSyncTimer) clearTimeout(cloudSyncTimer);
+            cloudSyncTimer = setTimeout(function () {
+                cloudSyncTimer = null;
+                void syncCloudPlaylists(reason || 'scheduled');
+            }, Number.isFinite(delay) ? Math.max(0, delay) : 400);
+        }
+
+        function rememberCloudConflict(ownerId, playlistId, local, remote, outbox) {
+            cloudConflicts.set(playlistId, {
+                ownerId,
+                playlistId,
+                local: local || null,
+                remote: remote || null,
+                outbox: outbox || null
+            });
+            setCloudState('conflict', '发现歌单冲突，请在设置中选择保留哪一份');
+        }
+
+        async function latestRemotePlaylist(playlistId) {
+            const rows = await cloudService.listPlaylists();
+            return rows.find(function (row) { return row.id === playlistId; }) || null;
+        }
+
+        async function performCloudSync(reason) {
+            const ownerId = cloudUserId;
+            if (!cloudService || !ownerId) return false;
+            if (navigator.onLine === false) {
+                setCloudState('pending', '歌单已保存在本机，联网后同步');
+                return false;
+            }
+            setCloudState('syncing', '正在同步歌单…');
+            await adoptLocalPlaylistsForCloud(ownerId);
+            const results = await Promise.all([
+                readUserPlaylistRecords({ includeForeign: true, ownerId: ownerId }),
+                readCloudOutbox(ownerId),
+                cloudService.listPlaylists()
+            ]);
+            if (cloudUserId !== ownerId) return false;
+
+            const localMap = new Map(results[0].filter(function (record) {
+                return record.cloudOwnerId === ownerId;
+            }).map(function (record) { return [record.id, record]; }));
+            const outboxMap = new Map(results[1].map(function (record) {
+                return [record.playlistId, record];
+            }));
+            const remoteMap = new Map(results[2].map(function (record) {
+                return [record.id, record];
+            }));
+            const playlistIds = new Set([
+                ...localMap.keys(),
+                ...outboxMap.keys(),
+                ...remoteMap.keys()
+            ]);
+            let changed = 0;
+
+            for (const playlistId of playlistIds) {
+                if (cloudUserId !== ownerId) return false;
+                const local = localMap.get(playlistId) || null;
+                const remote = remoteMap.get(playlistId) || null;
+                let outbox = outboxMap.get(playlistId) || null;
+                const decision = decidePlaylistSync(local, remote, outbox);
+                try {
+                    if (decision.action === 'none') continue;
+                    if (decision.action === 'pull' || decision.action === 'pull-delete') {
+                        await applyRemotePlaylistToLocal(ownerId, remote);
+                        changed += 1;
+                        continue;
+                    }
+                    if (decision.action === 'ack-delete') {
+                        await removeLocalCloudPlaylist(ownerId, playlistId);
+                        changed += 1;
+                        continue;
+                    }
+                    if (decision.action === 'conflict') {
+                        rememberCloudConflict(ownerId, playlistId, local, remote, outbox);
+                        continue;
+                    }
+                    if (decision.action === 'push') {
+                        if (!local) continue;
+                        if (!outbox) {
+                            outbox = await persistCloudOutbox(ownerId, local, 'upsert', decision.expectedVersion);
+                        }
+                        const acknowledged = await cloudService.upsertPlaylist(
+                            outbox.playlist || local,
+                            decision.expectedVersion
+                        );
+                        await acknowledgeCloudUpsert(ownerId, outbox, acknowledged);
+                        changed += 1;
+                        continue;
+                    }
+                    if (decision.action === 'delete') {
+                        if (!outbox) {
+                            outbox = await persistCloudOutbox(
+                                ownerId,
+                                { id: playlistId },
+                                'delete',
+                                decision.expectedVersion
+                            );
+                        }
+                        const acknowledged = await cloudService.deletePlaylist(
+                            playlistId,
+                            decision.expectedVersion
+                        );
+                        await acknowledgeCloudDelete(ownerId, outbox, acknowledged);
+                        changed += 1;
+                    }
+                } catch (error) {
+                    if (isCloudConflictError(error)) {
+                        const latest = await latestRemotePlaylist(playlistId);
+                        rememberCloudConflict(ownerId, playlistId, local, latest || remote, outbox);
+                        continue;
+                    }
+                    throw error;
+                }
+            }
+
+            const remaining = await readCloudOutbox(ownerId);
+            if (cloudConflicts.size) {
+                setCloudState('conflict', '发现歌单冲突，请在设置中选择保留哪一份');
+            } else if (remaining.length) {
+                setCloudState('pending', '部分歌单仍在等待同步');
+            } else {
+                setCloudState('synced', changed
+                    ? '歌单同步完成'
+                    : '歌单已经是最新状态');
+            }
+            if (typeof refreshMyPlaylists === 'function') await refreshMyPlaylists();
+            if (typeof refreshUserPlaylistLibrary === 'function') await refreshUserPlaylistLibrary();
+            if (reason === 'manual' && !cloudConflicts.size) showToast('歌单同步完成');
+            return true;
+        }
+
+        async function syncCloudPlaylists(reason) {
+            if (!cloudService || !cloudUserId) {
+                setCloudState(cloudService ? 'signed-out' : 'disabled',
+                    cloudService ? '请先登录再同步' : '云同步尚未配置，播放器仍可本地使用');
+                return false;
+            }
+            if (cloudSyncInFlight) {
+                cloudSyncPendingReason = reason || 'queued';
+                return cloudSyncInFlight;
+            }
+            const running = performCloudSync(reason || 'manual');
+            cloudSyncInFlight = running;
+            try {
+                return await running;
+            } catch (error) {
+                const message = cloudErrorMessage(error, '同步失败，修改已保存在本机');
+                setCloudState('error', message, error);
+                if (reason === 'manual') showToast(message, true);
+                return false;
+            } finally {
+                cloudSyncInFlight = null;
+                if (cloudSyncPendingReason && cloudService && cloudUserId) {
+                    const nextReason = cloudSyncPendingReason;
+                    cloudSyncPendingReason = '';
+                    scheduleCloudSync(nextReason, 0);
+                }
+            }
+        }
+
+        async function resolveCloudConflict(useLocal) {
+            const conflict = cloudConflicts.values().next().value || null;
+            if (!conflict || conflict.ownerId !== cloudUserId || !cloudService) return;
+            setCloudAccountBusy(true);
+            try {
+                if (useLocal) {
+                    const remoteVersion = conflict.remote ? conflict.remote.version : 0;
+                    let outbox = conflict.outbox;
+                    if (outbox && outbox.operation === 'delete') {
+                        const acknowledged = await cloudService.deletePlaylist(conflict.playlistId, remoteVersion);
+                        await acknowledgeCloudDelete(conflict.ownerId, outbox, acknowledged);
+                    } else {
+                        if (!conflict.local) throw new Error('本机歌单已不存在');
+                        if (!outbox) {
+                            outbox = await persistCloudOutbox(
+                                conflict.ownerId,
+                                conflict.local,
+                                'upsert',
+                                remoteVersion
+                            );
+                        }
+                        const acknowledged = await cloudService.upsertPlaylist(
+                            outbox.playlist || conflict.local,
+                            remoteVersion
+                        );
+                        await acknowledgeCloudUpsert(conflict.ownerId, outbox, acknowledged);
+                    }
+                } else if (conflict.remote) {
+                    await applyRemotePlaylistToLocal(conflict.ownerId, conflict.remote);
+                } else {
+                    await removeLocalCloudPlaylist(conflict.ownerId, conflict.playlistId);
+                }
+                cloudConflicts.delete(conflict.playlistId);
+                setCloudState('pending', '冲突已处理，正在继续同步');
+                await syncCloudPlaylists('conflict_resolution');
+            } catch (error) {
+                const message = cloudErrorMessage(error, '冲突处理失败，本机数据未改变');
+                setCloudState('error', message, error);
+                showToast(message, true);
+            } finally {
+                setCloudAccountBusy(false);
+            }
+        }
+
+        function setupCloudAccountUI() {
+            const card = document.getElementById('cloudAccountCard');
+            if (!card || card.dataset.bound === '1') return;
+            card.dataset.bound = '1';
+            const bind = function (id, handler) {
+                const button = document.getElementById(id);
+                if (button) button.addEventListener('click', function () { void handler(); });
+            };
+            bind('cloudAccountSignInBtn', cloudSignIn);
+            bind('cloudAccountSignUpBtn', cloudSignUp);
+            bind('cloudAccountResetBtn', cloudRequestPasswordReset);
+            bind('cloudAccountUpdatePasswordBtn', cloudUpdatePassword);
+            bind('cloudAccountSignOutBtn', cloudSignOut);
+            bind('cloudAccountDeleteBtn', cloudDeleteAccount);
+            bind('cloudAccountSyncBtn', function () { return syncCloudPlaylists('manual'); });
+            bind('cloudAccountUseLocalBtn', function () { return resolveCloudConflict(true); });
+            bind('cloudAccountUseCloudBtn', function () { return resolveCloudConflict(false); });
+            refreshCloudAccountUI();
         }
 
         // ================= 设置 UI =================
@@ -3170,6 +4228,7 @@ async function refreshUserPlaylistLibrary() {
 
             // 回显 API 设置（密钥与地址，均只存在本机浏览器）
             refreshApiSettingsUI();
+            refreshCloudAccountUI();
 
             // 刷新歌单来源状态
             updateSourceDisplay();

@@ -32,8 +32,10 @@ function runNpm(args, label, options = {}) {
 
 const generatedCss = resolve(root, 'css', 'tailwind.css');
 const cssBefore = existsSync(generatedCss) ? readFileSync(generatedCss) : null;
+const cloudVendor = resolve(root, 'js', 'vendor', 'supabase.js');
+const cloudVendorBefore = existsSync(cloudVendor) ? readFileSync(cloudVendor) : null;
 
-runNpm(['run', 'build:css'], '1/9 Build committed CSS');
+runNpm(['run', 'build:css'], '1/10 Build committed CSS');
 
 const cssAfter = existsSync(generatedCss) ? readFileSync(generatedCss) : null;
 if (!cssBefore || !cssAfter || !cssBefore.equals(cssAfter)) {
@@ -42,15 +44,23 @@ if (!cssBefore || !cssAfter || !cssBefore.equals(cssAfter)) {
     process.exit(1);
 }
 
-runNpm(['run', 'test:unit'], '2/9 Unit tests');
-runNpm(['run', 'check:module'], '3/9 Main module syntax');
-runNpm(['run', 'check:sw'], '4/9 Service Worker syntax');
-runNpm(['run', 'check:features'], '5/9 Static feature contracts');
-runNpm(['audit', '--audit-level=high'], '6/9 Dependency audit');
-runNpm(['run', 'build:pages'], '7/9 Build GitHub Pages artifact');
-runNpm(['run', 'test:e2e'], '8/9 Browser regression from Pages artifact', {
+runNpm(['run', 'build:cloud-vendor'], '2/10 Build vendored cloud SDK');
+const cloudVendorAfter = existsSync(cloudVendor) ? readFileSync(cloudVendor) : null;
+if (!cloudVendorBefore || !cloudVendorAfter || !cloudVendorBefore.equals(cloudVendorAfter)) {
+    console.error('\njs/vendor/supabase.js was stale and has been rebuilt.');
+    console.error('Review and commit the generated file, then run npm run verify again.');
+    process.exit(1);
+}
+
+runNpm(['run', 'test:unit'], '3/10 Unit tests');
+runNpm(['run', 'check:module'], '4/10 Main module syntax');
+runNpm(['run', 'check:sw'], '5/10 Service Worker syntax');
+runNpm(['run', 'check:features'], '6/10 Static feature contracts');
+runNpm(['audit', '--audit-level=high'], '7/10 Dependency audit');
+runNpm(['run', 'build:pages'], '8/10 Build GitHub Pages artifact');
+runNpm(['run', 'test:e2e'], '9/10 Browser regression from Pages artifact', {
     env: { ...process.env, PW_WEB_ROOT: resolve(root, 'output', 'pages') }
 });
-runNpm(['run', 'check:repo'], '9/9 Repository whitespace and untracked text');
+runNpm(['run', 'check:repo'], '10/10 Repository whitespace and untracked text');
 
 process.stdout.write('\nQuality gate passed.\n');
