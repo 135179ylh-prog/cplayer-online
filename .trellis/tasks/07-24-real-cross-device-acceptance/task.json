@@ -1,0 +1,31 @@
+{
+  "id": "real-cross-device-acceptance",
+  "name": "real-cross-device-acceptance",
+  "title": "真实跨设备验收",
+  "description": "在真实桌面和手机浏览器、同一真实账号上验证自建歌单的新建、编辑、排序、删除、离线恢复和并发冲突，保留可核验证据并清理测试数据。",
+  "status": "in_progress",
+  "dev_type": null,
+  "scope": "Real production acceptance across the user's desktop Chrome and physical mobile browser, including online propagation, offline outbox recovery, optimistic conflict, explicit resolution, deletion tombstone propagation, evidence, cleanup, and release documentation.",
+  "package": null,
+  "priority": "P1",
+  "creator": "10047",
+  "assignee": "10047",
+  "createdAt": "2026-07-24",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    "js/app.js",
+    "js/cloud-sync.js",
+    "tests/e2e/account-cloud-sync.spec.mjs",
+    ".trellis/tasks/archive/2026-07/07-24-sync-status-center/verification.md"
+  ],
+  "notes": "",
+  "meta": {}
+}
