@@ -1289,6 +1289,10 @@ used alone as the IndexedDB key.
 - A local restore or purge with the same expected remote version must push even
   when generic version comparison would otherwise report equality. A remote
   purge marker can never be replaced by an upsert from an old client.
+- A remote trash row with no local record and no local outbox must be materialized
+  as complete local trash. This covers upgrades from clients that hard-deleted
+  the local row. If an upsert/restore outbox survives without its local row, keep
+  that pending work instead of clearing it while pulling the remote tombstone.
 - When restoring would replace a newer active remote playlist, keep the newer
   record on the original id and create a bounded `（已恢复）` copy. Apply the same
   recovery-copy rule before accepting a remote purge when unsynced local content
@@ -1309,6 +1313,8 @@ used alone as the IndexedDB key.
 | --- | --- |
 | Signed-out user deletes and reloads | Complete playlist remains in local trash and can be restored. |
 | Offline signed-in delete or restore | Local state commits; one durable owner outbox row remains until reconnect. |
+| Remote trash exists but this device has no local record or outbox | Download the complete name, songs, delete time, and version into local trash. |
+| Remote trash exists, local record is missing, and an upsert/restore outbox remains | Preserve the outbox and pending state; do not silently acknowledge or discard it. |
 | Local restore meets a newer different remote active row | Keep remote on original id; create a restored copy. |
 | Remote purge meets unsynced local content | Preserve content as a new restored copy; apply marker to original id. |
 | Old client upserts a purged id | RPC returns a conflict; marker remains content-free. |
@@ -1338,7 +1344,8 @@ used alone as the IndexedDB key.
   confirmation/cancel, startup expiry, history preview/restore, and proof that
   the pre-restore version remains.
 - Account browser desktop/mobile: tombstone pull, offline restore pending 1→0,
-  history upload/on-demand pull, permanent purge, empty remote content/history,
+  remote-only legacy tombstone pull into an empty device, history
+  upload/on-demand pull, permanent purge, empty remote content/history,
   duplicate server snapshot ids across playlists, foreign history preservation,
   and owner isolation. Mock only the HTTP boundary with generated identities.
 - Storage browser desktop/mobile: v5→v6 preserves queue and user playlists and

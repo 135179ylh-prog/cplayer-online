@@ -69,7 +69,8 @@ IndexedDB 升级到 v6，追加 `playlist_versions` store，keyPath 为 `id`，�
 
 ## Sync Decisions
 
-- 远端 trash + 本机干净：拉入本机回收站。
+- 远端 trash + 本机干净：拉入本机回收站；“本机干净”包括旧版客户端已把同 ID 本机记录硬删除、且没有遗留 outbox 的情况。
+- 远端 trash + 本机记录缺失但仍有 upsert/restore outbox：保留待办，不用远端删除覆盖或清除它，继续显示待同步状态。
 - 本机 delete + 远端期望版本一致：推送 tombstone；成功后保留本机 trash 并更新云版本，不再删除本机内容。
 - 本机 restore + 远端版本一致：恢复原 ID。
 - 本机 restore + 远端已有较新 active：若内容相同则确认；否则把待恢复内容改为新 ID 和“（已恢复）”名称，再拉取远端内容到原 ID。

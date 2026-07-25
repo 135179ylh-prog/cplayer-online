@@ -180,6 +180,12 @@ test('remote tombstones pull clean deletes but conflict with dirty local edits',
         tombstone,
         null
     ), { action: 'pull-delete' });
+    assert.deepEqual(decidePlaylistSync(null, tombstone, null), { action: 'pull-delete' });
+    assert.deepEqual(decidePlaylistSync(
+        null,
+        tombstone,
+        { operation: 'upsert' }
+    ), { action: 'none' });
     assert.deepEqual(decidePlaylistSync(
         { id: 'user_pl_demo', cloudVersion: 3, cloudDirty: false, deletedAt: Date.now() },
         tombstone,

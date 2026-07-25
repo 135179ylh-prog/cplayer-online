@@ -342,7 +342,7 @@ export function decidePlaylistSync(localRecord, remoteRecord, outboxRecord) {
         if (local && Number(local.deletedAt) > 0 && !Number(local.purgedAt) &&
             !dirty && localVersion === remote.version) return { action: 'none' };
         if (local && dirty && remote.version > localVersion) return { action: 'conflict' };
-        return local ? { action: 'pull-delete' } : { action: 'none' };
+        return local || !outbox ? { action: 'pull-delete' } : { action: 'none' };
     }
 
     if (outbox && outbox.operation === 'purge') {

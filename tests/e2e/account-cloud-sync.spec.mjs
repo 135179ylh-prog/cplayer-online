@@ -497,6 +497,39 @@ test('remote playlist downloads into the local playlist store', async ({ page })
     expect(mock.requests.some((request) => request.path.endsWith('/rest/v1/cplayer_playlists'))).toBe(true);
 });
 
+test('remote-only trash downloads to a device without the legacy local record and can restore', async ({ page }) => {
+    const deletedAt = new Date(Date.now() - 60_000).toISOString();
+    const row = makeRemoteRow(
+        'user_pl_remote_trash',
+        'Remote-only trash',
+        [REMOTE_SONG],
+        3,
+        deletedAt
+    );
+    const mock = await openConfiguredApp(page, { rows: [row] });
+    await submitSignIn(page);
+
+    await expect.poll(async () => (await readTrashPlaylists(page)).length).toBe(1);
+    expect((await readTrashPlaylists(page))[0]).toMatchObject({
+        id: 'user_pl_remote_trash',
+        name: 'Remote-only trash',
+        songs: [REMOTE_SONG],
+        cloudVersion: 3,
+        cloudDirty: false
+    });
+
+    await closeSettings(page);
+    await openLibrary(page);
+    await page.locator('#libraryTrashTab').click();
+    await expect(page.locator('#playlistTrashList')).toContainText('Remote-only trash');
+    await page.locator('#playlistTrashList button').first().click();
+
+    await expect.poll(() => mock.rows.find((item) => item.playlist_id === 'user_pl_remote_trash')?.deleted_at)
+        .toBeNull();
+    await expect.poll(async () => (await readUserPlaylists(page))
+        .some((item) => item.id === 'user_pl_remote_trash')).toBe(true);
+});
+
 test('conflict choice can explicitly keep the cloud copy', async ({ page }) => {
     const local = {
         id: 'user_pl_local',
