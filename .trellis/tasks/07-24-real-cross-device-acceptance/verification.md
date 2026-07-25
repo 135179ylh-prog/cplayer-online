@@ -22,7 +22,7 @@
 | Resolution | B→A | selected version converges | B report + A read-only DB | passed |
 | Delete/cleanup | A→B | test row removed, other lists unchanged | A DB + B report | passed |
 | Automated gate | local/CI | focused + full verify pass | fresh command output | passed |
-| Release | Pages | exact commit deploy + live read-only check | workflow/live | pending |
+| Release | Pages | exact commit deploy + live read-only check | workflow/live | passed |
 
 ## Results
 
@@ -183,6 +183,23 @@
 - The Browserslist database emitted an informational staleness notice; dependency
   versions were intentionally left unchanged because this milestone contains no
   product or dependency change.
+
+### Release and production read-only check (passed)
+
+- Evidence commit: `0d28279796a56be99f71d48e2fe7b99c777992ce`
+  (`docs: record real cross-device sync acceptance`).
+- `main`, `origin/main`, and the Pages run head matched that exact commit.
+- GitHub Actions run `30104720785` completed successfully:
+  - `quality` job `89519217746`: success.
+  - `deploy` job `89520963198`: success.
+- A fresh production background tab on 2026-07-25 confirmed:
+  - real account session restored;
+  - `synced`, pending `0`, conflicts `0`, outbox `0`;
+  - the dedicated test playlist was absent;
+  - the 3 pre-existing playlists remained at 18, 28, and 29 songs;
+  - Cache Storage contained only `cplayer5-v64-sync-status`;
+  - the active controller was the production `sw.js`.
+- The temporary production tab was closed; no existing user tab was modified.
 
 ## Safety Notes
 
