@@ -637,3 +637,38 @@ Replaced four complete-glyph Noto TTF assets with hinting-preserving WOFF2, redu
 ### Next Steps
 
 - None - task complete
+
+
+## Session 20: 真实跨设备同步验收
+
+**Date**: 2026-07-25
+**Task**: 真实跨设备同步验收
+**Branch**: `main`
+
+### Summary
+
+完成真实桌面与手机双向歌单传播、真实断网 outbox 恢复、并发冲突阻断与显式使用本机解决、tombstone 删除传播；原有歌单保持不变；桌面/手机聚焦回归、完整 verify、GitHub Pages 部署和线上只读复核均通过。
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `0d28279` | (see git log) |
+| `0310a68` | (see git log) |
+| `b6a23a2` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

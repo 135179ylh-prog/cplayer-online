@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 19
-- **Last Active**: 2026-07-23
+- **Total Sessions**: 20
+- **Last Active**: 2026-07-25
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~639 | Active |
+| `journal-1.md` | ~674 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 20 | 2026-07-25 | 真实跨设备同步验收 | `0d28279`, `0310a68`, `b6a23a2` | `main` |
 | 19 | 2026-07-23 | 完成可选账号与歌单云同步 | `db87562` | `main` |
 | 18 | 2026-07-23 | Font footprint optimization | `5500f05` | `main` |
 | 17 | 2026-07-23 | Mobile landscape and accessibility hardening | `1b9d14a` | `main` |
