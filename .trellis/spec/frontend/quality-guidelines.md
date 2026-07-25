@@ -618,6 +618,10 @@ Browser tests install `Audio`, Media Session, and animation probes with
   navigation and proves paused, play, pause, hidden, visible, and repeated-visible
   transitions plus paused resize redraw without relying on the browser's own
   hidden-page throttling.
+- Positive animation progress uses a bounded condition wait for enough requested
+  and executed frames before checking loop identity. Reserve fixed observation
+  windows for proving that paused or hidden states stay at zero; a short fixed
+  window is not reliable proof of positive progress on a shared CI runner.
 - Static contract verifies the ready ordering, committed-media/reset owners,
   shared seek path, visual lifecycle owner, and presence of the boundary tests.
 

@@ -138,6 +138,24 @@ async function sampleAnimationActivity(page, duration = 200) {
     };
 }
 
+async function waitForRecurringAnimationActivity(page, minimumFrames = 4) {
+    const before = await readAnimationFrameProbe(page);
+    let after = before;
+    await expect.poll(async () => {
+        after = await readAnimationFrameProbe(page);
+        return Math.min(
+            after.requested - before.requested,
+            after.executed - before.executed
+        );
+    }, { timeout: 1000 }).toBeGreaterThan(minimumFrames - 1);
+    return {
+        before,
+        after,
+        requested: after.requested - before.requested,
+        executed: after.executed - before.executed
+    };
+}
+
 function recurringCallbackDeltas(sample) {
     const beforeById = new Map(sample.before.callbacks.map((stats) => [stats.id, stats]));
     return sample.after.callbacks.map((stats) => {
@@ -487,7 +505,9 @@ test('animation work stops while paused or hidden and visible resume starts one 
     if (webglState.supported) expect(webglState.appHasProgram).toBe(true);
     const hasRenderableWebgl = webglState.supported;
 
-    const visiblePlayback = await sampleAnimationActivity(page);
+    const visiblePlayback = hasRenderableWebgl
+        ? await waitForRecurringAnimationActivity(page)
+        : await sampleAnimationActivity(page);
     if (hasRenderableWebgl) {
         expect(visiblePlayback.requested).toBeGreaterThan(3);
         expect(visiblePlayback.executed).toBeGreaterThan(3);
@@ -538,7 +558,9 @@ test('animation work stops while paused or hidden and visible resume starts one 
 
     await setTestDocumentVisibility(page, 'visible');
     await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
-    const visibleResume = await sampleAnimationActivity(page);
+    const visibleResume = hasRenderableWebgl
+        ? await waitForRecurringAnimationActivity(page)
+        : await sampleAnimationActivity(page);
     if (hasRenderableWebgl) {
         expect(visibleResume.requested).toBeGreaterThan(3);
         expect(visibleResume.executed).toBeGreaterThan(3);
@@ -604,7 +626,9 @@ test('switching reduced motion cancels and can restore the visual loop', async (
         };
     });
     const hasRenderableWebgl = webglState.supported && webglState.appHasProgram;
-    const visible = await sampleAnimationActivity(page);
+    const visible = hasRenderableWebgl
+        ? await waitForRecurringAnimationActivity(page)
+        : await sampleAnimationActivity(page);
     if (hasRenderableWebgl) expect(recurringCallbackDeltas(visible)).toHaveLength(1);
 
     await page.emulateMedia({ reducedMotion: 'reduce' });
@@ -615,7 +639,9 @@ test('switching reduced motion cancels and can restore the visual loop', async (
 
     await page.emulateMedia({ reducedMotion: 'no-preference' });
     await expect.poll(() => page.evaluate(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches)).toBe(false);
-    const resumed = await sampleAnimationActivity(page);
+    const resumed = hasRenderableWebgl
+        ? await waitForRecurringAnimationActivity(page)
+        : await sampleAnimationActivity(page);
     if (hasRenderableWebgl) expect(recurringCallbackDeltas(resumed)).toHaveLength(1);
     else expectNoRecurringAnimation(resumed);
 });

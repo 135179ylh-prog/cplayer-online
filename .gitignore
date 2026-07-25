@@ -6,8 +6,7 @@ node_modules/
 __pycache__/
 *.py[cod]
 .playwright-cli/
-output/playwright/
-/output/pages/
+/output/
 _check.js
 
 # Local one-off repair/probe scripts created during manual debugging.

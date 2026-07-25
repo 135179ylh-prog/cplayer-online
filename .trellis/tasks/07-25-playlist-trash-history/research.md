@@ -57,3 +57,10 @@
 - DB v6 提交产生后，回退命令仍因官方 Supabase UMD bundle 内的定时器、认证跳转和可选遥测动态 import 失败；该 bundle 在 DB v5 线上提交中也完全相同，且不包含 IndexedDB/CPlayer5DB 调用。
 - 分析器现只信任精确路径 `js/vendor/supabase.js` 与审计过的 SHA-256 组合。字节、路径或其他脚本不同即回到严格分析并失败关闭。
 - 修复后新提交目标通过 current v6 / target v6；`origin/main` 明确因 target v5 被拒绝，证明门禁既可用又不会放行降级。
+
+## GitHub Actions Timing Finding
+
+- 首次生产发布 `Deploy GitHub Pages #54` 的唯一失败是既有动画生命周期测试：200ms 固定采样窗口要求请求和执行都大于 3，runner 实际各得到 3；其余 193 个浏览器测试通过。
+- 本里程碑没有修改该测试。测试内部 `recurringCallbackDeltas` 已把请求和执行各 3 次视为可识别的循环，本机 `CI=1` 单 worker 连续 10 次也全部通过，证据指向共享 runner 负载造成的墙钟边界波动。
+- 可见播放和可见恢复改用有上限的条件等待：最多 1 秒取得 4 次请求和执行；无循环仍会超时失败，重复循环、pending 上限以及暂停/隐藏 0 帧合同保持不变。
+- 修复后在 `CI=1`、4 workers 的高负载模式下重复 20 次全部通过。
