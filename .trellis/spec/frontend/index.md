@@ -17,6 +17,9 @@
   tabs, player controls, dynamic song rows, or mobile control geometry.
 - Read the main application module contract before moving runtime code, changing
   script entries, Tailwind scan paths, syntax checks, or precached JS assets.
+- Before mapping cloud history/version rows into IndexedDB, write down the
+  uniqueness scope of the wire id, local key, owner, and parent entity. Never
+  collapse a backend composite identity into an unscoped browser key.
 - Keep live third-party availability outside deterministic pass/fail tests.
 
 ## Quality Check
@@ -28,3 +31,6 @@
   changes; test-only files and documentation do not require a cache bump.
 - Record any remaining manual-only or missing evidence in the active task's
   quality matrix instead of implying broader coverage than the tests prove.
+- For owner-scoped history, test two owners or playlists reusing the same
+  human-readable version id and prove retention and destructive cleanup preserve
+  the unrelated record.

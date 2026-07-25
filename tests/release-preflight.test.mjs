@@ -16,6 +16,7 @@ import {
 import {
     assertRollbackVersion,
     extractDatabaseVersion,
+    isTrustedDynamicRuntimeSource,
     readCurrentDatabaseVersion,
     readTargetDatabaseVersion
 } from '../scripts/check-rollback-target.mjs';
@@ -695,10 +696,17 @@ test('current rollback floor includes residual JavaScript modules', async () => 
 });
 
 test('rollback guard rejects a schema downgrade and accepts the current floor', () => {
-    assert.deepEqual(assertRollbackVersion(5, 5), { currentVersion: 5, targetVersion: 5 });
-    assert.deepEqual(assertRollbackVersion(5, 6), { currentVersion: 5, targetVersion: 6 });
-    assert.throws(() => assertRollbackVersion(5, 4), /Unsafe rollback/);
-    assert.throws(() => assertRollbackVersion(5, null), /could not be determined/);
+    assert.deepEqual(assertRollbackVersion(6, 6), { currentVersion: 6, targetVersion: 6 });
+    assert.deepEqual(assertRollbackVersion(6, 7), { currentVersion: 6, targetVersion: 7 });
+    assert.throws(() => assertRollbackVersion(6, 5), /Unsafe rollback/);
+    assert.throws(() => assertRollbackVersion(6, null), /could not be determined/);
+});
+
+test('rollback guard trusts only the exact pinned Supabase browser bundle', async () => {
+    const source = await readFile(resolve('js', 'vendor', 'supabase.js'), 'utf8');
+    assert.equal(isTrustedDynamicRuntimeSource('js/vendor/supabase.js', source), true);
+    assert.equal(isTrustedDynamicRuntimeSource('js/vendor/other.js', source), false);
+    assert.equal(isTrustedDynamicRuntimeSource('js/vendor/supabase.js', source + '\n'), false);
 });
 
 test('repository inspection enforces UTF-8 text and skips known binary assets only', () => {

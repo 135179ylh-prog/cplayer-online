@@ -72,8 +72,8 @@ npm run build:pages
 影响线上 GitHub Pages，必须先得到明确确认；远端 quality job 会重新运行
 `npm run verify`，并把通过浏览器回归的同一目录交给 deploy job。
 
-当前浏览器数据库已经是 DB v5。不能直接把线上代码退回只会打开 DB v4
-的旧提交，否则已有队列、歌单和云同步待办记录会暂时无法读取。准备回退前先检查目标提交：
+当前浏览器数据库已经是 DB v6。不能直接把线上代码退回只会打开 DB v5
+的旧提交，否则已有队列、歌单、回收站、历史版本和云同步待办记录会暂时无法读取。准备回退前先检查目标提交：
 
 ```powershell
 npm run check:rollback -- <目标提交号>

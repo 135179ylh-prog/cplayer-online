@@ -16,11 +16,17 @@
             CLOUD_MAX_PLAYLISTS,
             CPlayerCloudService,
             decidePlaylistSync,
+            getPlaylistTrashRemainingDays,
+            haveSamePlaylistContent,
+            isPlaylistTrashExpired,
             isSameCloudMutation,
             isCloudConflictError,
+            makeRecoveredPlaylistName,
             makeCloudOutboxId,
             normalizeCloudConfig,
+            normalizePlaylistVersion,
             projectCloudSyncStatus,
+            selectRetainedPlaylistVersions,
             toCloudPlaylistInput
         } from './cloud-sync.js';
 
@@ -351,8 +357,9 @@
 
         // ================= IndexedDB 缓存系统 =================
         const DB_NAME = 'CPlayer5DB';
-        const DB_VERSION = 5;
+        const DB_VERSION = 6;
         const CLOUD_OUTBOX_STORE = 'cloud_outbox';
+        const PLAYLIST_HISTORY_STORE = 'playlist_versions';
         const IMAGE_CACHE_LIMIT = 160;
         const REMOTE_PLAYLIST_CACHE_LIMIT = 12;
         let db = null;
@@ -478,6 +485,22 @@
                     }
                     if (!outboxStore.indexNames.contains('updatedAt')) {
                         outboxStore.createIndex('updatedAt', 'updatedAt');
+                    }
+
+                    let historyStore;
+                    if (!database.objectStoreNames.contains(PLAYLIST_HISTORY_STORE)) {
+                        historyStore = database.createObjectStore(PLAYLIST_HISTORY_STORE, { keyPath: 'id' });
+                    } else {
+                        historyStore = upgradeTx.objectStore(PLAYLIST_HISTORY_STORE);
+                    }
+                    if (!historyStore.indexNames.contains('playlistId')) {
+                        historyStore.createIndex('playlistId', 'playlistId');
+                    }
+                    if (!historyStore.indexNames.contains('createdAt')) {
+                        historyStore.createIndex('createdAt', 'createdAt');
+                    }
+                    if (!historyStore.indexNames.contains('cloudOwnerId')) {
+                        historyStore.createIndex('cloudOwnerId', 'cloudOwnerId');
                     }
                 };
             });
@@ -969,6 +992,15 @@
             };
         }
 
+        function normalizeLocalPlaylistState(record) {
+            const deletedAt = Number(record && record.deletedAt);
+            const purgedAt = Number(record && record.purgedAt);
+            return {
+                deletedAt: Number.isFinite(deletedAt) && deletedAt > 0 ? deletedAt : 0,
+                purgedAt: Number.isFinite(purgedAt) && purgedAt > 0 ? purgedAt : 0
+            };
+        }
+
         function makeCloudOwnerCollisionError() {
             const error = new Error('本机已有其他账号的同 ID 歌单');
             error.name = 'CloudOwnerCollisionError';
@@ -995,7 +1027,7 @@
             return 'cloud-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2);
         }
 
-        function makeCloudOutboxRecord(ownerId, record, operation, expectedVersion) {
+        function makeCloudOutboxRecord(ownerId, record, operation, expectedVersion, history) {
             const playlistId = String(record && (record.id || record.playlistId) || '');
             const base = {
                 id: makeCloudOutboxId(ownerId, playlistId),
@@ -1006,7 +1038,22 @@
                 expectedVersion: normalizeCloudVersion(expectedVersion),
                 updatedAt: Date.now()
             };
-            if (operation === 'upsert') base.playlist = makeCloudPlaylistSnapshot(record);
+            if (operation !== 'purge') base.playlist = makeCloudPlaylistSnapshot(record);
+            if (operation !== 'purge' && Array.isArray(history) && history.length) {
+                base.history = history.map(function (entry) {
+                    const normalized = normalizePlaylistVersion(entry);
+                    return {
+                        id: normalized.id,
+                        playlistId: normalized.playlistId,
+                        name: normalized.name,
+                        songs: normalized.songs,
+                        createdAt: normalized.createdAt,
+                        reason: normalized.reason,
+                        snapshotId: normalized.snapshotId,
+                        cloudOwnerId: ownerId
+                    };
+                });
+            }
             return base;
         }
 
@@ -1087,6 +1134,9 @@
                 throw error;
             }
             const includeForeign = options.includeForeign === true;
+            const includeTrash = options.includeTrash === true;
+            const onlyTrash = options.onlyTrash === true;
+            const includePurged = options.includePurged === true;
             const ownerId = options.ownerId || cloudUserId;
             const read = new Promise(function (resolve, reject) {
                 let tx;
@@ -1109,6 +1159,10 @@
                         if (!item || typeof item.id !== 'string' || item.id.indexOf(USER_PL_PREFIX) !== 0) return false;
                         const fields = normalizeLocalCloudFields(item);
                         if (!includeForeign && ownerId && fields.cloudOwnerId && fields.cloudOwnerId !== ownerId) return false;
+                        const state = normalizeLocalPlaylistState(item);
+                        if (state.purgedAt && !includePurged) return false;
+                        if (onlyTrash && (!state.deletedAt || state.purgedAt)) return false;
+                        if (!onlyTrash && state.deletedAt && !includeTrash) return false;
                         return true;
                     }).map(function (item) {
                         const fields = normalizeLocalCloudFields(item);
@@ -1119,7 +1173,9 @@
                             timestamp: item.timestamp || 0,
                             cloudOwnerId: fields.cloudOwnerId,
                             cloudVersion: fields.cloudVersion,
-                            cloudDirty: fields.cloudDirty
+                            cloudDirty: fields.cloudDirty,
+                            deletedAt: normalizeLocalPlaylistState(item).deletedAt,
+                            purgedAt: normalizeLocalPlaylistState(item).purgedAt
                         };
                     }).sort(function (a, b) {
                         return (b.timestamp || 0) - (a.timestamp || 0);
@@ -1412,6 +1468,139 @@
             return readUserPlaylistRecords(options);
         }
 
+        function hasPlaylistHistoryStore() {
+            return !!(db && db.objectStoreNames && db.objectStoreNames.contains(PLAYLIST_HISTORY_STORE));
+        }
+
+        function makePlaylistVersionSnapshot(record, reason, ownerId) {
+            const snapshot = makeCloudPlaylistSnapshot(record);
+            const snapshotId = makeCloudMutationId();
+            return {
+                id: snapshotId,
+                playlistId: snapshot.id,
+                name: snapshot.name,
+                songs: snapshot.songs,
+                createdAt: Date.now(),
+                reason: reason || 'edit',
+                snapshotId: snapshotId,
+                cloudOwnerId: ownerId || ''
+            };
+        }
+
+        function retainValidPlaylistVersions(entries, now) {
+            const valid = [];
+            (Array.isArray(entries) ? entries : []).forEach(function (entry) {
+                try { valid.push(normalizePlaylistVersion(entry)); } catch (error) {
+                    console.warn('[playlist-history] invalid local snapshot ignored', error);
+                }
+            });
+            return selectRetainedPlaylistVersions(valid, now);
+        }
+
+        function isPlaylistVersionInOwnerScope(entry, ownerId) {
+            const requestedOwnerId = typeof ownerId === 'string' ? ownerId : '';
+            const entryOwnerId = entry && typeof entry.cloudOwnerId === 'string'
+                ? entry.cloudOwnerId
+                : '';
+            return requestedOwnerId
+                ? !entryOwnerId || entryOwnerId === requestedOwnerId
+                : !entryOwnerId;
+        }
+
+        function makeRemotePlaylistVersionStorageId(ownerId, playlistId, snapshotId) {
+            return 'cloud-history:' + JSON.stringify([
+                String(ownerId || ''),
+                String(playlistId || ''),
+                String(snapshotId || '')
+            ]);
+        }
+
+        function reconcilePlaylistVersionStore(store, existing, retained, ownerId) {
+            const retainedIds = new Set(retained.map(function (entry) { return entry.id; }));
+            (Array.isArray(existing) ? existing : []).forEach(function (entry) {
+                if (entry && entry.id && isPlaylistVersionInOwnerScope(entry, ownerId) &&
+                    !retainedIds.has(entry.id)) store.delete(entry.id);
+            });
+            retained.forEach(function (entry) { store.put(entry); });
+        }
+
+        async function readPlaylistVersions(playlistId, options) {
+            options = options || {};
+            if (!db && typeof initDatabase === 'function') await initDatabase();
+            if (!db || !hasPlaylistHistoryStore()) return [];
+            const requestedOwnerId = typeof options.ownerId === 'string' ? options.ownerId : '';
+            return new Promise(function (resolve, reject) {
+                const tx = db.transaction(PLAYLIST_HISTORY_STORE, 'readonly');
+                const store = tx.objectStore(PLAYLIST_HISTORY_STORE);
+                const request = store.index('playlistId').getAll(IDBKeyRange.only(String(playlistId || '')));
+                let entries = [];
+                let requestError = null;
+                request.onsuccess = function () {
+                    entries = retainValidPlaylistVersions((request.result || []).filter(function (entry) {
+                        return isPlaylistVersionInOwnerScope(entry, requestedOwnerId);
+                    }), Date.now());
+                };
+                request.onerror = function () { requestError = request.error; };
+                transactionDone(tx).then(function () { resolve(entries); }, function (error) {
+                    reject(requestError || error);
+                });
+            });
+        }
+
+        async function mergeRemotePlaylistVersions(playlistId, ownerId, remoteEntries) {
+            if (!db || !hasPlaylistHistoryStore()) return [];
+            const tx = db.transaction(PLAYLIST_HISTORY_STORE, 'readwrite');
+            const store = tx.objectStore(PLAYLIST_HISTORY_STORE);
+            const request = store.index('playlistId').getAll(IDBKeyRange.only(playlistId));
+            let retained = [];
+            request.onsuccess = function () {
+                const existing = request.result || [];
+                const incoming = (Array.isArray(remoteEntries) ? remoteEntries : []).map(function (entry) {
+                    const normalized = normalizePlaylistVersion(entry);
+                    return Object.assign({}, normalized, {
+                        id: makeRemotePlaylistVersionStorageId(ownerId, playlistId, normalized.snapshotId),
+                        cloudOwnerId: ownerId
+                    });
+                });
+                const incomingSnapshotIds = new Set(incoming.map(function (entry) { return entry.snapshotId; }));
+                const scopedExisting = existing.filter(function (entry) {
+                    if (!isPlaylistVersionInOwnerScope(entry, ownerId)) return false;
+                    try {
+                        return !incomingSnapshotIds.has(normalizePlaylistVersion(entry).snapshotId);
+                    } catch (error) {
+                        return true;
+                    }
+                });
+                retained = retainValidPlaylistVersions(scopedExisting.concat(incoming), Date.now()).map(function (entry) {
+                    return Object.assign({}, entry, { cloudOwnerId: entry.cloudOwnerId || ownerId });
+                });
+                reconcilePlaylistVersionStore(store, existing, retained, ownerId);
+            };
+            await transactionDone(tx);
+            return retained;
+        }
+
+        async function loadPlaylistVersions(playlistId) {
+            const records = await readUserPlaylistRecords({
+                includeForeign: true,
+                includeTrash: true,
+                includePurged: true
+            });
+            const playlistRecord = records.find(function (record) { return record.id === playlistId; });
+            if (!playlistRecord || playlistRecord.purgedAt) return [];
+            const ownerId = normalizeLocalCloudFields(playlistRecord).cloudOwnerId;
+            let local = await readPlaylistVersions(playlistId, { ownerId: ownerId });
+            if (ownerId && ownerId === cloudUserId && cloudService && navigator.onLine !== false) {
+                try {
+                    const remote = await cloudService.listPlaylistVersions(playlistId);
+                    local = await mergeRemotePlaylistVersions(playlistId, ownerId, remote);
+                } catch (error) {
+                    setCloudState('error', '云端历史加载失败，本机历史仍可用', error);
+                }
+            }
+            return local;
+        }
+
         async function saveUserPlaylistRecord(rec, options) {
             options = options || {};
             if (!db) throw new Error('数据库未就绪');
@@ -1421,7 +1610,8 @@
                 : (cloudFields.cloudOwnerId || cloudUserId || '');
             const cloudVersion = cloudFields.cloudVersion;
             const cloudDirty = options.remote ? false : !!ownerId;
-            const payload = {
+            const localState = normalizeLocalPlaylistState(rec || {});
+            let payload = {
                 id: rec.id,
                 name: rec.name || '未命名歌单',
                 songs: Array.isArray(rec.songs) ? rec.songs : [],
@@ -1430,18 +1620,73 @@
                     : Date.now(),
                 cloudOwnerId: ownerId,
                 cloudVersion: cloudVersion,
-                cloudDirty: cloudDirty
+                cloudDirty: cloudDirty,
+                deletedAt: options.operation === 'restore' ? 0 : localState.deletedAt,
+                purgedAt: 0
             };
-            const outbox = !options.remote && ownerId
-                ? makeCloudOutboxRecord(ownerId, payload, 'upsert', cloudVersion)
-                : null;
+            let outbox = null;
             try {
                 await runCriticalStorageWrite(async function () {
-                    if (outbox && !hasCloudOutboxStore()) throw new Error('云同步存储未就绪');
-                    const stores = outbox ? ['playlists', CLOUD_OUTBOX_STORE] : ['playlists'];
+                    if (!hasPlaylistHistoryStore()) throw new Error('歌单历史存储未就绪');
+                    if (!options.remote && ownerId && !hasCloudOutboxStore()) throw new Error('云同步存储未就绪');
+                    const stores = ['playlists', PLAYLIST_HISTORY_STORE];
+                    if (!options.remote && ownerId) stores.push(CLOUD_OUTBOX_STORE);
                     const tx = db.transaction(stores, 'readwrite');
-                    tx.objectStore('playlists').put(payload);
-                    if (outbox) tx.objectStore(CLOUD_OUTBOX_STORE).put(outbox);
+                    const playlistStore = tx.objectStore('playlists');
+                    const historyStore = tx.objectStore(PLAYLIST_HISTORY_STORE);
+                    const existingRequest = playlistStore.get(payload.id);
+                    const historyRequest = historyStore.index('playlistId').getAll(IDBKeyRange.only(payload.id));
+                    let existingReady = false;
+                    let historyReady = false;
+                    let existing = null;
+                    let history = [];
+                    let wrote = false;
+                    const write = function () {
+                        if (wrote || !existingReady || !historyReady) return;
+                        wrote = true;
+                        const now = Date.now();
+                        const scopedHistory = history.filter(function (entry) {
+                            return isPlaylistVersionInOwnerScope(entry, ownerId);
+                        });
+                        const nextHistory = scopedHistory.slice();
+                        const existingState = normalizeLocalPlaylistState(existing || {});
+                        if (!options.remote && !options.skipHistory && existing && !existingState.purgedAt &&
+                            !haveSamePlaylistContent(existing, payload)) {
+                            nextHistory.push(makePlaylistVersionSnapshot(
+                                existing,
+                                options.historyReason || 'edit',
+                                ownerId
+                            ));
+                        }
+                        const retained = retainValidPlaylistVersions(nextHistory, now).map(function (entry) {
+                            return Object.assign({}, entry, { cloudOwnerId: ownerId || entry.cloudOwnerId || '' });
+                        });
+                        reconcilePlaylistVersionStore(historyStore, history, retained, ownerId);
+                        playlistStore.put(payload);
+                        if (!options.remote && ownerId) {
+                            outbox = makeCloudOutboxRecord(
+                                ownerId,
+                                payload,
+                                options.operation || 'upsert',
+                                cloudVersion,
+                                retained
+                            );
+                            tx.objectStore(CLOUD_OUTBOX_STORE).put(outbox);
+                        }
+                    };
+                    existingRequest.onsuccess = function () {
+                        existing = existingRequest.result || null;
+                        existingReady = true;
+                        write();
+                    };
+                    historyRequest.onsuccess = function () {
+                        history = historyRequest.result || [];
+                        historyReady = true;
+                        write();
+                    };
+                    existingRequest.onerror = historyRequest.onerror = function () {
+                        try { tx.abort(); } catch (abortError) {}
+                    };
                     await transactionDone(tx);
                 });
             } catch (error) {
@@ -1591,7 +1836,7 @@
             if (!db && typeof initDatabase === 'function') await initDatabase();
             if (!db) throw new Error('数据库未就绪');
 
-            const existing = await listUserPlaylists();
+            const existing = await listUserPlaylists({ includeTrash: true });
             if (cloudUserId && existing.length + parsed.playlists.length > CLOUD_MAX_PLAYLISTS) {
                 throw new Error('云端歌单数量达到上限');
             }
@@ -1651,7 +1896,7 @@
                 try { await initDatabase(); } catch (e) {}
             }
             if (!db) throw new Error('数据库未就绪');
-            if (cloudUserId && (await listUserPlaylists()).length >= CLOUD_MAX_PLAYLISTS) {
+            if (cloudUserId && (await listUserPlaylists({ includeTrash: true })).length >= CLOUD_MAX_PLAYLISTS) {
                 throw new Error('云端歌单数量达到上限');
             }
             const clean = String(name || '').trim() || ('我的歌单 ' + new Date().toLocaleDateString());
@@ -1681,60 +1926,195 @@
                 throw error;
             }
             try {
-                const tx = db.transaction(
-                    hasCloudOutboxStore() ? ['playlists', CLOUD_OUTBOX_STORE] : ['playlists'],
-                    'readwrite'
-                );
-                const playlistStore = tx.objectStore('playlists');
-                const existingRequest = playlistStore.get(playlistId);
-                let existing = null;
-                existingRequest.onsuccess = function () {
-                    existing = existingRequest.result || null;
-                    playlistStore.delete(playlistId);
-                    const fields = normalizeLocalCloudFields(existing || {});
-                    if (fields.cloudOwnerId && hasCloudOutboxStore()) {
-                        tx.objectStore(CLOUD_OUTBOX_STORE).put(
-                            makeCloudOutboxRecord(fields.cloudOwnerId, { id: playlistId }, 'delete', fields.cloudVersion)
-                        );
-                    }
-                };
-                existingRequest.onerror = function () {
-                    try { tx.abort(); } catch (abortError) {}
-                };
-                await transactionDone(tx);
-                if (existing && normalizeLocalCloudFields(existing).cloudOwnerId) {
-                    setCloudState('pending', '歌单删除已保存在本机，等待同步');
-                    scheduleCloudSync('playlist_delete');
-                }
+                const records = await readUserPlaylistRecords({
+                    includeForeign: true,
+                    includeTrash: true,
+                    includePurged: true
+                });
+                const existing = records.find(function (record) { return record.id === playlistId; });
+                if (!existing || existing.deletedAt || existing.purgedAt) throw new Error('歌单不存在');
+                await saveUserPlaylistRecord(Object.assign({}, existing, {
+                    deletedAt: Date.now(),
+                    purgedAt: 0
+                }), {
+                    operation: 'delete',
+                    skipHistory: true
+                });
             } catch (error) {
                 setStorageState('degraded', STORAGE_WARNING, error);
                 throw error;
             }
         }
 
+        async function restoreUserPlaylist(playlistId) {
+            const records = await readUserPlaylistRecords({
+                includeForeign: true,
+                onlyTrash: true
+            });
+            const existing = records.find(function (record) { return record.id === playlistId; });
+            if (!existing) throw new Error('回收站中没有这个歌单');
+            return saveUserPlaylistRecord(Object.assign({}, existing, {
+                deletedAt: 0,
+                purgedAt: 0
+            }), {
+                operation: 'restore',
+                historyReason: 'restore'
+            });
+        }
+
+        async function restorePlaylistVersion(playlistId, version) {
+            const normalized = normalizePlaylistVersion(version);
+            if (normalized.playlistId !== playlistId) throw new Error('历史版本不属于这个歌单');
+            const records = await readUserPlaylistRecords({
+                includeForeign: true,
+                includeTrash: true
+            });
+            const existing = records.find(function (record) { return record.id === playlistId; });
+            if (!existing || existing.purgedAt) throw new Error('歌单已不存在');
+            return saveUserPlaylistRecord(Object.assign({}, existing, {
+                name: normalized.name,
+                songs: normalized.songs,
+                deletedAt: 0,
+                purgedAt: 0
+            }), {
+                operation: 'restore',
+                historyReason: 'restore'
+            });
+        }
+
+        async function purgeUserPlaylist(playlistId) {
+            if (!db || !hasPlaylistHistoryStore()) throw new Error('数据库未就绪');
+            const records = await readUserPlaylistRecords({
+                includeForeign: true,
+                includeTrash: true,
+                includePurged: true
+            });
+            const existing = records.find(function (record) { return record.id === playlistId; });
+            if (!existing || existing.purgedAt) return false;
+            const fields = normalizeLocalCloudFields(existing);
+            const now = Date.now();
+            await runCriticalStorageWrite(async function () {
+                const stores = ['playlists', PLAYLIST_HISTORY_STORE];
+                if (fields.cloudOwnerId) {
+                    if (!hasCloudOutboxStore()) throw new Error('云同步存储未就绪');
+                    stores.push(CLOUD_OUTBOX_STORE);
+                }
+                const tx = db.transaction(stores, 'readwrite');
+                const playlistStore = tx.objectStore('playlists');
+                const historyStore = tx.objectStore(PLAYLIST_HISTORY_STORE);
+                const historyRequest = historyStore.index('playlistId').getAll(IDBKeyRange.only(playlistId));
+                historyRequest.onsuccess = function () {
+                    (historyRequest.result || []).forEach(function (entry) {
+                        if (isPlaylistVersionInOwnerScope(entry, fields.cloudOwnerId)) {
+                            historyStore.delete(entry.id);
+                        }
+                    });
+                };
+                if (fields.cloudOwnerId) {
+                    playlistStore.put({
+                        id: playlistId,
+                        name: '已永久删除',
+                        songs: [],
+                        timestamp: now,
+                        deletedAt: existing.deletedAt || now,
+                        purgedAt: now,
+                        cloudOwnerId: fields.cloudOwnerId,
+                        cloudVersion: fields.cloudVersion,
+                        cloudDirty: true
+                    });
+                    tx.objectStore(CLOUD_OUTBOX_STORE).put(makeCloudOutboxRecord(
+                        fields.cloudOwnerId,
+                        { id: playlistId },
+                        'purge',
+                        fields.cloudVersion
+                    ));
+                } else {
+                    playlistStore.delete(playlistId);
+                }
+                await transactionDone(tx);
+            });
+            if (fields.cloudOwnerId) {
+                setCloudState('pending', navigator.onLine === false
+                    ? '永久删除已保存在本机，联网后同步'
+                    : '永久删除等待同步');
+                scheduleCloudSync('playlist_purge');
+            }
+            return true;
+        }
+
+        async function cleanupExpiredLocalTrash() {
+            const trash = await readUserPlaylistRecords({ includeForeign: true, onlyTrash: true });
+            const expired = trash.filter(function (record) {
+                return isPlaylistTrashExpired(record.deletedAt, Date.now());
+            });
+            for (const record of expired) await purgeUserPlaylist(record.id);
+            return expired.length;
+        }
+
         async function adoptLocalPlaylistsForCloud(ownerId) {
-            if (!db || !ownerId || !hasCloudOutboxStore()) return 0;
+            if (!db || !ownerId || !hasCloudOutboxStore() || !hasPlaylistHistoryStore()) return 0;
             let adopted = 0;
-            const tx = db.transaction(['playlists', CLOUD_OUTBOX_STORE], 'readwrite');
+            const tx = db.transaction(['playlists', CLOUD_OUTBOX_STORE, PLAYLIST_HISTORY_STORE], 'readwrite');
             const store = tx.objectStore('playlists');
-            const request = store.getAll();
-            request.onsuccess = function () {
-                (request.result || []).forEach(function (record) {
+            const outboxStore = tx.objectStore(CLOUD_OUTBOX_STORE);
+            const historyStore = tx.objectStore(PLAYLIST_HISTORY_STORE);
+            const playlistRequest = store.getAll();
+            const historyRequest = historyStore.getAll();
+            let playlistsReady = false;
+            let historyReady = false;
+            let playlists = [];
+            let histories = [];
+            let wrote = false;
+            const adopt = function () {
+                if (wrote || !playlistsReady || !historyReady) return;
+                wrote = true;
+                const byPlaylist = new Map();
+                histories.forEach(function (entry) {
+                    if (!entry || !entry.playlistId) return;
+                    if (!byPlaylist.has(entry.playlistId)) byPlaylist.set(entry.playlistId, []);
+                    byPlaylist.get(entry.playlistId).push(entry);
+                });
+                playlists.forEach(function (record) {
                     if (!record || typeof record.id !== 'string' ||
                         record.id.indexOf(USER_PL_PREFIX) !== 0) return;
                     const fields = normalizeLocalCloudFields(record);
-                    if (fields.cloudOwnerId) return;
+                    const state = normalizeLocalPlaylistState(record);
+                    if (fields.cloudOwnerId || state.purgedAt) return;
                     const next = Object.assign({}, record, {
                         cloudOwnerId: ownerId,
                         cloudVersion: 0,
                         cloudDirty: true
                     });
                     store.put(next);
-                    tx.objectStore(CLOUD_OUTBOX_STORE).put(
-                        makeCloudOutboxRecord(ownerId, next, 'upsert', 0)
-                    );
+                    const retained = retainValidPlaylistVersions((byPlaylist.get(record.id) || []).filter(function (entry) {
+                        return isPlaylistVersionInOwnerScope(entry, '');
+                    }), Date.now()).map(function (entry) {
+                        const owned = Object.assign({}, entry, { cloudOwnerId: ownerId });
+                        historyStore.put(owned);
+                        return owned;
+                    });
+                    outboxStore.put(makeCloudOutboxRecord(
+                        ownerId,
+                        next,
+                        state.deletedAt ? 'delete' : 'upsert',
+                        0,
+                        retained
+                    ));
                     adopted += 1;
                 });
+            };
+            playlistRequest.onsuccess = function () {
+                playlists = playlistRequest.result || [];
+                playlistsReady = true;
+                adopt();
+            };
+            historyRequest.onsuccess = function () {
+                histories = historyRequest.result || [];
+                historyReady = true;
+                adopt();
+            };
+            playlistRequest.onerror = historyRequest.onerror = function () {
+                try { tx.abort(); } catch (abortError) {}
             };
             await transactionDone(tx);
             return adopted;
@@ -1784,10 +2164,11 @@
         }
 
         async function applyRemotePlaylistToLocal(ownerId, remote) {
-            if (!db || !hasCloudOutboxStore() || !remote) return;
-            const tx = db.transaction(['playlists', CLOUD_OUTBOX_STORE], 'readwrite');
+            if (!db || !hasCloudOutboxStore() || !hasPlaylistHistoryStore() || !remote) return;
+            const tx = db.transaction(['playlists', CLOUD_OUTBOX_STORE, PLAYLIST_HISTORY_STORE], 'readwrite');
             const playlistStore = tx.objectStore('playlists');
             const outboxStore = tx.objectStore(CLOUD_OUTBOX_STORE);
+            const historyStore = tx.objectStore(PLAYLIST_HISTORY_STORE);
             const localRequest = playlistStore.get(remote.id);
             let collisionError = null;
             localRequest.onsuccess = function () {
@@ -1797,11 +2178,6 @@
                     collisionError = makeCloudOwnerCollisionError();
                     return;
                 }
-                if (remote.deletedAt) {
-                    playlistStore.delete(remote.id);
-                    outboxStore.delete(makeCloudOutboxId(ownerId, remote.id));
-                    return;
-                }
                 playlistStore.put({
                     id: remote.id,
                     name: remote.name,
@@ -1809,8 +2185,18 @@
                     timestamp: remote.updatedAt,
                     cloudOwnerId: ownerId,
                     cloudVersion: remote.version,
-                    cloudDirty: false
+                    cloudDirty: false,
+                    deletedAt: remote.deletedAt || 0,
+                    purgedAt: remote.purgedAt || 0
                 });
+                if (remote.purgedAt) {
+                    const historyRequest = historyStore.index('playlistId').getAll(IDBKeyRange.only(remote.id));
+                    historyRequest.onsuccess = function () {
+                        (historyRequest.result || []).forEach(function (entry) {
+                            if (isPlaylistVersionInOwnerScope(entry, ownerId)) historyStore.delete(entry.id);
+                        });
+                    };
+                }
                 outboxStore.delete(makeCloudOutboxId(ownerId, remote.id));
                 if (local && typeof refreshMyPlaylists === 'function') {
                     setTimeout(function () { refreshMyPlaylists(); }, 0);
@@ -1821,16 +2207,23 @@
         }
 
         async function removeLocalCloudPlaylist(ownerId, playlistId) {
-            if (!db || !hasCloudOutboxStore()) return;
-            const tx = db.transaction(['playlists', CLOUD_OUTBOX_STORE], 'readwrite');
+            if (!db || !hasCloudOutboxStore() || !hasPlaylistHistoryStore()) return;
+            const tx = db.transaction(['playlists', CLOUD_OUTBOX_STORE, PLAYLIST_HISTORY_STORE], 'readwrite');
             const playlistStore = tx.objectStore('playlists');
             const outboxStore = tx.objectStore(CLOUD_OUTBOX_STORE);
+            const historyStore = tx.objectStore(PLAYLIST_HISTORY_STORE);
             const localRequest = playlistStore.get(playlistId);
             localRequest.onsuccess = function () {
                 const local = localRequest.result || null;
                 const localOwner = normalizeLocalCloudFields(local).cloudOwnerId;
                 if (!local || localOwner === ownerId) {
                     playlistStore.delete(playlistId);
+                    const historyRequest = historyStore.index('playlistId').getAll(IDBKeyRange.only(playlistId));
+                    historyRequest.onsuccess = function () {
+                        (historyRequest.result || []).forEach(function (entry) {
+                            if (isPlaylistVersionInOwnerScope(entry, ownerId)) historyStore.delete(entry.id);
+                        });
+                    };
                 }
                 outboxStore.delete(makeCloudOutboxId(ownerId, playlistId));
             };
@@ -1838,36 +2231,32 @@
         }
 
         async function acknowledgeCloudDelete(ownerId, sentOutbox, remote) {
-            if (!db || !hasCloudOutboxStore() || !sentOutbox || !remote) return;
-            const tx = db.transaction(['playlists', CLOUD_OUTBOX_STORE], 'readwrite');
-            const playlistStore = tx.objectStore('playlists');
-            const outboxStore = tx.objectStore(CLOUD_OUTBOX_STORE);
-            const outboxRequest = outboxStore.get(sentOutbox.id);
-            outboxRequest.onsuccess = function () {
-                const latest = outboxRequest.result || null;
-                if (!latest || isSameCloudMutation(latest, sentOutbox)) {
-                    const localRequest = playlistStore.get(sentOutbox.playlistId);
-                    localRequest.onsuccess = function () {
-                        const local = localRequest.result || null;
-                        const localOwner = normalizeLocalCloudFields(local).cloudOwnerId;
-                        if (!local || localOwner === ownerId) {
-                            playlistStore.delete(sentOutbox.playlistId);
-                        }
-                        outboxStore.delete(sentOutbox.id);
-                    };
-                } else {
-                    outboxStore.put(Object.assign({}, latest, { expectedVersion: remote.version }));
-                }
+            if (!sentOutbox) return;
+            await acknowledgeCloudUpsert(ownerId, sentOutbox, remote || { version: 0 });
+        }
+
+        async function acknowledgeCloudPurge(ownerId, sentOutbox, remote) {
+            if (!sentOutbox) return;
+            await acknowledgeCloudUpsert(ownerId, sentOutbox, remote || { version: 0 });
+            if (!db || !hasPlaylistHistoryStore()) return;
+            const tx = db.transaction(PLAYLIST_HISTORY_STORE, 'readwrite');
+            const store = tx.objectStore(PLAYLIST_HISTORY_STORE);
+            const request = store.index('playlistId').getAll(IDBKeyRange.only(sentOutbox.playlistId));
+            request.onsuccess = function () {
+                (request.result || []).forEach(function (entry) {
+                    if (isPlaylistVersionInOwnerScope(entry, ownerId)) store.delete(entry.id);
+                });
             };
             await transactionDone(tx);
         }
 
         async function detachCloudOwner(ownerId) {
             if (!ownerId) throw new Error('缺少待清理的云账号');
-            if (!db || !hasCloudOutboxStore()) throw new Error('本机数据库未就绪，无法清理云账号标记');
-            const tx = db.transaction(['playlists', CLOUD_OUTBOX_STORE], 'readwrite');
+            if (!db || !hasCloudOutboxStore() || !hasPlaylistHistoryStore()) throw new Error('本机数据库未就绪，无法清理云账号标记');
+            const tx = db.transaction(['playlists', CLOUD_OUTBOX_STORE, PLAYLIST_HISTORY_STORE], 'readwrite');
             const playlistStore = tx.objectStore('playlists');
             const outboxStore = tx.objectStore(CLOUD_OUTBOX_STORE);
+            const historyStore = tx.objectStore(PLAYLIST_HISTORY_STORE);
             const playlistRequest = playlistStore.getAll();
             const outboxRequest = outboxStore.indexNames.contains('ownerId')
                 ? outboxStore.index('ownerId').getAll(IDBKeyRange.only(ownerId))
@@ -1875,6 +2264,19 @@
             playlistRequest.onsuccess = function () {
                 (playlistRequest.result || []).forEach(function (record) {
                     if (normalizeLocalCloudFields(record).cloudOwnerId !== ownerId) return;
+                    if (normalizeLocalPlaylistState(record).purgedAt) {
+                        playlistStore.delete(record.id);
+                        const purgedHistoryRequest = historyStore.index('playlistId')
+                            .getAll(IDBKeyRange.only(record.id));
+                        purgedHistoryRequest.onsuccess = function () {
+                            (purgedHistoryRequest.result || []).forEach(function (entry) {
+                                if (isPlaylistVersionInOwnerScope(entry, ownerId)) {
+                                    historyStore.delete(entry.id);
+                                }
+                            });
+                        };
+                        return;
+                    }
                     const next = Object.assign({}, record);
                     delete next.cloudOwnerId;
                     delete next.cloudVersion;
@@ -1885,6 +2287,15 @@
             outboxRequest.onsuccess = function () {
                 (outboxRequest.result || []).forEach(function (record) {
                     if (!record || record.ownerId === ownerId) outboxStore.delete(record.id);
+                });
+            };
+            const historyRequest = historyStore.indexNames.contains('cloudOwnerId')
+                ? historyStore.index('cloudOwnerId').getAll(IDBKeyRange.only(ownerId))
+                : historyStore.getAll();
+            historyRequest.onsuccess = function () {
+                (historyRequest.result || []).forEach(function (entry) {
+                    if (!entry || entry.cloudOwnerId !== ownerId) return;
+                    historyStore.put(Object.assign({}, entry, { cloudOwnerId: '' }));
                 });
             };
             await transactionDone(tx);
@@ -2249,6 +2660,8 @@ async function refreshUserPlaylistLibrary() {
                         try {
                             await deleteUserPlaylist(pl.id);
                             refreshUserPlaylistLibrary();
+                            refreshPlaylistTrash();
+                            if (typeof showToast === 'function') showToast('已移至回收站，可在 30 天内恢复');
                         } catch (error) {
                             console.error(error);
                             if (typeof showToast === 'function') showToast('删除失败：浏览器存储不可用', true);
@@ -2282,7 +2695,7 @@ async function refreshUserPlaylistLibrary() {
 
         function isOverlayInteractionTarget(target) {
             return !!(target && target.closest && target.closest(
-                '#userPlaylistModal, #myPlaylistsModal, #playlistDetailModal, #settingsModal, #welcomeModal'
+                '#userPlaylistModal, #myPlaylistsModal, #playlistDetailModal, #playlistHistoryModal, #settingsModal, #welcomeModal'
             ));
         }
 
@@ -2344,6 +2757,8 @@ async function refreshUserPlaylistLibrary() {
                         try {
                             await deleteUserPlaylist(pl.id);
                             await refreshMyPlaylists();
+                            await refreshPlaylistTrash();
+                            if (typeof showToast === 'function') showToast('已移至回收站，可在 30 天内恢复');
                         } catch (error) {
                             console.error(error);
                             if (typeof showToast === 'function') showToast('删除失败：浏览器存储不可用', true);
@@ -2443,18 +2858,25 @@ async function refreshUserPlaylistLibrary() {
         }
 
         function switchLibraryTab(tab) {
-            activeLibraryTab = tab === 'recent' ? 'recent' : 'playlists';
+            activeLibraryTab = tab === 'recent' || tab === 'trash' ? tab : 'playlists';
             const isPlaylists = activeLibraryTab === 'playlists';
+            const isRecent = activeLibraryTab === 'recent';
+            const isTrash = activeLibraryTab === 'trash';
             const playlistTab = document.getElementById('libraryPlaylistsTab');
             const recentTab = document.getElementById('libraryRecentTab');
+            const trashTab = document.getElementById('libraryTrashTab');
             const playlistPanel = document.getElementById('libraryPlaylistsPanel');
             const recentPanel = document.getElementById('libraryRecentPanel');
+            const trashPanel = document.getElementById('libraryTrashPanel');
             if (playlistPanel) playlistPanel.classList.toggle('hidden', !isPlaylists);
-            if (recentPanel) recentPanel.classList.toggle('hidden', isPlaylists);
+            if (recentPanel) recentPanel.classList.toggle('hidden', !isRecent);
+            if (trashPanel) trashPanel.classList.toggle('hidden', !isTrash);
             setAccessibleTabState(playlistTab, playlistPanel, isPlaylists);
-            setAccessibleTabState(recentTab, recentPanel, !isPlaylists);
+            setAccessibleTabState(recentTab, recentPanel, isRecent);
+            setAccessibleTabState(trashTab, trashPanel, isTrash);
             if (isPlaylists) refreshMyPlaylists();
-            else refreshRecentHistory();
+            else if (isRecent) refreshRecentHistory();
+            else refreshPlaylistTrash();
         }
 
         async function handlePlaylistBackupInput(file) {
@@ -2478,6 +2900,7 @@ async function refreshUserPlaylistLibrary() {
             modal.classList.remove('hidden');
             switchLibraryTab(tab || activeLibraryTab);
             refreshRecentHistory();
+            refreshPlaylistTrash();
             openAccessibleOverlay(modal, {
                 close: closeMyPlaylists,
                 initialFocus: '#closeMyPlaylistsBtn'
@@ -2494,6 +2917,207 @@ async function refreshUserPlaylistLibrary() {
         window.closeMyPlaylists = closeMyPlaylists;
         window.refreshMyPlaylists = refreshMyPlaylists;
         window.refreshRecentHistory = refreshRecentHistory;
+        window.refreshPlaylistTrash = refreshPlaylistTrash;
+
+        let currentHistoryPlaylistId = '';
+        let playlistHistoryEntries = [];
+        let playlistHistoryLoadToken = 0;
+
+        function formatPlaylistVersionTime(timestamp) {
+            const date = new Date(timestamp);
+            if (!Number.isFinite(date.getTime())) return '时间未知';
+            return date.toLocaleString('zh-CN', {
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                hour12: false
+            });
+        }
+
+        function playlistVersionReasonLabel(reason) {
+            if (reason === 'restore') return '恢复前';
+            if (reason === 'delete') return '删除前';
+            if (reason === 'remote') return '云端版本';
+            return '修改前';
+        }
+
+        function renderPlaylistHistoryPreview(version) {
+            const box = document.getElementById('playlistHistoryPreview');
+            const status = document.getElementById('playlistHistoryStatus');
+            if (!box) return;
+            box.innerHTML = '';
+            if (!version) {
+                box.innerHTML = '<div class="h-full min-h-32 flex items-center justify-center text-center text-sm opacity-50">先选择一个版本预览</div>';
+                return;
+            }
+            const heading = document.createElement('div');
+            heading.className = 'flex items-start justify-between gap-3 mb-3';
+            const info = document.createElement('div');
+            info.className = 'min-w-0';
+            const title = document.createElement('div');
+            title.className = 'font-semibold break-words';
+            title.textContent = version.name;
+            const detail = document.createElement('div');
+            detail.className = 'text-xs opacity-55 mt-1';
+            detail.textContent = formatPlaylistVersionTime(version.createdAt) + ' · ' + version.songs.length + ' 首';
+            info.appendChild(title);
+            info.appendChild(detail);
+            const restoreButton = makeLibraryActionButton(
+                '恢复这个历史版本',
+                'fa-history',
+                'music-library-action-button',
+                '恢复此版本'
+            );
+            restoreButton.onclick = async function () {
+                if (!confirm('恢复到这个版本？\n当前歌单会先自动保存到历史中，不会静默丢失。')) return;
+                restoreButton.disabled = true;
+                if (status) status.textContent = '正在恢复历史版本';
+                try {
+                    await restorePlaylistVersion(currentHistoryPlaylistId, version);
+                    await Promise.all([
+                        refreshPlaylistHistory(),
+                        refreshPlaylistDetailList(),
+                        refreshMyPlaylists()
+                    ]);
+                    showToast('历史版本已恢复，恢复前内容仍保留在历史中');
+                    if (status) status.textContent = '历史版本已恢复';
+                } catch (error) {
+                    console.error('[playlist-history] restore failed', error);
+                    showToast(error.message || '历史版本恢复失败', true);
+                    if (status) status.textContent = '历史版本恢复失败';
+                } finally {
+                    restoreButton.disabled = false;
+                }
+            };
+            heading.appendChild(info);
+            heading.appendChild(restoreButton);
+            box.appendChild(heading);
+            const songs = document.createElement('div');
+            songs.className = 'space-y-1';
+            if (!version.songs.length) {
+                songs.innerHTML = '<div class="py-6 text-center text-sm opacity-50">这个版本没有歌曲</div>';
+            } else {
+                version.songs.forEach(function (rawSong, index) {
+                    const song = getPlaylistDetailSong(rawSong);
+                    const row = document.createElement('div');
+                    row.className = 'flex items-center gap-2 rounded-lg bg-white/5 px-3 py-2 text-sm';
+                    const number = document.createElement('span');
+                    number.className = 'w-6 flex-none text-right opacity-35';
+                    number.textContent = String(index + 1);
+                    const text = document.createElement('div');
+                    text.className = 'min-w-0';
+                    const name = document.createElement('div');
+                    name.className = 'truncate';
+                    name.textContent = song.name;
+                    const artist = document.createElement('div');
+                    artist.className = 'truncate text-xs opacity-45';
+                    artist.textContent = song.artist;
+                    text.appendChild(name);
+                    text.appendChild(artist);
+                    row.appendChild(number);
+                    row.appendChild(text);
+                    songs.appendChild(row);
+                });
+            }
+            box.appendChild(songs);
+        }
+
+        async function refreshPlaylistHistory() {
+            const playlistId = currentHistoryPlaylistId;
+            const box = document.getElementById('playlistHistoryList');
+            const status = document.getElementById('playlistHistoryStatus');
+            if (!box || !playlistId) return;
+            const token = ++playlistHistoryLoadToken;
+            box.innerHTML = '<div class="p-6 text-center text-sm opacity-50">正在加载历史版本...</div>';
+            renderPlaylistHistoryPreview(null);
+            if (status) status.textContent = '正在加载历史版本';
+            try {
+                const versions = await loadPlaylistVersions(playlistId);
+                if (token !== playlistHistoryLoadToken || playlistId !== currentHistoryPlaylistId) return;
+                playlistHistoryEntries = versions;
+                box.innerHTML = '';
+                if (!versions.length) {
+                    box.innerHTML = '<div class="h-full min-h-32 flex items-center justify-center text-center text-sm opacity-50">还没有历史版本<br>修改歌单后会自动保存</div>';
+                    if (status) status.textContent = '没有历史版本';
+                    return;
+                }
+                versions.forEach(function (version) {
+                    const row = document.createElement('button');
+                    row.type = 'button';
+                    row.className = 'w-full min-h-[44px] flex items-center justify-between gap-3 rounded-xl px-3 py-2 mb-2 bg-white/5 hover:bg-white/10 text-left';
+                    row.setAttribute('aria-label', '预览 ' + formatPlaylistVersionTime(version.createdAt) + ' 的版本');
+                    const info = document.createElement('span');
+                    info.className = 'min-w-0';
+                    const time = document.createElement('span');
+                    time.className = 'block text-sm font-medium';
+                    time.textContent = formatPlaylistVersionTime(version.createdAt);
+                    const detail = document.createElement('span');
+                    detail.className = 'block text-xs opacity-50 mt-0.5';
+                    detail.textContent = playlistVersionReasonLabel(version.reason) + ' · ' + version.songs.length + ' 首';
+                    info.appendChild(time);
+                    info.appendChild(detail);
+                    const icon = document.createElement('i');
+                    icon.className = 'fas fa-chevron-right opacity-45';
+                    icon.setAttribute('aria-hidden', 'true');
+                    row.appendChild(info);
+                    row.appendChild(icon);
+                    row.onclick = function () {
+                        box.querySelectorAll('button').forEach(function (button) {
+                            button.removeAttribute('aria-current');
+                            button.classList.remove('ring-1', 'ring-white/40');
+                        });
+                        row.setAttribute('aria-current', 'true');
+                        row.classList.add('ring-1', 'ring-white/40');
+                        renderPlaylistHistoryPreview(version);
+                        if (status) status.textContent = '正在预览 ' + formatPlaylistVersionTime(version.createdAt) + ' 的版本';
+                    };
+                    box.appendChild(row);
+                });
+                if (status) status.textContent = '已加载 ' + versions.length + ' 个历史版本';
+            } catch (error) {
+                console.error('[playlist-history] load failed', error);
+                if (token !== playlistHistoryLoadToken) return;
+                box.innerHTML = '<div class="p-6 text-center text-sm text-red-300">历史版本加载失败，请重试</div>';
+                if (status) status.textContent = '历史版本加载失败';
+            }
+        }
+
+        function openPlaylistHistory() {
+            const modal = document.getElementById('playlistHistoryModal');
+            if (!modal || !currentDetailPlaylistId) return;
+            currentHistoryPlaylistId = currentDetailPlaylistId;
+            playlistHistoryEntries = [];
+            modal.classList.remove('hidden');
+            modal.style.display = 'flex';
+            openAccessibleOverlay(modal, {
+                close: closePlaylistHistory,
+                initialFocus: '#closePlaylistHistoryBtn'
+            });
+            void refreshPlaylistHistory();
+        }
+
+        function closePlaylistHistory() {
+            const modal = document.getElementById('playlistHistoryModal');
+            if (!modal) return;
+            playlistHistoryLoadToken += 1;
+            currentHistoryPlaylistId = '';
+            playlistHistoryEntries = [];
+            modal.style.display = 'none';
+            modal.classList.add('hidden');
+            closeAccessibleOverlay(modal);
+        }
+
+        function bindPlaylistHistoryUI() {
+            const modal = document.getElementById('playlistHistoryModal');
+            if (!modal || modal.dataset.bound === '1') return;
+            modal.dataset.bound = '1';
+            const closeButton = document.getElementById('closePlaylistHistoryBtn');
+            if (closeButton) closeButton.addEventListener('click', closePlaylistHistory);
+            modal.addEventListener('click', function (event) {
+                if (event.target === modal) closePlaylistHistory();
+            });
+        }
 
         // ===== User playlist detail management =====
         let currentDetailPlaylistId = '';
@@ -2759,8 +3383,10 @@ async function refreshUserPlaylistLibrary() {
             modal.dataset.bound = '1';
             const closeButton = document.getElementById('closePlaylistDetailBtn');
             const playButton = document.getElementById('playlistDetailPlayBtn');
+            const historyButton = document.getElementById('playlistDetailHistoryBtn');
             if (closeButton) closeButton.addEventListener('click', closePlaylistDetail);
             if (playButton) playButton.addEventListener('click', playCurrentDetailPlaylist);
+            if (historyButton) historyButton.addEventListener('click', openPlaylistHistory);
             modal.addEventListener('click', function (event) {
                 if (event.target === modal) closePlaylistDetail();
             });
@@ -2875,6 +3501,11 @@ async function refreshUserPlaylistLibrary() {
                     switchLibraryTab('recent');
                     return;
                 }
+                if (target.closest('#libraryTrashTab')) {
+                    event.preventDefault();
+                    switchLibraryTab('trash');
+                    return;
+                }
                 if (target.closest('#myCreatePlaylistBtn')) {
                     event.preventDefault();
                     const input = document.getElementById('myNewPlaylistName');
@@ -2952,12 +3583,15 @@ async function refreshUserPlaylistLibrary() {
             const libraryTabList = document.querySelector('[aria-label="音乐资料库视图"]');
             const libraryPlaylistsTab = document.getElementById('libraryPlaylistsTab');
             const libraryRecentTab = document.getElementById('libraryRecentTab');
-            bindArrowTabNavigation(libraryTabList, [libraryPlaylistsTab, libraryRecentTab], function (tab) {
-                switchLibraryTab(tab === libraryRecentTab ? 'recent' : 'playlists');
+            const libraryTrashTab = document.getElementById('libraryTrashTab');
+            bindArrowTabNavigation(libraryTabList, [libraryPlaylistsTab, libraryRecentTab, libraryTrashTab], function (tab) {
+                switchLibraryTab(tab === libraryRecentTab ? 'recent' : (tab === libraryTrashTab ? 'trash' : 'playlists'));
             });
             bindPlaylistDetailUI();
+            bindPlaylistHistoryUI();
             refreshMyPlaylists();
             refreshRecentHistory();
+            refreshPlaylistTrash();
         }
         window.bindUserPlaylistUI = bindUserPlaylistUI;
 
@@ -3157,6 +3791,7 @@ async function refreshUserPlaylistLibrary() {
             try {
                 await initDatabase();
                 console.log('💾 IndexedDB 缓存已初始化');
+                await cleanupExpiredLocalTrash();
             } catch (e) {
                 console.warn('IndexedDB 初始化失败:', e);
             }
@@ -3618,6 +4253,101 @@ async function refreshUserPlaylistLibrary() {
             } catch (error) {
                 removeLocalStorage(CLOUD_LAST_SUCCESS_KEY);
                 return 0;
+            }
+        }
+
+        function formatTrashDeletedAt(timestamp) {
+            const date = new Date(timestamp);
+            return Number.isFinite(date.getTime())
+                ? date.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false })
+                : '删除时间未知';
+        }
+
+        async function refreshPlaylistTrash() {
+            const box = document.getElementById('playlistTrashList');
+            if (!box) return;
+            try {
+                await cleanupExpiredLocalTrash();
+                const list = await readUserPlaylistRecords({ onlyTrash: true });
+                const count = document.getElementById('libraryTrashCount');
+                if (count) count.textContent = String(list.length);
+                box.innerHTML = '';
+                if (!list.length) {
+                    box.innerHTML = '<div class="h-full min-h-40 flex items-center justify-center text-center opacity-50 text-sm">回收站是空的</div>';
+                    return;
+                }
+                list.forEach(function (pl) {
+                    const row = document.createElement('div');
+                    row.className = 'music-library-row';
+                    const cover = document.createElement('div');
+                    cover.className = 'music-library-cover';
+                    cover.innerHTML = '<i class="fas fa-trash-restore opacity-45" aria-hidden="true"></i>';
+                    const info = document.createElement('div');
+                    info.className = 'min-w-0';
+                    const name = document.createElement('div');
+                    name.className = 'font-medium truncate';
+                    name.textContent = pl.name;
+                    const remaining = getPlaylistTrashRemainingDays(pl.deletedAt, Date.now());
+                    const detail = document.createElement('div');
+                    detail.className = 'text-xs opacity-55 mt-1';
+                    detail.textContent = pl.songs.length + ' 首 · ' + formatTrashDeletedAt(pl.deletedAt) +
+                        ' · 剩余 ' + remaining + ' 天';
+                    info.appendChild(name);
+                    info.appendChild(detail);
+                    const actions = document.createElement('div');
+                    actions.className = 'music-library-row-actions flex items-center gap-2';
+                    const restoreButton = makeLibraryActionButton(
+                        '恢复歌单「' + pl.name + '」',
+                        'fa-trash-restore',
+                        'music-library-action-button',
+                        '恢复'
+                    );
+                    restoreButton.onclick = async function () {
+                        restoreButton.disabled = true;
+                        try {
+                            await restoreUserPlaylist(pl.id);
+                            await Promise.all([refreshPlaylistTrash(), refreshMyPlaylists()]);
+                            showToast('歌单「' + pl.name + '」已恢复');
+                        } catch (error) {
+                            console.error('[trash] restore failed', error);
+                            showToast(error.message || '歌单恢复失败', true);
+                        } finally {
+                            restoreButton.disabled = false;
+                        }
+                    };
+                    const purgeButton = makeLibraryActionButton(
+                        '永久删除歌单「' + pl.name + '」',
+                        'fa-trash-alt',
+                        'music-library-action-button',
+                        '永久删除'
+                    );
+                    purgeButton.style.color = '#ffb5b5';
+                    purgeButton.onclick = async function () {
+                        if (!confirm('永久删除歌单「' + pl.name + '」？\n名称、歌曲和历史版本都会被清除，且无法恢复。')) return;
+                        purgeButton.disabled = true;
+                        try {
+                            await purgeUserPlaylist(pl.id);
+                            await refreshPlaylistTrash();
+                            showToast(navigator.onLine === false
+                                ? '已从本机永久删除，联网后同步'
+                                : '歌单已永久删除');
+                        } catch (error) {
+                            console.error('[trash] purge failed', error);
+                            showToast(error.message || '永久删除失败', true);
+                        } finally {
+                            purgeButton.disabled = false;
+                        }
+                    };
+                    actions.appendChild(restoreButton);
+                    actions.appendChild(purgeButton);
+                    row.appendChild(cover);
+                    row.appendChild(info);
+                    row.appendChild(actions);
+                    box.appendChild(row);
+                });
+            } catch (error) {
+                console.error('[trash] render failed', error);
+                box.innerHTML = '<div class="p-4 text-center text-red-300 text-sm">回收站加载失败，请重试</div>';
             }
         }
 
@@ -4130,14 +4860,18 @@ async function refreshUserPlaylistLibrary() {
 
         async function persistCloudOutbox(ownerId, localRecord, operation, expectedVersion) {
             if (!db || !hasCloudOutboxStore()) throw new Error('云同步存储未就绪');
+            const history = operation === 'purge'
+                ? []
+                : await readPlaylistVersions(localRecord.id, { ownerId: ownerId });
             const outbox = makeCloudOutboxRecord(
                 ownerId,
-                operation === 'delete' ? { id: localRecord.id } : localRecord,
+                localRecord,
                 operation,
-                expectedVersion
+                expectedVersion,
+                history
             );
             const tx = db.transaction(['playlists', CLOUD_OUTBOX_STORE], 'readwrite');
-            if (operation === 'upsert') {
+            if (operation !== 'purge') {
                 tx.objectStore('playlists').put(Object.assign({}, localRecord, {
                     cloudOwnerId: ownerId,
                     cloudVersion: normalizeCloudVersion(expectedVersion),
@@ -4182,6 +4916,33 @@ async function refreshUserPlaylistLibrary() {
             return rows.find(function (row) { return row.id === playlistId; }) || null;
         }
 
+        async function recoverCloudPlaylistCopy(ownerId, local, remote) {
+            if (!local) throw new Error('没有可保留的本机歌单内容');
+            const records = await readUserPlaylistRecords({
+                includeForeign: true,
+                includeTrash: true,
+                includePurged: true
+            });
+            const ids = new Set(records.map(function (record) { return record.id; }));
+            const recovered = await saveUserPlaylistRecord({
+                id: createUserPlaylistId(ids),
+                name: makeRecoveredPlaylistName(local.name),
+                songs: Array.isArray(local.songs) ? local.songs : [],
+                cloudOwnerId: ownerId,
+                cloudVersion: 0,
+                cloudDirty: true,
+                deletedAt: 0,
+                purgedAt: 0
+            }, {
+                operation: 'upsert',
+                historyReason: 'restore'
+            });
+            if (remote) await applyRemotePlaylistToLocal(ownerId, remote);
+            else await removeLocalCloudPlaylist(ownerId, local.id);
+            showToast('较新的歌单已保留，恢复内容已另存为「' + recovered.name + '」');
+            return recovered;
+        }
+
         async function performCloudSync(reason) {
             const ownerId = cloudUserId;
             if (!cloudService || !ownerId) return false;
@@ -4192,8 +4953,14 @@ async function refreshUserPlaylistLibrary() {
             }
             setCloudState('syncing', '正在同步歌单…');
             await adoptLocalPlaylistsForCloud(ownerId);
+            await cloudService.cleanupPlaylistData();
             const results = await Promise.all([
-                readUserPlaylistRecords({ includeForeign: true, ownerId: ownerId }),
+                readUserPlaylistRecords({
+                    includeForeign: true,
+                    ownerId: ownerId,
+                    includeTrash: true,
+                    includePurged: true
+                }),
                 readCloudOutbox(ownerId),
                 cloudService.listPlaylists()
             ]);
@@ -4225,13 +4992,24 @@ async function refreshUserPlaylistLibrary() {
                 const decision = decidePlaylistSync(local, remote, outbox);
                 try {
                     if (decision.action === 'none') continue;
-                    if (decision.action === 'pull' || decision.action === 'pull-delete') {
+                    if (decision.action === 'pull' || decision.action === 'pull-delete' ||
+                        decision.action === 'pull-purge' || decision.action === 'ack-restore') {
                         await applyRemotePlaylistToLocal(ownerId, remote);
                         changed += 1;
                         continue;
                     }
                     if (decision.action === 'ack-delete') {
-                        await removeLocalCloudPlaylist(ownerId, playlistId);
+                        await acknowledgeCloudDelete(ownerId, outbox, remote || { version: 0 });
+                        changed += 1;
+                        continue;
+                    }
+                    if (decision.action === 'ack-purge') {
+                        await acknowledgeCloudPurge(ownerId, outbox, remote || { version: 0 });
+                        changed += 1;
+                        continue;
+                    }
+                    if (decision.action === 'recover-copy') {
+                        await recoverCloudPlaylistCopy(ownerId, local, remote);
                         changed += 1;
                         continue;
                     }
@@ -4246,7 +5024,8 @@ async function refreshUserPlaylistLibrary() {
                         }
                         const acknowledged = await cloudService.upsertPlaylist(
                             outbox.playlist || local,
-                            decision.expectedVersion
+                            decision.expectedVersion,
+                            outbox.history || []
                         );
                         await acknowledgeCloudUpsert(ownerId, outbox, acknowledged);
                         changed += 1;
@@ -4262,15 +5041,31 @@ async function refreshUserPlaylistLibrary() {
                             );
                         }
                         const acknowledged = await cloudService.deletePlaylist(
+                            outbox.playlist || local,
+                            decision.expectedVersion,
+                            outbox.history || []
+                        );
+                        await acknowledgeCloudDelete(ownerId, outbox, acknowledged);
+                        changed += 1;
+                        continue;
+                    }
+                    if (decision.action === 'purge') {
+                        if (!outbox) continue;
+                        const acknowledged = await cloudService.purgePlaylist(
                             playlistId,
                             decision.expectedVersion
                         );
-                        await acknowledgeCloudDelete(ownerId, outbox, acknowledged);
+                        await acknowledgeCloudPurge(ownerId, outbox, acknowledged);
                         changed += 1;
                     }
                 } catch (error) {
                     if (isCloudConflictError(error)) {
                         const latest = await latestRemotePlaylist(playlistId);
+                        if (outbox && outbox.operation === 'restore' && latest) {
+                            await recoverCloudPlaylistCopy(ownerId, local, latest);
+                            changed += 1;
+                            continue;
+                        }
                         rememberCloudConflict(
                             ownerId,
                             playlistId,
@@ -4305,6 +5100,7 @@ async function refreshUserPlaylistLibrary() {
             }
             if (typeof refreshMyPlaylists === 'function') await refreshMyPlaylists();
             if (typeof refreshUserPlaylistLibrary === 'function') await refreshUserPlaylistLibrary();
+            if (typeof refreshPlaylistTrash === 'function') await refreshPlaylistTrash();
             if (reason === 'manual') {
                 if (cloudConflicts.size) {
                     showToast('发现 ' + cloudConflicts.size + ' 个冲突，请先选择保留哪一份', true);
@@ -4355,9 +5151,18 @@ async function refreshUserPlaylistLibrary() {
                 if (useLocal) {
                     const remoteVersion = conflict.remote ? conflict.remote.version : 0;
                     let outbox = conflict.outbox;
-                    if (outbox && outbox.operation === 'delete') {
-                        const acknowledged = await cloudService.deletePlaylist(conflict.playlistId, remoteVersion);
+                    if (outbox && outbox.operation === 'restore' && conflict.remote) {
+                        await recoverCloudPlaylistCopy(conflict.ownerId, conflict.local, conflict.remote);
+                    } else if (outbox && outbox.operation === 'delete') {
+                        const acknowledged = await cloudService.deletePlaylist(
+                            outbox.playlist || conflict.local,
+                            remoteVersion,
+                            outbox.history || []
+                        );
                         await acknowledgeCloudDelete(conflict.ownerId, outbox, acknowledged);
+                    } else if (outbox && outbox.operation === 'purge') {
+                        const acknowledged = await cloudService.purgePlaylist(conflict.playlistId, remoteVersion);
+                        await acknowledgeCloudPurge(conflict.ownerId, outbox, acknowledged);
                     } else {
                         if (!conflict.local) throw new Error('本机歌单已不存在');
                         if (!outbox) {
@@ -4370,7 +5175,8 @@ async function refreshUserPlaylistLibrary() {
                         }
                         const acknowledged = await cloudService.upsertPlaylist(
                             outbox.playlist || conflict.local,
-                            remoteVersion
+                            remoteVersion,
+                            outbox.history || []
                         );
                         await acknowledgeCloudUpsert(conflict.ownerId, outbox, acknowledged);
                     }

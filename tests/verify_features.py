@@ -13,6 +13,7 @@ CLOUD_SYNC = (ROOT / "js" / "cloud-sync.js").read_text(encoding="utf-8")
 CLOUD_CONFIG = (ROOT / "js" / "cloud-config.js").read_text(encoding="utf-8")
 CLOUD_VENDOR_BUILD = (ROOT / "scripts" / "build-cloud-vendor.mjs").read_text(encoding="utf-8")
 CLOUD_SCHEMA = (ROOT / "supabase" / "migrations" / "202607230001_account_cloud_sync.sql").read_text(encoding="utf-8")
+RECOVERY_SCHEMA = (ROOT / "supabase" / "migrations" / "202607250001_playlist_trash_history.sql").read_text(encoding="utf-8")
 DOWNLOADER = (ROOT / "playlist-downloader.html").read_text(encoding="utf-8")
 SW = (ROOT / "sw.js").read_text(encoding="utf-8")
 NOTO_CSS = (ROOT / "css" / "noto-sans-sc.css").read_text(encoding="utf-8")
@@ -30,6 +31,7 @@ SEARCH_E2E = (ROOT / "tests" / "e2e" / "search-recovery.spec.mjs").read_text(enc
 SHELL_E2E = (ROOT / "tests" / "e2e" / "app-shell.spec.mjs").read_text(encoding="utf-8")
 API_CONFIG_E2E = (ROOT / "tests" / "e2e" / "api-config.spec.mjs").read_text(encoding="utf-8")
 ACCOUNT_CLOUD_E2E = (ROOT / "tests" / "e2e" / "account-cloud-sync.spec.mjs").read_text(encoding="utf-8")
+PLAYLIST_CRUD_E2E = (ROOT / "tests" / "e2e" / "playlist-crud.spec.mjs").read_text(encoding="utf-8")
 SW_UPDATE_E2E = (ROOT / "tests" / "e2e" / "service-worker-update.spec.mjs").read_text(encoding="utf-8")
 SW_KEY_CACHE_E2E = (ROOT / "tests" / "e2e" / "service-worker-key-cache.spec.mjs").read_text(encoding="utf-8")
 STORAGE_RESILIENCE_E2E = (ROOT / "tests" / "e2e" / "storage-resilience.spec.mjs").read_text(encoding="utf-8")
@@ -156,7 +158,7 @@ require((ROOT / "js" / "vendor" / "supabase.js").stat().st_size > 100_000, "vend
 require((ROOT / "tests" / "core-utils.test.mjs").is_file(), "core utility tests are missing")
 require("user-scalable=no" not in HTML and "maximum-scale" not in HTML, "viewport still blocks browser zoom")
 
-require("cplayer5-v64-sync-status" in SW, "service worker cache version is not updated")
+require("cplayer5-v65-trash-history" in SW, "service worker cache version is not updated")
 require("'./js/app.js'" in SW, "production app module is not precached")
 require("./js/core-utils.js" in SW, "core utility module is not precached")
 for cloud_asset in ("./js/cloud-config.js", "./js/cloud-sync.js", "./js/vendor/supabase.js"):
@@ -275,9 +277,9 @@ require("apikey" in README and "localStorage" in README, "README does not explai
 require("Node.js 22" in README and "output/pages" in README, "README does not document the supported runtime and exact Pages artifact")
 require(
     "npm run check:rollback --" in README
-    and "当前浏览器数据库已经是 DB v5" in README
-    and "不能直接把线上代码退回只会打开 DB v4" in README,
-    "README does not document the safe DB v5 rollback guard",
+    and "当前浏览器数据库已经是 DB v6" in README
+    and "不能直接把线上代码退回只会打开 DB v5" in README,
+    "README does not document the safe DB v6 rollback guard",
 )
 
 api_endpoints = set(re.findall(r"ChKSzAPI\.buildUrl\('(/163_[a-z]+)'", APP))
@@ -290,8 +292,13 @@ require(not re.search(r"apikey\s*=\s*['\"][^'\"]{8,}['\"]", production_source, f
 require("serviceWorkers: 'block'" in API_CONFIG_E2E and "randomUUID" in API_CONFIG_E2E, "API config browser test is not deterministic or uses a fixed key")
 require("searchParams.has('apikey')" in API_CONFIG_E2E, "browser test does not prove key-free compatibility")
 
-require("const DB_VERSION = 5;" in APP, "account sync IndexedDB upgrade is missing")
+require("const DB_VERSION = 6;" in APP, "playlist recovery IndexedDB upgrade is missing")
 require("database.createObjectStore(CLOUD_OUTBOX_STORE" in APP, "cloud outbox store creation is missing")
+require("database.createObjectStore(PLAYLIST_HISTORY_STORE" in APP, "playlist history store creation is missing")
+require("makeRemotePlaylistVersionStorageId" in APP and "isPlaylistVersionInOwnerScope" in APP,
+        "playlist history storage id or owner isolation is missing")
+require("snapshot_id: entry.snapshotId" in CLOUD_SYNC,
+        "playlist history wire identity is coupled to the local storage key")
 require("db.transaction(['playlists', CLOUD_OUTBOX_STORE], 'readwrite')" in APP,
         "playlist and cloud outbox writes are not transactionally coupled")
 cloud_url_match = re.search(r"\burl:\s*'([^']+)'", CLOUD_CONFIG)
@@ -351,7 +358,21 @@ for schema_snippet in [
     "pg_advisory_xact_lock",
     "revoke all on table public.cplayer_playlists from anon, authenticated",
 ]:
-    require(schema_snippet in CLOUD_SCHEMA, f"cloud database security contract is missing: {schema_snippet}")
+    require(schema_snippet in CLOUD_SCHEMA + RECOVERY_SCHEMA, f"cloud database security contract is missing: {schema_snippet}")
+
+for recovery_snippet in [
+    "purged_at timestamptz",
+    "create table if not exists public.cplayer_playlist_versions",
+    "alter table public.cplayer_playlist_versions force row level security",
+    "sync_cplayer_playlist_v2",
+    "delete_cplayer_playlist_v2",
+    "purge_cplayer_playlist",
+    "cleanup_cplayer_playlist_data",
+    "interval '30 days'",
+    "interval '90 days'",
+    "retained_rank > 20",
+]:
+    require(recovery_snippet in RECOVERY_SCHEMA, f"playlist recovery schema contract is missing: {recovery_snippet}")
 
 require("serviceWorkers: 'block'" in ACCOUNT_CLOUD_E2E and "page.route" in ACCOUNT_CLOUD_E2E,
         "account browser tests do not own the cloud HTTP boundary")
@@ -361,6 +382,8 @@ for snippet in [
     "randomUUID", "offline playlist edit stays pending", "persists clean cloud metadata",
     "conflict choice can explicitly keep the cloud copy", "does not sync a foreign local playlist",
     "account deletion removes cloud state", "request.body.includes('apikey')",
+    "trash restore works offline", "playlist history uploads safely",
+    "snapshot ids remain isolated", "foreign-history-must-survive",
 ]:
     require(snippet in ACCOUNT_CLOUD_E2E, f"account browser contract is missing: {snippet}")
 
@@ -404,8 +427,15 @@ for snippet in [
     require(snippet in RELEASE_ARTIFACT_E2E, f"font artifact browser contract is missing: {snippet}")
 require("serviceWorkers: 'block'" in STORAGE_RESILIENCE_E2E and "CPlayer5DB" in STORAGE_RESILIENCE_E2E,
         "storage resilience browser tests do not isolate the real storage boundary")
-require(E2E_HELPERS.count("indexedDB.open('CPlayer5DB', 5)") >= 2,
+require(E2E_HELPERS.count("indexedDB.open('CPlayer5DB', 6)") >= 4,
         "browser storage helpers do not use the current database version")
+for snippet in [
+    "delete enters local trash and restores after reload",
+    "permanent delete clears a local trash item",
+    "trash older than 30 days",
+    "history preview restores a version",
+]:
+    require(snippet in PLAYLIST_CRUD_E2E, f"local playlist recovery browser contract is missing: {snippet}")
 for snippet in [
     "installRuntimeProbes", "PageTransitionEvent('pagehide'", "removeSongFromQueue",
     "system play resumes committed song A", "ended committed media",
@@ -422,6 +452,7 @@ for snippet in [
     "AxeBuilder", "element.inert", "ArrowRight", "keyboard-progress.wav", "songRequests",
     "compact landscape keeps the mobile player", "expectNoSeriousAxeViolations(page, ids.panel)",
     "mobile playlist sheet stays open", "--cp-safe-area-top", "viewport-fit=cover",
+    "#playlistHistoryModal", "#libraryTrashTab",
 ]:
     require(snippet in RESPONSIVE_E2E, f"responsive accessibility browser contract is missing: {snippet}")
 for snippet in [
@@ -466,6 +497,8 @@ for snippet in [
     "StaticBlock", "executionMode", "isDeployableArtifactPath",
     "listCurrentDeployablePaths", "normalizeLocalScriptPath",
     "assertRollbackVersion", "rev-parse", "runGit(['show'", "targetVersion < currentVersion",
+    "TRUSTED_DYNAMIC_RUNTIME_SHA256", "isTrustedDynamicRuntimeSource",
+    "js/vendor/supabase.js", "c9b013095c5962314028218f22631a6a3dd1424fd8622f67379622be3cdb5f6d",
 ]:
     require(snippet in ROLLBACK_CHECK, f"rollback schema guard is missing: {snippet}")
 

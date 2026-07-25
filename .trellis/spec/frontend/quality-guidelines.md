@@ -91,10 +91,12 @@ that reads real storage.
 ### 2. Storage Map
 
 ```text
-IndexedDB CPlayer5DB v4, store `playlists` (keyPath id):
+IndexedDB CPlayer5DB v6, store `playlists` (keyPath id):
   id === 'current_queue'   -> the play queue record
-  id startsWith 'user_pl_' -> user playlists
+  id startsWith 'user_pl_' -> active, trash, or content-free purge-marker playlists
   other ids                -> cached remote playlists
+IndexedDB store `playlist_versions` (keyPath id):
+  playlistId               -> owner-scoped snapshots for one user playlist
 localStorage:
   cp_recent_history   -> recent-play list (max 50, newest first)
   cp_queue_dirty='1'  -> legacy compatibility marker; does not gate restore
@@ -151,8 +153,9 @@ filter by id.
   empty after reload. Both desktop and mobile.
 - Backup: valid import adds `user_pl_` records; invalid import and malformed
   JSON are rejected atomically with the existing playlist intact.
-- User playlists: create/delete round-trip through IndexedDB; dismissed delete
-  confirm keeps the playlist; empty name is rejected.
+- User playlists: create/delete-to-trash/restore round-trip through IndexedDB;
+  permanent delete removes local-only content or leaves an account-owned
+  content-free marker; dismissed confirmations keep the playlist unchanged.
 - Recent history: render caps at 50; invalid-id entries dropped; clear empties
   storage.
 - Playback error: a mocked failing `/163_music` response surfaces a clear error
@@ -194,8 +197,9 @@ runCriticalStorageWrite(operation)     // one quota cleanup + retry
 pruneTransientCaches(aggressive)       // never deletes user-owned records
 ```
 
-`CPlayer5DB` is version 4. The existing stores remain `playlists`, `lyrics`, and
-`images`; version 4 adds `images.index('timestamp')` without replacing data.
+`CPlayer5DB` is version 6. The existing stores remain `playlists`, `lyrics`,
+`images`, and `cloud_outbox`; version 6 appends `playlist_versions` with
+`playlistId`, `createdAt`, and `cloudOwnerId` indexes without replacing data.
 
 The queue record is backward-compatible and may include:
 
@@ -229,9 +233,9 @@ Runtime storage status is exposed as
 - Queue save is compare-and-set in one `readwrite` transaction. It reads the
   current revision, rejects a newer foreign writer, and only then writes revision
   + 1. A conflict blocks later saves from that stale page until refresh.
-- A critical queue/user-playlist quota error may delete all disposable image and
-  remote-playlist cache records and retry once. It must never delete
-  `current_queue` or any `user_pl_*` record.
+- A critical queue/user-playlist/history quota error may delete all disposable
+  image and remote-playlist cache records and retry once. It must never delete
+  `current_queue`, any `user_pl_*` record, or `playlist_versions` snapshots.
 - Normal cache limits are 160 `images` records and 12 remote `playlists` records.
   Cache ordering uses `timestamp`; user-owned records are excluded by id before
   any delete.
@@ -249,7 +253,7 @@ Runtime storage status is exposed as
 | Condition | Required result |
 | --- | --- |
 | localStorage throws `SecurityError` during module start | App reaches ready with defaults; state `degraded`; warn that changes may not persist. |
-| Version-3 connection holds a version-4 upgrade | State `blocked`; tell user to close other pages; app shell becomes ready. |
+| Older connection holds a version-6 upgrade | State `blocked`; tell user to close other pages; app shell becomes ready. |
 | Active connection receives `versionchange` | Close it, clear `db`, state `stale`, request refresh; later queue write does not persist. |
 | Queue record exists but `cp_queue_dirty` does not | Restore the IndexedDB queue, including an intentionally empty queue. |
 | Another page saved a newer queue revision | Abort stale transaction; state `conflict`; winning record remains byte-for-byte unchanged. |
@@ -264,15 +268,16 @@ Runtime storage status is exposed as
 
 - Good: two pages load revision 0; page A commits revision 1; page B's stale save
   aborts and direct IndexedDB inspection still equals A's record.
-- Base: a version-3 database upgrades to version 4, preserves queue/user records,
-  creates the image timestamp index, and normal queue CRUD still round-trips.
+- Base: a version-5 database upgrades to version 6, preserves queue/user records,
+  creates the history store and indexes, and normal queue CRUD still round-trips.
 - Bad: catch an IndexedDB error, log it, continue showing a success toast, and
   later let a stale `cp_queue_dirty` flag restore an older queue.
 
 ### 6. Tests Required
 
 - Browser-only storage failure suite with Service Workers blocked: localStorage
-  `SecurityError`, real v3/v4 `blocked`, real v4/v5 `versionchange`, two-page
+  `SecurityError`, a real older/v6 `blocked`, real v6/v7 `versionchange`, v5→v6
+  data preservation, two-page
   queue conflict, quota retry/persistent failure, and cache-limit preservation.
 - Assert both browser boundary state and persisted state. A toast or dataset alone
   does not prove the queue/user record survived.
@@ -791,6 +796,9 @@ that are already covered by desktop/mobile.
   `aria-hidden` and inert; swipe/click shortcuts are additional, not exclusive.
 - A song row with secondary actions uses a native primary play button plus
   sibling action buttons. Never put nested buttons inside a click-only row.
+- A visible scrollable region that can have no focusable descendants (including
+  an empty list or preview) uses `role="region"`, an accessible name, and
+  `tabindex="0"` so keyboard users can enter and scroll it.
 - Visible mobile buttons, tabs, and row actions are at least `44x44` CSS px.
   All six target viewports have no document-level horizontal overflow or
   clipped interactive targets.
@@ -822,6 +830,7 @@ that are already covered by desktop/mobile.
 | Media duration is unavailable | Slider stays at zero and reports disabled; keyboard seek is a no-op. |
 | Mobile autoplay is blocked | Progress keyboard test accepts the already-paused state and still uses real metadata. |
 | Dialog opacity is transitioning | Axe scan waits for final opacity `1`; final state must have no serious/critical violation. |
+| Empty history list or preview becomes scrollable | Region remains named and keyboard-focusable; Axe reports no `scrollable-region-focusable` violation. |
 | Viewport is 355, 390, or 440px wide | No visible interactive target is below 44px or outside the viewport. |
 | Viewport is `844x390` or `740x360` | Mobile layout is active; cover and every core control remain wholly inside the viewport without column overlap. |
 | An open mobile sheet rotates from `390x844` to `844x390` | The layout remains mobile and the sheet stays open, expanded, and non-inert. |
@@ -842,6 +851,8 @@ that are already covered by desktop/mobile.
 
 - Axe Playwright: shell, open Settings, open playlist, and open search states
   have zero critical/serious violations in all six viewport projects.
+- Axe includes empty scrollable dialog regions after the final Tailwind build;
+  source HTML tested against stale generated CSS is not sufficient evidence.
 - Geometry: root width does not overflow; visible mobile interactive targets
   are at least 44px and remain inside the viewport. Both compact landscape
   projects also prove the cover, metadata, and control columns do not clip or
@@ -1028,9 +1039,9 @@ are not members of the deployment artifact.
   bytes must be UTF-8 without BOM; only known binary extensions are skipped.
 - Node.js 22+ is the single supported local/CI floor in package metadata and
   user documentation.
-- Once user data has opened `CPlayer5DB` v4, a target that opens v3 is not a safe
+- Once user data has opened `CPlayer5DB` v6, a target that opens v5 is not a safe
   rollback. Use `npm run check:rollback -- <ref>` and create a new forward revert
-  that preserves `DB_VERSION >= 4`; never clear user data to make old code run.
+  that preserves `DB_VERSION >= 6`; never clear user data to make old code run.
 - Rollback extraction parses every deployable HTML file and its runtime JavaScript
   without executing it. External script URLs resolve relative to the owning HTML.
   It combines classic-script scope, inspects classic scripts sequentially, inspects
@@ -1054,6 +1065,10 @@ are not members of the deployment artifact.
   Inline Promise executors are the only timer-parameter exception because the
   platform guarantees their first two arguments are callable resolve/reject
   functions. A later classic script cannot supply constants to an earlier script.
+- The pinned `js/vendor/supabase.js` bundle is the only audited dynamic-runtime
+  exception. It is skipped only when both its exact artifact path and SHA-256
+  match the reviewed constant in `check-rollback-target.mjs`. Any vendor rebuild,
+  byte change, alternate path, or other dynamic script fails closed until reviewed.
 - A missing object/array entry with a destructuring default remains unknown; the
   extractor must not assume built-in prototypes are pristine.
 - Straight-line assignments may update a known local value. Update expressions,
@@ -1107,8 +1122,10 @@ are not members of the deployment artifact.
 | A destructuring default depends on a missing property/index | Keep it unresolved because an inherited value may override the default. |
 | A helper calls unknown `owner.open(name, version)` | Rollback extraction rejects it as unresolved; it cannot prove the owner is not IndexedDB. |
 | Current or target residual JS/MJS conflicts with the HTML-loaded version | Rollback extraction rejects the tree instead of selecting the first version. |
-| Rollback target opens DB v3 while current tree opens v4 | Command fails and requires a v4-compatible forward revert. |
-| Rollback target opens DB v4 or newer | Version preflight passes; full gate is still required. |
+| Pinned Supabase bundle has its reviewed SHA-256 | Ignore its known timer/auth-navigation/optional-telemetry dynamics while scanning all other runtime sources. |
+| Trusted vendor path or bytes differ | Treat it as ordinary runtime source; unsupported dynamics fail closed. |
+| Rollback target opens DB v5 while current tree opens v6 | Command fails and requires a v6-compatible forward revert. |
+| Rollback target opens DB v6 or newer | Version preflight passes; full gate is still required. |
 | Quality job fails | Artifact is not uploaded and deploy cannot run. |
 
 ### 5. Good / Base / Bad Cases
@@ -1118,8 +1135,8 @@ are not members of the deployment artifact.
 - Base: a new runtime file is added to the builder and required by an artifact
   browser test; its precache implications are handled separately.
 - Bad: Playwright serves the repository, workflow copies a hand-maintained list,
-  release notes say "no migration" after DB v4, or rollback instructions deploy
-  an old v3 snapshot and tell users to clear data.
+  release notes say "no migration" after DB v6, or rollback instructions deploy
+  an old v5 snapshot and tell users to clear data.
 - Bad: the guard scans only `index.html`, ignores `onload`/`javascript:` code or
   `srcdoc`/`.mjs`, concatenates all classic scripts before analysis, or accepts a
   dynamic `.open(name, version)` because a stale v4 literal was found elsewhere.
@@ -1136,6 +1153,8 @@ are not members of the deployment artifact.
   deployed HTML and non-`js/` modules, dual classic/module residual `.js`, current
   and target residual conflicts, staged byte/encoding/type inspection, large
   staged-binary skipping before blob reads, and compatible/incompatible rollback.
+- Unit also hash-gates the exact pinned Supabase browser bundle and rejects the
+  same bytes at another path or any one-byte modification.
 - Static: package scripts/Node floor, builder allowlist, artifact output path,
   `PW_WEB_ROOT` wiring, quality-job upload ownership, deploy-job minimalism,
   repository check coverage, rollback guard, README commands, and artifact
@@ -1207,6 +1226,139 @@ so a page-text-only subset is not sufficient evidence of font coverage.
 - A development-time cmap comparison is recorded when converting a font, but
   FontTools is not required as a runtime or CI dependency.
 
+## Playlist Trash, History, And Purge Contract
+
+### 1. Scope / Trigger
+
+This contract applies whenever user-playlist deletion, restoration, history,
+IndexedDB v6, cloud outbox operations, Supabase playlist RPCs, or retention
+cleanup changes. Delete and restore are synchronization states, not reasons to
+discard the only complete copy of a playlist.
+
+### 2. Signatures
+
+```js
+decidePlaylistSync(localRecord, remoteRecord, outboxRecord)
+// -> pull, push, conflict, recover-local-copy, confirm, or none
+
+isPlaylistTrashExpired(deletedAt, now) // 30-day boundary
+normalizePlaylistVersions(entries, now) // newest 20 within 90 days
+
+CPlayerCloudService.listPlaylistVersions(playlistId)
+CPlayerCloudService.purgePlaylist(playlistId, expectedVersion)
+CPlayerCloudService.cleanupPlaylistData()
+```
+
+```sql
+sync_cplayer_playlist_v2(playlist_id, name, songs, expected_version, history)
+delete_cplayer_playlist_v2(playlist_id, name, songs, expected_version, history)
+purge_cplayer_playlist(playlist_id, expected_version)
+cleanup_cplayer_playlist_data()
+```
+
+`playlists` records use optional `deletedAt` and `purgedAt`. The
+`playlist_versions` store uses a globally unique local keyPath `id`, keeps the
+wire identity separately as `snapshotId`, and indexes `playlistId`, `createdAt`,
+and `cloudOwnerId`. Cloud history is owner-scoped by RLS. A server snapshot id
+such as `server-1` is unique only within owner plus playlist and must never be
+used alone as the IndexedDB key.
+
+### 3. Contracts
+
+- Active records have no deletion time. Trash records retain the final bounded
+  name and normalized songs with `deletedAt`. Purge markers retain only the id,
+  owner/version metadata, deletion times, a generic name, and an empty song list.
+- A normal delete moves the record to trash. Restore returns it to active. A
+  local-only purge removes the record; an account-owned purge keeps a content-free
+  marker so an old offline device cannot revive the original id.
+- Save the previous complete content before edit, delete, or history restore.
+  Restoring a snapshot first snapshots the current content, so it remains
+  recoverable. Keep at most 20 snapshots and none older than 90 days.
+- Filter history by owner before pruning, rewriting, or deleting it. The current
+  owner may adopt unowned legacy snapshots for its playlist, but a same-id
+  foreign-owner snapshot is preserved. Remote rows use a deterministic
+  owner+playlist+snapshot local storage id while uploads retain `snapshotId`.
+- Outbox operations are `upsert`, `delete`, `restore`, or `purge`, still collapsed
+  by owner plus playlist id and protected by `mutationId`. Delete carries the
+  final content; v2 mutations carry de-duplicated snapshots. Purge carries no
+  name, songs, or history content.
+- A local restore or purge with the same expected remote version must push even
+  when generic version comparison would otherwise report equality. A remote
+  purge marker can never be replaced by an upsert from an old client.
+- When restoring would replace a newer active remote playlist, keep the newer
+  record on the original id and create a bounded `（已恢复）` copy. Apply the same
+  recovery-copy rule before accepting a remote purge when unsynced local content
+  still exists.
+- Trash expires after 30 days. Local cleanup runs after database startup; cloud
+  cleanup runs opportunistically at sync start. Failure must preserve content or
+  a durable outbox item and remain visible in the sync status center.
+- Cloud payload normalization strips `apikey`, API base, queue, recent-play,
+  playback progress, session tokens, and device settings from both current rows
+  and history snapshots.
+- The Supabase migration is additive: keep legacy RPC signatures, force history
+  RLS, grant browser execution only to `authenticated`, and deploy it before the
+  Pages client that calls the new RPCs.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required result |
+| --- | --- |
+| Signed-out user deletes and reloads | Complete playlist remains in local trash and can be restored. |
+| Offline signed-in delete or restore | Local state commits; one durable owner outbox row remains until reconnect. |
+| Local restore meets a newer different remote active row | Keep remote on original id; create a restored copy. |
+| Remote purge meets unsynced local content | Preserve content as a new restored copy; apply marker to original id. |
+| Old client upserts a purged id | RPC returns a conflict; marker remains content-free. |
+| User permanently deletes trash | Require confirmation; clear name, songs, and every history snapshot. |
+| Trash reaches 30 days | Purge locally and queue/cloud-propagate the content-free marker. |
+| History exceeds 20 or 90 days | Delete only out-of-policy snapshots; preserve current playlist and newest valid history. |
+| History or critical write hits quota | Prune disposable caches and retry once; never prune user playlists or history as cache. |
+| Two playlists both receive `snapshot_id='server-1'` | Store two distinct local ids and upload each original snapshot id unchanged. |
+| Another owner has orphan history for the same playlist id | Current-owner edit/purge leaves the foreign snapshot byte-for-byte intact. |
+
+### 5. Good / Base / Bad Cases
+
+- Good: edit offline, delete immediately, reload, restore, reconnect, and prove
+  the final songs converge because the delete outbox carried the last content.
+- Base: delete a signed-out playlist, find it in trash after reload, preview a
+  prior snapshot, and restore without any cloud configuration.
+- Bad: call `store.delete(playlistId)` for normal deletion, hard-delete a cloud
+  row with no marker, upload an empty placeholder through the normal upsert RPC,
+  or compare JSON snapshots by object key order.
+
+### 6. Tests Required
+
+- Unit: trash expiry boundaries; history normalization/de-duplication/20-and-90
+  pruning; local-id/wire-snapshot separation; sensitive-field stripping; restore/purge equality decisions; remote
+  purge recovery copies; purge-marker non-revival; bounded restored names.
+- Browser desktop/mobile: signed-out delete→reload→restore, permanent-delete
+  confirmation/cancel, startup expiry, history preview/restore, and proof that
+  the pre-restore version remains.
+- Account browser desktop/mobile: tombstone pull, offline restore pending 1→0,
+  history upload/on-demand pull, permanent purge, empty remote content/history,
+  duplicate server snapshot ids across playlists, foreign history preservation,
+  and owner isolation. Mock only the HTTP boundary with generated identities.
+- Storage browser desktop/mobile: v5→v6 preserves queue and user playlists and
+  creates every history index; v6/v7 `versionchange`, blocked startup, conflicts,
+  and quota behavior remain green.
+- SQL/static: additive column/table, forced RLS, restricted grants, legacy and v2
+  RPCs, 30/90-day cleanup, 20-snapshot cap, 500 non-purged-row limit, and purge
+  rejection in legacy upsert/delete paths.
+- Release: cache revision, exact Pages artifact, complete `npm run verify`, and a
+  rollback preflight that rejects DB v5 after the current tree opens DB v6.
+
+### 7. Wrong vs Correct
+
+```js
+// Wrong: loses the only complete content and lets an old device recreate the id.
+await store.delete(playlistId);
+await cloudTable.delete().eq('playlist_id', playlistId);
+
+// Correct: preserve recoverable trash, then retain a content-free sync marker.
+await store.put({ ...playlist, deletedAt: Date.now(), purgedAt: 0 });
+await queueOutbox({ operation: 'delete', name: playlist.name, songs: playlist.songs });
+// A later confirmed purge clears content but keeps the original id marker.
+```
+
 ## Optional Account And Cloud Playlist Contract
 
 ### 1. Scope / Trigger
@@ -1222,14 +1374,15 @@ artifact and cannot hide a server secret in shipped JavaScript.
       -> js/cloud-sync.js
       -> public Supabase URL + publishable/anon key
       -> Auth session + RLS-protected playlist RPC
-      -> local CPlayer5DB v5 playlists/cloud_outbox
+      -> local CPlayer5DB v6 playlists/playlist_versions/cloud_outbox
 
 - Login is optional. An empty or invalid js/cloud-config.js must leave the
   player fully usable in local-only mode.
 - The official Supabase browser bundle is pinned, vendored, and loaded locally;
   the application must not depend on a runtime CDN.
-- CPlayer5DB opens at version 5. The additive cloud_outbox store has ownerId
-  and updatedAt indexes.
+- CPlayer5DB opens at version 6. The cloud_outbox store has ownerId and updatedAt
+  indexes; the additive playlist_versions store has playlistId, createdAt, and
+  cloudOwnerId indexes.
 
 ### 3. Contracts
 
@@ -1245,10 +1398,11 @@ artifact and cannot hide a server secret in shipped JavaScript.
 - A playlist mutation writes its local record and the matching owner-scoped
   outbox row in one readwrite transaction. Remote-applied writes remove the
   outbox row instead of creating a feedback loop.
-- Outbox operations are upsert or delete, carry an expected server version, and
-  are collapsed by owner plus playlist id. Each operation also carries a random
+- Outbox operations are upsert, delete, restore, or purge, carry an expected
+  server version, and are collapsed by owner plus playlist id. Each operation also carries a random
   `mutationId`; `updatedAt` is ordering metadata only and never identifies a
-  mutation. A delete is a cloud tombstone, not an untracked local hard delete.
+  mutation. A delete is a content-preserving cloud tombstone, not an untracked
+  local hard delete; a purge keeps a content-free marker.
 - Sync is local-first and single-flight. It runs after session restoration,
   explicit retry, a debounced local edit, and online recovery; it never delays
   the app-ready signal or playback.
@@ -1272,6 +1426,9 @@ artifact and cannot hide a server secret in shipped JavaScript.
   a dirty local version meeting a newer cloud row enters conflict and shows
   explicit “使用本机” and “使用云端” actions. No old row may silently replace
   a newer row.
+- Remote trash, restored rows, history snapshots, and purge markers obey the
+  Playlist Trash, History, And Purge Contract above. Restore/purge equality is
+  operation-sensitive, and a purged original id is never revived.
 - Only the current authenticated owner may be adopted or uploaded. A different
   account's owned local record is filtered and its outbox cannot flush under the
   new account.
@@ -1315,6 +1472,8 @@ artifact and cannot hide a server secret in shipped JavaScript.
 | Two-way edit creates conflicts | Show the real count and current position; never reduce it until an explicit resolution or a successful fresh pass proves it gone. |
 | Cloud list request fails | Preserve local/outbox data, show the last error and retry action; a later successful retry clears the error. |
 | A pass has remaining outbox or conflicts | Do not update last success and do not toast `歌单同步完成`. |
+| Remote row is trash or purged | Pull recoverable trash or a content-free marker; never silently discard unsynced local content. |
+| Offline restore or purge exists | Keep one durable owner outbox row and report the real pending count until confirmed. |
 
 ### 5. Tests Required
 
@@ -1326,12 +1485,16 @@ artifact and cannot hide a server secret in shipped JavaScript.
   reconnect, conflict choice, session reload/sign-out, deletion tombstone,
   foreign-owner isolation, account deletion retention, status entry summaries,
   real pending/conflict counts, persisted last success, and error retry.
+- Browser account coverage also includes trash pull, offline restore, history
+  upload/on-demand pull, permanent purge, and proof that purged cloud content and
+  history are empty.
 - Service Worker browser coverage must use a same-origin or routed cloud URL and
   prove authorized responses never enter the current or unrelated cache.
 - Browser coverage must include a same-id foreign-owner collision and prove the
   foreign local record remains intact.
 - SQL/static checks must assert RLS, owner policies, restricted RPC grants,
-  pinned vendor dependency, DB v5, a non-empty HTTPS production URL with a
+  pinned vendor dependency, DB v6, additive history schema/RLS/RPC grants, a
+  non-empty HTTPS production URL with a
   publishable/anon browser key, and no administrator credential. The local-only
   fallback remains covered by a test that explicitly injects an empty config.
 - Tests mock only the HTTP boundary with generated users, tokens, URLs, and
@@ -1339,6 +1502,6 @@ artifact and cannot hide a server secret in shipped JavaScript.
 
 ### 6. Rollback
 
-Once any user has opened DB v5, rollback targets that open v4 are unsafe. Run
-the command npm run check:rollback -- <ref> and retain DB version 5 in any
+Once any user has opened DB v6, rollback targets that open v5 are unsafe. Run
+the command npm run check:rollback -- <ref> and retain DB version 6 in any
 forward revert.

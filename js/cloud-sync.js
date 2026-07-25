@@ -1,9 +1,15 @@
 import { normalizeSongObject } from './core-utils.js';
 
 export const CLOUD_PLAYLIST_TABLE = 'cplayer_playlists';
+export const CLOUD_PLAYLIST_VERSION_TABLE = 'cplayer_playlist_versions';
 export const CLOUD_PLAYLIST_ID_PREFIX = 'user_pl_';
 export const CLOUD_MAX_PLAYLISTS = 500;
 export const CLOUD_MAX_SONGS = 10000;
+export const PLAYLIST_HISTORY_LIMIT = 20;
+export const PLAYLIST_TRASH_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+export const PLAYLIST_HISTORY_RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
+
+const PLAYLIST_VERSION_REASONS = new Set(['edit', 'delete', 'restore', 'remote']);
 
 const CLOUD_STATUS_META = Object.freeze({
     disabled: Object.freeze({ label: '未配置', visualState: 'disabled' }),
@@ -159,17 +165,110 @@ export function normalizeRemotePlaylist(row) {
     }
     const updatedAt = Date.parse(row.updated_at);
     const deletedAt = row.deleted_at == null ? 0 : Date.parse(row.deleted_at);
-    if (!Number.isFinite(updatedAt) || (row.deleted_at != null && !Number.isFinite(deletedAt))) {
+    const purgedAt = row.purged_at == null ? 0 : Date.parse(row.purged_at);
+    if (!Number.isFinite(updatedAt) ||
+        (row.deleted_at != null && !Number.isFinite(deletedAt)) ||
+        (row.purged_at != null && !Number.isFinite(purgedAt))) {
         throw new Error('云端歌单时间无效');
     }
+    if (purgedAt && !deletedAt) throw new Error('云端永久删除状态无效');
     return {
         id,
         name: cleanString(row.name, 100, true),
         songs: row.songs.map(normalizeCloudSong),
         version,
         updatedAt,
-        deletedAt
+        deletedAt,
+        purgedAt
     };
+}
+
+export function normalizePlaylistVersion(input) {
+    if (!isPlainRecord(input)) throw new Error('歌单历史格式错误');
+    const snapshotId = cleanString(input.snapshotId ?? input.snapshot_id ?? input.id, 200, true);
+    const id = cleanString(input.id ?? snapshotId, 1024, true);
+    const playlistId = cleanString(input.playlistId ?? input.playlist_id, 160, true);
+    if (!playlistId.startsWith(CLOUD_PLAYLIST_ID_PREFIX)) throw new Error('歌单历史 id 无效');
+    const rawCreatedAt = input.createdAt ?? input.created_at;
+    const createdAt = typeof rawCreatedAt === 'number' ? rawCreatedAt : Date.parse(rawCreatedAt);
+    if (!Number.isFinite(createdAt) || createdAt <= 0) throw new Error('歌单历史时间无效');
+    if (!Array.isArray(input.songs) || input.songs.length > CLOUD_MAX_SONGS) {
+        throw new Error('歌单历史歌曲数量无效');
+    }
+    const reason = PLAYLIST_VERSION_REASONS.has(input.reason) ? input.reason : 'edit';
+    return {
+        id,
+        playlistId,
+        name: cleanString(input.name, 100, true),
+        songs: input.songs.map(normalizeCloudSong),
+        createdAt,
+        reason,
+        snapshotId,
+        cloudOwnerId: typeof input.cloudOwnerId === 'string' ? input.cloudOwnerId : ''
+    };
+}
+
+export function selectRetainedPlaylistVersions(entries, now = Date.now()) {
+    const current = Number(now);
+    if (!Number.isFinite(current)) throw new Error('历史清理时间无效');
+    const cutoff = current - PLAYLIST_HISTORY_RETENTION_MS;
+    const seen = new Set();
+    return (Array.isArray(entries) ? entries : [])
+        .map(normalizePlaylistVersion)
+        .filter((entry) => entry.createdAt > cutoff && entry.createdAt <= current + 5 * 60 * 1000)
+        .sort((a, b) => b.createdAt - a.createdAt || b.id.localeCompare(a.id))
+        .filter((entry) => {
+            const snapshotKey = entry.playlistId + '\u0000' + entry.snapshotId;
+            if (seen.has(snapshotKey)) return false;
+            seen.add(snapshotKey);
+            return true;
+        })
+        .slice(0, PLAYLIST_HISTORY_LIMIT);
+}
+
+export function toCloudHistoryInput(entries, playlistId, now = Date.now()) {
+    const expectedPlaylistId = cleanString(playlistId, 160, true);
+    return selectRetainedPlaylistVersions(entries, now)
+        .filter((entry) => entry.playlistId === expectedPlaylistId)
+        .map((entry) => ({
+            snapshot_id: entry.snapshotId,
+            playlist_id: entry.playlistId,
+            name: entry.name,
+            songs: entry.songs,
+            reason: entry.reason,
+            created_at: new Date(entry.createdAt).toISOString()
+        }));
+}
+
+export function isPlaylistTrashExpired(deletedAt, now = Date.now()) {
+    const deleted = Number(deletedAt);
+    const current = Number(now);
+    return Number.isFinite(deleted) && deleted > 0 && Number.isFinite(current) &&
+        current >= deleted + PLAYLIST_TRASH_RETENTION_MS;
+}
+
+export function getPlaylistTrashRemainingDays(deletedAt, now = Date.now()) {
+    const deleted = Number(deletedAt);
+    const current = Number(now);
+    if (!Number.isFinite(deleted) || deleted <= 0 || !Number.isFinite(current)) return 0;
+    return Math.max(0, Math.ceil((deleted + PLAYLIST_TRASH_RETENTION_MS - current) / 86_400_000));
+}
+
+export function haveSamePlaylistContent(left, right) {
+    try {
+        const a = toCloudPlaylistInput(left);
+        const b = toCloudPlaylistInput(right);
+        return a.name === b.name && JSON.stringify(a.songs) === JSON.stringify(b.songs);
+    } catch (error) {
+        return false;
+    }
+}
+
+export function makeRecoveredPlaylistName(name) {
+    const suffix = '（已恢复）';
+    const base = cleanString(name || '未命名歌单', 100, true);
+    if (base.endsWith(suffix)) return base;
+    return base.slice(0, 100 - suffix.length).trimEnd() + suffix;
 }
 
 export function toCloudPlaylistInput(record) {
@@ -208,16 +307,49 @@ export function decidePlaylistSync(localRecord, remoteRecord, outboxRecord) {
     const outbox = outboxRecord || null;
 
     if (!remote) {
-        if (outbox && outbox.operation === 'delete') return { action: 'ack-delete' };
+        if (outbox && outbox.operation === 'delete') return { action: 'delete', expectedVersion: 0 };
+        if (outbox && outbox.operation === 'purge') return { action: 'ack-purge' };
         return local ? { action: 'push', expectedVersion: 0 } : { action: 'none' };
+    }
+
+    if (remote.purgedAt) {
+        if (outbox && outbox.operation === 'purge') return { action: 'ack-purge' };
+        const localVersion = Number(local && local.cloudVersion) || 0;
+        const dirty = !!(local && local.cloudDirty) || !!outbox;
+        if (local && Number(local.purgedAt) > 0 && !dirty && localVersion === remote.version) {
+            return { action: 'none' };
+        }
+        if (local && outbox && (outbox.operation === 'upsert' || outbox.operation === 'restore')) {
+            return { action: 'recover-copy' };
+        }
+        return local ? { action: 'pull-purge' } : { action: 'none' };
     }
 
     if (remote.deletedAt) {
         if (outbox && outbox.operation === 'delete') return { action: 'ack-delete' };
+        if (outbox && outbox.operation === 'purge') {
+            const expected = Number(outbox.expectedVersion) || 0;
+            return expected === remote.version
+                ? { action: 'purge', expectedVersion: remote.version }
+                : { action: 'conflict' };
+        }
         const localVersion = Number(local && local.cloudVersion) || 0;
         const dirty = !!(local && local.cloudDirty) || !!outbox;
+        if (local && outbox && outbox.operation === 'restore' &&
+            (Number(outbox.expectedVersion) || 0) === remote.version) {
+            return { action: 'push', expectedVersion: remote.version };
+        }
+        if (local && Number(local.deletedAt) > 0 && !Number(local.purgedAt) &&
+            !dirty && localVersion === remote.version) return { action: 'none' };
         if (local && dirty && remote.version > localVersion) return { action: 'conflict' };
         return local ? { action: 'pull-delete' } : { action: 'none' };
+    }
+
+    if (outbox && outbox.operation === 'purge') {
+        const expected = Number(outbox.expectedVersion) || 0;
+        return expected === remote.version
+            ? { action: 'purge', expectedVersion: remote.version }
+            : { action: 'conflict' };
     }
 
     if (!local) {
@@ -241,6 +373,11 @@ export function decidePlaylistSync(localRecord, remoteRecord, outboxRecord) {
             : { action: 'none' };
     }
     if (remote.version > localVersion) {
+        if (outbox && outbox.operation === 'restore') {
+            return haveSamePlaylistContent(local, remote)
+                ? { action: 'ack-restore' }
+                : { action: 'recover-copy' };
+        }
         return dirty ? { action: 'conflict' } : { action: 'pull' };
     }
     return { action: 'conflict' };
@@ -323,33 +460,81 @@ export class CPlayerCloudService {
     }
 
     async listPlaylists() {
-        const data = throwIfError(await this.client
-            .from(CLOUD_PLAYLIST_TABLE)
-            .select('playlist_id,name,songs,version,updated_at,deleted_at')
-            .order('updated_at', { ascending: true }));
-        if (!Array.isArray(data) || data.length > CLOUD_MAX_PLAYLISTS) {
-            throw new Error('云端歌单数量无效');
-        }
-        return data.map(normalizeRemotePlaylist);
+        const fields = 'playlist_id,name,songs,version,updated_at,deleted_at,purged_at';
+        const readRows = async (purged) => {
+            const rows = [];
+            const pageSize = 500;
+            for (let offset = 0; ; offset += pageSize) {
+                let query = this.client.from(CLOUD_PLAYLIST_TABLE).select(fields);
+                query = purged
+                    ? query.not('purged_at', 'is', null)
+                    : query.is('purged_at', null);
+                const page = throwIfError(await query
+                    .order('updated_at', { ascending: true })
+                    .order('playlist_id', { ascending: true })
+                    .range(offset, offset + pageSize - 1));
+                if (!Array.isArray(page)) throw new Error('云端歌单格式错误');
+                rows.push(...page);
+                if (!purged && rows.length > CLOUD_MAX_PLAYLISTS) {
+                    throw new Error('云端歌单数量无效');
+                }
+                if (purged && rows.length > 5000) throw new Error('云端删除标记数量异常');
+                if (page.length < pageSize) break;
+            }
+            return rows;
+        };
+        const [visible, purged] = await Promise.all([readRows(false), readRows(true)]);
+        return visible.concat(purged).map(normalizeRemotePlaylist);
     }
 
-    async upsertPlaylist(record, expectedVersion) {
+    async upsertPlaylist(record, expectedVersion, history = []) {
         const playlist = toCloudPlaylistInput(record);
-        const data = throwIfError(await this.client.rpc('sync_cplayer_playlist', {
+        const data = throwIfError(await this.client.rpc('sync_cplayer_playlist_v2', {
             p_playlist_id: playlist.id,
             p_name: playlist.name,
             p_songs: playlist.songs,
-            p_expected_version: Number(expectedVersion) || 0
+            p_expected_version: Number(expectedVersion) || 0,
+            p_history: toCloudHistoryInput(history, playlist.id)
         }));
         return normalizeRemotePlaylist(firstRpcRow(data));
     }
 
-    async deletePlaylist(playlistId, expectedVersion) {
-        const data = throwIfError(await this.client.rpc('delete_cplayer_playlist', {
+    async deletePlaylist(record, expectedVersion, history = []) {
+        const playlist = toCloudPlaylistInput(typeof record === 'string'
+            ? { id: record, name: '未命名歌单', songs: [] }
+            : record);
+        const data = throwIfError(await this.client.rpc('delete_cplayer_playlist_v2', {
+            p_playlist_id: playlist.id,
+            p_name: playlist.name,
+            p_songs: playlist.songs,
+            p_expected_version: Number(expectedVersion) || 0,
+            p_history: toCloudHistoryInput(history, playlist.id)
+        }));
+        return normalizeRemotePlaylist(firstRpcRow(data));
+    }
+
+    async purgePlaylist(playlistId, expectedVersion) {
+        const data = throwIfError(await this.client.rpc('purge_cplayer_playlist', {
             p_playlist_id: cleanString(playlistId, 160, true),
             p_expected_version: Number(expectedVersion) || 0
         }));
         return normalizeRemotePlaylist(firstRpcRow(data));
+    }
+
+    async cleanupPlaylistData() {
+        return throwIfError(await this.client.rpc('cleanup_cplayer_playlist_data'));
+    }
+
+    async listPlaylistVersions(playlistId) {
+        const id = cleanString(playlistId, 160, true);
+        const data = throwIfError(await this.client
+            .from(CLOUD_PLAYLIST_VERSION_TABLE)
+            .select('snapshot_id,playlist_id,name,songs,reason,created_at')
+            .eq('playlist_id', id)
+            .order('created_at', { ascending: false })
+            .limit(PLAYLIST_HISTORY_LIMIT));
+        if (!Array.isArray(data)) throw new Error('云端历史格式错误');
+        return data.map(normalizePlaylistVersion);
     }
 
     async deleteAccount() {

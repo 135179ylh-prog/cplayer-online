@@ -1106,11 +1106,23 @@
         .playlist-detail-icon-button:hover { background: rgba(255,255,255,.14); }
         .playlist-detail-icon-button:disabled { opacity: .28; cursor: not-allowed; }
         .playlist-detail-icon-button[data-detail-action="remove"] { color: #ffb5b5; border-color: rgba(255,100,100,.3); }
+        .playlist-history-layout {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+            min-height: 0;
+            overflow: hidden;
+        }
         @media (max-width: 420px) {
             .playlist-detail-row { grid-template-columns: 40px minmax(0, 1fr); gap: 8px; }
             .playlist-detail-cover { width: 40px; height: 40px; }
             .playlist-detail-actions { grid-column: 2; justify-content: flex-end; }
             .playlist-detail-icon-button { width: 44px; height: 44px; min-width: 44px; }
+        }
+        @media (max-width: 767px) {
+            .playlist-history-layout {
+                grid-template-columns: minmax(0, 1fr);
+                grid-template-rows: minmax(132px, 0.85fr) minmax(0, 1.15fr);
+            }
         }
 
         /* Music library: shared desktop/mobile modal with stable touch targets. */
@@ -2021,6 +2033,9 @@
                     <button id="libraryRecentTab" type="button" class="music-library-tab" role="tab" aria-selected="false" aria-controls="libraryRecentPanel">
                         最近播放 <span id="libraryRecentCount" class="ml-1 opacity-50">0</span>
                     </button>
+                    <button id="libraryTrashTab" type="button" class="music-library-tab" role="tab" aria-selected="false" aria-controls="libraryTrashPanel">
+                        回收站 <span id="libraryTrashCount" class="ml-1 opacity-50">0</span>
+                    </button>
                 </div>
                 <section id="libraryPlaylistsPanel" class="flex-1 min-h-0 flex flex-col" role="tabpanel" aria-labelledby="libraryPlaylistsTab">
                     <div class="flex flex-col gap-2 px-4 py-3 border-b border-white/10">
@@ -2054,6 +2069,12 @@
                     </div>
                     <div id="recentHistoryList" class="flex-1 min-h-0 overflow-y-auto custom-scrollbar px-4 pb-[max(12px,env(safe-area-inset-bottom))]"></div>
                 </section>
+                <section id="libraryTrashPanel" class="hidden flex-1 min-h-0 flex flex-col" role="tabpanel" aria-labelledby="libraryTrashTab">
+                    <div class="px-4 py-3 border-b border-white/10 text-xs opacity-60">
+                        删除的歌单保留 30 天。到期后会自动永久清理。
+                    </div>
+                    <div id="playlistTrashList" class="flex-1 min-h-0 overflow-y-auto custom-scrollbar px-4 pb-[max(12px,env(safe-area-inset-bottom))]" aria-live="polite"></div>
+                </section>
             </div>
         </div>
 
@@ -2078,12 +2099,41 @@
                         disabled>
                         <i class="fas fa-play mr-2" aria-hidden="true"></i>播放整单
                     </button>
+                    <button id="playlistDetailHistoryBtn" type="button" data-detail-action="history"
+                        data-unavailable="0" class="px-3 min-h-[44px] rounded-lg bg-white/10 text-sm font-medium">
+                        <i class="fas fa-history mr-2" aria-hidden="true"></i>历史版本
+                    </button>
                     <span class="text-xs opacity-45">使用下方箭头调整顺序</span>
                 </div>
                 <div id="playlistDetailStatus" class="sr-only" aria-live="polite"></div>
                 <div id="playlistDetailList" class="flex-1 min-h-0 overflow-y-auto custom-scrollbar p-2 pb-[max(12px,env(safe-area-inset-bottom))]"></div>
             </div>
         </div>
-</body>
+
+        <!-- 歌单历史版本：叠加在歌单详情之上，沿用统一焦点栈 -->
+        <div id="playlistHistoryModal" class="fixed inset-0 hidden items-center justify-center bg-black/60 px-2" inert
+            style="z-index:2147483002;display:none;" role="dialog" aria-modal="true"
+            aria-hidden="true" aria-labelledby="playlistHistoryTitle" aria-describedby="playlistHistoryStatus">
+            <div class="playlist-detail-dialog">
+                <div class="flex items-center justify-between gap-3 px-4 py-3 border-b border-white/10">
+                    <div class="min-w-0">
+                        <div id="playlistHistoryTitle" class="font-semibold text-base truncate">历史版本</div>
+                        <div class="text-xs opacity-50 mt-0.5">最多 20 个，最长保留 90 天</div>
+                    </div>
+                    <button id="closePlaylistHistoryBtn" type="button" class="playlist-detail-icon-button flex-none"
+                        aria-label="关闭历史版本" title="关闭">
+                        <i class="fas fa-times" aria-hidden="true"></i>
+                    </button>
+                </div>
+                <div id="playlistHistoryStatus" class="sr-only" aria-live="polite"></div>
+                <div class="playlist-history-layout flex-1 min-h-0">
+                    <div id="playlistHistoryList" role="region" aria-label="历史版本列表" tabindex="0" class="min-h-0 overflow-y-auto custom-scrollbar p-3 border-b md:border-b-0 md:border-r border-white/10"></div>
+                    <div id="playlistHistoryPreview" role="region" aria-label="历史版本预览" tabindex="0" class="min-h-0 overflow-y-auto custom-scrollbar p-3" aria-live="polite">
+                        <div class="h-full min-h-32 flex items-center justify-center text-center text-sm opacity-50">先选择一个版本预览</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </body>
 
 </html>

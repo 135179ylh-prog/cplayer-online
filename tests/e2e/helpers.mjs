@@ -534,7 +534,7 @@ export async function waitForAppReady(page) {
 // real storage, not just in-memory state. Returns null when absent.
 export async function readQueueRecord(page) {
     return page.evaluate(() => new Promise((resolve, reject) => {
-        const open = indexedDB.open('CPlayer5DB', 5);
+        const open = indexedDB.open('CPlayer5DB', 6);
         open.onerror = () => reject(open.error);
         open.onsuccess = () => {
             const db = open.result;
@@ -549,20 +549,55 @@ export async function readQueueRecord(page) {
 // List only the user-playlist records (id prefix user_pl_) from IndexedDB.
 export async function readUserPlaylists(page) {
     return page.evaluate(() => new Promise((resolve, reject) => {
-        const open = indexedDB.open('CPlayer5DB', 5);
+        const open = indexedDB.open('CPlayer5DB', 6);
         open.onerror = () => reject(open.error);
         open.onsuccess = () => {
             const db = open.result;
             const tx = db.transaction('playlists', 'readonly');
             const all = tx.objectStore('playlists').getAll();
             all.onsuccess = () => {
-                const rows = (all.result || []).filter((r) => String(r.id).startsWith('user_pl_'));
+                const rows = (all.result || []).filter((r) =>
+                    String(r.id).startsWith('user_pl_') && !Number(r.deletedAt) && !Number(r.purgedAt)
+                );
                 resolve(rows);
                 db.close();
             };
             all.onerror = () => { reject(all.error); db.close(); };
         };
     }));
+}
+
+export async function readTrashPlaylists(page) {
+    return page.evaluate(() => new Promise((resolve, reject) => {
+        const open = indexedDB.open('CPlayer5DB', 6);
+        open.onerror = () => reject(open.error);
+        open.onsuccess = () => {
+            const db = open.result;
+            const tx = db.transaction('playlists', 'readonly');
+            const all = tx.objectStore('playlists').getAll();
+            all.onsuccess = () => {
+                resolve((all.result || []).filter((record) =>
+                    String(record.id).startsWith('user_pl_') && Number(record.deletedAt) > 0 && !Number(record.purgedAt)
+                ));
+                db.close();
+            };
+            all.onerror = () => { reject(all.error); db.close(); };
+        };
+    }));
+}
+
+export async function readPlaylistVersions(page, playlistId) {
+    return page.evaluate((id) => new Promise((resolve, reject) => {
+        const open = indexedDB.open('CPlayer5DB', 6);
+        open.onerror = () => reject(open.error);
+        open.onsuccess = () => {
+            const db = open.result;
+            const tx = db.transaction('playlist_versions', 'readonly');
+            const all = tx.objectStore('playlist_versions').index('playlistId').getAll(IDBKeyRange.only(id));
+            all.onsuccess = () => { resolve(all.result || []); db.close(); };
+            all.onerror = () => { reject(all.error); db.close(); };
+        };
+    }), playlistId);
 }
 
 // Open the shared music-library modal (desktop + mobile use the same element).

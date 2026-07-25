@@ -1,0 +1,3 @@
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"IndexedDB、账号云同步、响应式无障碍、Pages 产物和回退合同"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"回收站与历史跨本机存储、同步服务、SQL 和界面的数据契约"}
+{"file":".trellis/tasks/07-25-playlist-trash-history/research.md","reason":"现有实现证据、MVP 取舍和风险"}

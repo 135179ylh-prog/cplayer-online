@@ -2,6 +2,7 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { posix, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { parse } from 'acorn';
 import { parse as parseHtml } from 'parse5';
 import { PAGE_DIRECTORIES, PAGE_FILES } from './build-pages-artifact.mjs';
@@ -35,6 +36,15 @@ const DYNAMIC_CAPABILITY_PROPERTIES = new Set([
     'indexedDB', 'eval', 'Function', 'setTimeout', 'setInterval', 'importScripts',
     'write', 'writeln', 'open', 'location'
 ]);
+const TRUSTED_DYNAMIC_RUNTIME_SHA256 = new Map([
+    ['js/vendor/supabase.js', 'c9b013095c5962314028218f22631a6a3dd1424fd8622f67379622be3cdb5f6d']
+]);
+
+export function isTrustedDynamicRuntimeSource(path, source) {
+    const expected = TRUSTED_DYNAMIC_RUNTIME_SHA256.get(String(path || '').replace(/\\/g, '/'));
+    if (!expected || typeof source !== 'string') return false;
+    return createHash('sha256').update(source, 'utf8').digest('hex') === expected;
+}
 
 function scriptMode(rawType) {
     const type = String(rawType || '').trim().toLowerCase().split(';', 1)[0].trim();
@@ -1086,6 +1096,7 @@ function discoverUnstableGlobalBindings(records) {
 }
 
 function inspectScriptRecords(records) {
+    records = records.filter((record) => record.trustedDynamic !== true);
     const state = createInspectionState();
     const classicRecords = records.filter((record) => record.mode === 'script');
     const classicScope = createScope(null, {
@@ -1142,7 +1153,13 @@ function inspectHtmlDocument(html, options) {
             if (typeof options.loadScript !== 'function') {
                 throw new Error(`Rollback target has an external script that cannot be inspected: ${record.src}`);
             }
-            record.body = options.loadScript(record.src);
+            const loaded = options.loadScript(record.src);
+            if (typeof loaded === 'string') {
+                record.body = loaded;
+            } else {
+                record.body = loaded && typeof loaded.body === 'string' ? loaded.body : '';
+                record.trustedDynamic = loaded && loaded.trustedDynamic === true;
+            }
         }
     }
     return mergeDatabaseVersions([
@@ -1234,6 +1251,7 @@ function mergeDatabaseVersions(values) {
 }
 
 function extractDeployableJavaScriptVersion(source, path) {
+    if (isTrustedDynamicRuntimeSource(path, source)) return null;
     const modes = /\.mjs$/i.test(path) ? ['module'] : ['script', 'module'];
     const versions = [];
     const parseErrors = [];
@@ -1301,7 +1319,11 @@ export function readCurrentDatabaseVersion(root = ROOT) {
             loadedScripts.add(path);
             const absolutePath = resolve(root, path);
             if (!existsSync(absolutePath)) throw new Error(`Current tree is missing script ${path}.`);
-            return readFileSync(absolutePath, 'utf8');
+            const source = readFileSync(absolutePath, 'utf8');
+            return {
+                body: source,
+                trustedDynamic: isTrustedDynamicRuntimeSource(path, source)
+            };
         };
         versions.push(extractDatabaseVersion(readFileSync(resolve(root, htmlPath), 'utf8'), {
             sourceKind: 'html',
@@ -1341,7 +1363,10 @@ export function readTargetDatabaseVersion(ref, cwd = ROOT) {
             loadedScripts.add(path);
             const result = runGit(['show', `${ref}:${path}`], cwd);
             if (result.status !== 0) throw new Error(`Rollback target is missing script ${path}.`);
-            return result.stdout;
+            return {
+                body: result.stdout,
+                trustedDynamic: isTrustedDynamicRuntimeSource(path, result.stdout)
+            };
         };
         versions.push(extractDatabaseVersion(entry.stdout, { sourceKind: 'html', loadScript }));
     }

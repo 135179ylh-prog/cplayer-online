@@ -4,6 +4,8 @@ import {
     closeSettings,
     openLibrary,
     openSettings,
+    readPlaylistVersions,
+    readTrashPlaylists,
     readUserPlaylists,
     waitForAppReady
 } from './helpers.mjs';
@@ -76,15 +78,26 @@ function makeSession(userId, email) {
     };
 }
 
-function makeRemoteRow(id, name, songs, version = 1, deletedAt = null) {
+function makeRemoteRow(id, name, songs, version = 1, deletedAt = null, purgedAt = null) {
     return {
         playlist_id: id,
         name,
         songs,
         version,
         updated_at: new Date(Date.now() + version).toISOString(),
-        deleted_at: deletedAt
+        deleted_at: deletedAt,
+        purged_at: purgedAt
     };
+}
+
+function canonicalJson(value) {
+    if (Array.isArray(value)) return value.map(canonicalJson);
+    if (!value || typeof value !== 'object') return value;
+    return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonicalJson(value[key])]));
+}
+
+function sameJson(left, right) {
+    return JSON.stringify(canonicalJson(left)) === JSON.stringify(canonicalJson(right));
 }
 
 async function fulfillJson(route, status, body) {
@@ -109,6 +122,7 @@ async function installCloudMock(page, options = {}) {
         email: options.email || TEST_EMAIL,
         signUpSession: options.signUpSession === true,
         playlistListUnavailable: options.playlistListUnavailable === true,
+        history: Array.isArray(options.history) ? options.history.map((row) => ({ ...row })) : [],
         accountDeleted: false
     };
     await page.route(CLOUD_URL + '/**', async (route) => {
@@ -174,17 +188,55 @@ async function installCloudMock(page, options = {}) {
                 await fulfillJson(route, 400, { message: 'network timeout' });
                 return;
             }
-            await fulfillJson(route, 200, state.rows);
+            const filter = url.searchParams.get('purged_at') || '';
+            const rows = filter.includes('not.')
+                ? state.rows.filter((row) => row.purged_at)
+                : state.rows.filter((row) => !row.purged_at);
+            await fulfillJson(route, 200, rows);
             return;
         }
 
-        if (url.pathname.endsWith('/rest/v1/rpc/sync_cplayer_playlist')) {
+        if (url.pathname.endsWith('/rest/v1/cplayer_playlist_versions') && request.method() === 'GET') {
+            const filter = url.searchParams.get('playlist_id') || '';
+            const playlistId = filter.startsWith('eq.') ? filter.slice(3) : '';
+            await fulfillJson(route, 200, state.history
+                .filter((row) => !playlistId || row.playlist_id === playlistId)
+                .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))
+                .slice(0, 20));
+            return;
+        }
+
+        if (url.pathname.endsWith('/rest/v1/rpc/sync_cplayer_playlist') ||
+            url.pathname.endsWith('/rest/v1/rpc/sync_cplayer_playlist_v2')) {
             const body = request.postDataJSON() || {};
             const expected = Number(body.p_expected_version || 0);
             const existing = state.rows.find((row) => row.playlist_id === body.p_playlist_id);
-            if ((existing && expected === 0) || (existing && existing.version !== expected)) {
+            if ((existing && expected === 0) || (existing && existing.version !== expected) || existing?.purged_at) {
                 await fulfillJson(route, 409, { code: 'P0001', message: 'cplayer_playlist_conflict' });
                 return;
+            }
+            for (const entry of Array.isArray(body.p_history) ? body.p_history : []) {
+                if (!state.history.some((row) => row.playlist_id === body.p_playlist_id && row.snapshot_id === entry.snapshot_id)) {
+                    state.history.push({ ...entry, playlist_id: body.p_playlist_id });
+                }
+            }
+            if (existing && !existing.purged_at) {
+                const snapshotId = 'server-' + existing.version;
+                const alreadyRecoverable = state.history.some((row) =>
+                    row.playlist_id === existing.playlist_id && row.name === existing.name &&
+                    sameJson(row.songs, existing.songs)
+                );
+                if (!alreadyRecoverable && !state.history.some((row) =>
+                    row.playlist_id === existing.playlist_id && row.snapshot_id === snapshotId)) {
+                    state.history.push({
+                        playlist_id: existing.playlist_id,
+                        snapshot_id: snapshotId,
+                        name: existing.name,
+                        songs: existing.songs,
+                        reason: 'edit',
+                        created_at: existing.updated_at
+                    });
+                }
             }
             const row = makeRemoteRow(
                 body.p_playlist_id,
@@ -198,18 +250,43 @@ async function installCloudMock(page, options = {}) {
             return;
         }
 
-        if (url.pathname.endsWith('/rest/v1/rpc/delete_cplayer_playlist')) {
+        if (url.pathname.endsWith('/rest/v1/rpc/delete_cplayer_playlist') ||
+            url.pathname.endsWith('/rest/v1/rpc/delete_cplayer_playlist_v2')) {
             const body = request.postDataJSON() || {};
             const existing = state.rows.find((row) => row.playlist_id === body.p_playlist_id);
-            if (!existing || existing.version !== Number(body.p_expected_version || 0)) {
+            const expected = Number(body.p_expected_version || 0);
+            if ((existing && existing.version !== expected) || existing?.purged_at || (!existing && expected !== 0)) {
                 await fulfillJson(route, 409, { code: 'P0001', message: 'cplayer_playlist_conflict' });
                 return;
             }
+            for (const entry of Array.isArray(body.p_history) ? body.p_history : []) {
+                if (!state.history.some((row) => row.playlist_id === body.p_playlist_id && row.snapshot_id === entry.snapshot_id)) {
+                    state.history.push({ ...entry, playlist_id: body.p_playlist_id });
+                }
+            }
+            if (existing && !existing.purged_at) {
+                const snapshotId = 'server-' + existing.version;
+                const alreadyRecoverable = state.history.some((item) =>
+                    item.playlist_id === existing.playlist_id && item.name === existing.name &&
+                    sameJson(item.songs, existing.songs)
+                );
+                if (!alreadyRecoverable && !state.history.some((item) =>
+                    item.playlist_id === existing.playlist_id && item.snapshot_id === snapshotId)) {
+                    state.history.push({
+                        playlist_id: existing.playlist_id,
+                        snapshot_id: snapshotId,
+                        name: existing.name,
+                        songs: existing.songs,
+                        reason: 'delete',
+                        created_at: existing.updated_at
+                    });
+                }
+            }
             const row = makeRemoteRow(
-                existing.playlist_id,
-                existing.name,
-                existing.songs,
-                existing.version + 1,
+                body.p_playlist_id,
+                body.p_name || existing?.name || '未命名歌单',
+                body.p_songs || existing?.songs || [],
+                existing ? existing.version + 1 : 1,
                 new Date().toISOString()
             );
             state.rows = state.rows.filter((item) => item.playlist_id !== row.playlist_id);
@@ -218,9 +295,41 @@ async function installCloudMock(page, options = {}) {
             return;
         }
 
+        if (url.pathname.endsWith('/rest/v1/rpc/purge_cplayer_playlist')) {
+            const body = request.postDataJSON() || {};
+            const existing = state.rows.find((row) => row.playlist_id === body.p_playlist_id);
+            if (!existing || existing.version !== Number(body.p_expected_version || 0) || existing.purged_at) {
+                await fulfillJson(route, 409, { code: 'P0001', message: 'cplayer_playlist_conflict' });
+                return;
+            }
+            const now = new Date().toISOString();
+            const row = makeRemoteRow(existing.playlist_id, '已永久删除', [], existing.version + 1,
+                existing.deleted_at || now, now);
+            state.rows = state.rows.filter((item) => item.playlist_id !== row.playlist_id);
+            state.rows.push(row);
+            state.history = state.history.filter((item) => item.playlist_id !== row.playlist_id);
+            await fulfillJson(route, 200, [row]);
+            return;
+        }
+
+        if (url.pathname.endsWith('/rest/v1/rpc/cleanup_cplayer_playlist_data')) {
+            const cutoff = Date.now() - 30 * 86_400_000;
+            let cleaned = 0;
+            state.rows = state.rows.map((row) => {
+                if (!row.deleted_at || row.purged_at || Date.parse(row.deleted_at) > cutoff) return row;
+                cleaned += 1;
+                const now = new Date().toISOString();
+                state.history = state.history.filter((item) => item.playlist_id !== row.playlist_id);
+                return makeRemoteRow(row.playlist_id, '已永久删除', [], row.version + 1, row.deleted_at, now);
+            });
+            await fulfillJson(route, 200, cleaned);
+            return;
+        }
+
         if (url.pathname.endsWith('/rest/v1/rpc/delete_cplayer_account')) {
             state.accountDeleted = true;
             state.rows = [];
+            state.history = [];
             await route.fulfill({ status: 204, headers: { 'Access-Control-Allow-Origin': '*' } });
             return;
         }
@@ -249,7 +358,7 @@ async function seedPlaylist(page, record) {
     await page.goto('/playlist-downloader.html');
     await page.evaluate(async (value) => {
         await new Promise((resolve, reject) => {
-            const request = indexedDB.open('CPlayer5DB', 5);
+            const request = indexedDB.open('CPlayer5DB', 6);
             request.onupgradeneeded = () => {
                 const database = request.result;
                 if (!database.objectStoreNames.contains('playlists')) {
@@ -267,6 +376,12 @@ async function seedPlaylist(page, record) {
                     store.createIndex('ownerId', 'ownerId');
                     store.createIndex('updatedAt', 'updatedAt');
                 }
+                if (!database.objectStoreNames.contains('playlist_versions')) {
+                    const store = database.createObjectStore('playlist_versions', { keyPath: 'id' });
+                    store.createIndex('playlistId', 'playlistId');
+                    store.createIndex('createdAt', 'createdAt');
+                    store.createIndex('cloudOwnerId', 'cloudOwnerId');
+                }
             };
             request.onerror = () => reject(request.error);
             request.onsuccess = () => {
@@ -282,7 +397,7 @@ async function seedPlaylist(page, record) {
 
 async function readCloudStorage(page) {
     return page.evaluate(() => new Promise((resolve, reject) => {
-        const request = indexedDB.open('CPlayer5DB', 5);
+        const request = indexedDB.open('CPlayer5DB', 6);
         request.onerror = () => reject(request.error);
         request.onsuccess = () => {
             const database = request.result;
@@ -531,7 +646,7 @@ test('sync error keeps pending data visible and succeeds through retry', async (
     expect(mock.rows.some((row) => row.name === '等待重试')).toBe(true);
 });
 
-test('playlist deletion writes a cloud tombstone before clearing local pending work', async ({ page }) => {
+test('trash restore works offline and permanent delete converges to a content-free marker', async ({ page, context }) => {
     const local = {
         id: 'user_pl_local',
         name: '待删除歌单',
@@ -544,6 +659,41 @@ test('playlist deletion writes a cloud tombstone before clearing local pending w
     const remote = makeRemoteRow('user_pl_local', '待删除歌单', [LOCAL_SONG], 1);
     const mock = await openConfiguredApp(page, { rows: [remote] }, local);
     await submitSignIn(page);
+    const foreignHistoryOwner = 'foreign-history-' + randomUUID();
+    await page.evaluate(({ foreignHistoryOwner, currentOwner, localSong, remoteSong }) => new Promise((resolve, reject) => {
+        const open = indexedDB.open('CPlayer5DB', 6);
+        open.onerror = () => reject(open.error);
+        open.onsuccess = () => {
+            const database = open.result;
+            const tx = database.transaction('playlist_versions', 'readwrite');
+            const store = tx.objectStore('playlist_versions');
+            store.put({
+                id: 'own-history-before-purge',
+                playlistId: 'user_pl_local',
+                name: '本账号历史',
+                songs: [localSong],
+                createdAt: Date.now() - 2000,
+                reason: 'edit',
+                cloudOwnerId: currentOwner
+            });
+            store.put({
+                id: 'foreign-history-must-survive',
+                playlistId: 'user_pl_local',
+                name: '其他账号历史',
+                songs: [remoteSong],
+                createdAt: Date.now() - 1000,
+                reason: 'edit',
+                cloudOwnerId: foreignHistoryOwner
+            });
+            tx.oncomplete = () => { database.close(); resolve(); };
+            tx.onerror = () => { database.close(); reject(tx.error); };
+        };
+    }), {
+        foreignHistoryOwner,
+        currentOwner: TEST_USER_ID,
+        localSong: LOCAL_SONG,
+        remoteSong: REMOTE_SONG
+    });
     await closeSettings(page);
     await openLibrary(page);
     page.once('dialog', (dialog) => dialog.accept());
@@ -552,7 +702,155 @@ test('playlist deletion writes a cloud tombstone before clearing local pending w
     await expect.poll(() => mock.rows.find((row) => row.playlist_id === 'user_pl_local')?.deleted_at || null)
         .not.toBeNull();
     await expect.poll(async () => (await readCloudStorage(page)).outbox.length).toBe(0);
-    expect((await readCloudStorage(page)).playlist).toBeNull();
+    const stored = (await readCloudStorage(page)).playlist;
+    expect(stored.name).toBe('待删除歌单');
+    expect(stored.songs).toEqual([LOCAL_SONG]);
+    expect(stored.deletedAt).toBeGreaterThan(0);
+    expect(stored.purgedAt).toBe(0);
+    expect(await readTrashPlaylists(page)).toHaveLength(1);
+
+    await page.getByRole('tab', { name: /回收站/ }).click();
+    await context.setOffline(true);
+    try {
+        await page.getByRole('button', { name: '恢复歌单「待删除歌单」' }).click();
+        await expect.poll(async () => (await readUserPlaylists(page)).length).toBe(1);
+        await expect(page.locator('html')).toHaveAttribute('data-cplayer-cloud-pending', '1');
+    } finally {
+        await context.setOffline(false);
+    }
+    await expect.poll(() => {
+        const row = mock.rows.find((item) => item.playlist_id === 'user_pl_local');
+        return row ? row.deleted_at : 'missing';
+    })
+        .toBeNull();
+    await expect.poll(() => page.evaluate(() => document.documentElement.dataset.cplayerCloudState)).toBe('synced');
+
+    await page.getByRole('tab', { name: /我的歌单/ }).click();
+    page.once('dialog', (dialog) => dialog.accept());
+    await page.getByRole('button', { name: '删除歌单「待删除歌单」' }).click();
+    await expect.poll(() => mock.rows.find((row) => row.playlist_id === 'user_pl_local')?.deleted_at || null)
+        .not.toBeNull();
+    await page.getByRole('tab', { name: /回收站/ }).click();
+    page.once('dialog', (dialog) => dialog.accept());
+    await page.getByRole('button', { name: '永久删除歌单「待删除歌单」' }).click();
+    await expect.poll(() => mock.rows.find((row) => row.playlist_id === 'user_pl_local')?.purged_at || null)
+        .not.toBeNull();
+    const purgedRemote = mock.rows.find((row) => row.playlist_id === 'user_pl_local');
+    expect(purgedRemote.name).toBe('已永久删除');
+    expect(purgedRemote.songs).toEqual([]);
+    expect(mock.history.filter((entry) => entry.playlist_id === 'user_pl_local')).toEqual([]);
+    await expect.poll(async () => (await readCloudStorage(page)).outbox.length).toBe(0);
+    const purgedLocal = (await readCloudStorage(page)).playlist;
+    expect(purgedLocal.name).toBe('已永久删除');
+    expect(purgedLocal.songs).toEqual([]);
+    expect(purgedLocal.purgedAt).toBeGreaterThan(0);
+    const retainedLocalHistory = await readPlaylistVersions(page, 'user_pl_local');
+    expect(retainedLocalHistory).toHaveLength(1);
+    expect(retainedLocalHistory[0]).toMatchObject({
+        id: 'foreign-history-must-survive',
+        cloudOwnerId: foreignHistoryOwner
+    });
+});
+
+test('playlist history uploads safely and can be pulled on demand by another device state', async ({ page }) => {
+    const local = {
+        id: 'user_pl_local',
+        name: '跨设备历史',
+        songs: [LOCAL_SONG],
+        timestamp: Date.now(),
+        cloudOwnerId: TEST_USER_ID,
+        cloudVersion: 1,
+        cloudDirty: false
+    };
+    const remote = makeRemoteRow('user_pl_local', '跨设备历史', [LOCAL_SONG], 1);
+    const mock = await openConfiguredApp(page, { rows: [remote] }, local);
+    await submitSignIn(page);
+    await closeSettings(page);
+    await openLibrary(page);
+
+    await page.evaluate((song) => window.openAddToPlaylistModal(song), REMOTE_SONG);
+    await page.getByRole('button', { name: /跨设备历史 \d+ 首 加入/ }).click();
+    await expect.poll(async () => (await readUserPlaylists(page))[0].songs.length).toBe(2);
+    await expect.poll(() => page.evaluate(() => document.documentElement.dataset.cplayerCloudState)).toBe('synced');
+    await expect.poll(() => mock.history.filter((entry) => entry.playlist_id === 'user_pl_local').length).toBe(1);
+    expect(JSON.stringify(mock.history)).not.toContain('apikey');
+
+    await page.evaluate(() => new Promise((resolve, reject) => {
+        const open = indexedDB.open('CPlayer5DB', 6);
+        open.onerror = () => reject(open.error);
+        open.onsuccess = () => {
+            const database = open.result;
+            const tx = database.transaction('playlist_versions', 'readwrite');
+            tx.objectStore('playlist_versions').clear();
+            tx.oncomplete = () => { database.close(); resolve(); };
+            tx.onerror = () => { database.close(); reject(tx.error); };
+        };
+    }));
+    expect(await readPlaylistVersions(page, 'user_pl_local')).toEqual([]);
+
+    await page.getByRole('button', { name: '管理歌单「跨设备历史」' }).click();
+    await page.getByRole('button', { name: '历史版本' }).click();
+    await expect(page.locator('#playlistHistoryList button')).toHaveCount(1);
+    await page.locator('#playlistHistoryList button').click();
+    await expect(page.locator('#playlistHistoryPreview')).toContainText('本地同步歌曲');
+    await expect.poll(async () => (await readPlaylistVersions(page, 'user_pl_local')).length).toBe(1);
+});
+
+test('remote server snapshot ids remain isolated across different playlists', async ({ page }) => {
+    const firstLocal = {
+        id: 'user_pl_local',
+        name: '历史隔离甲',
+        songs: [LOCAL_SONG],
+        timestamp: Date.now(),
+        cloudOwnerId: TEST_USER_ID,
+        cloudVersion: 1,
+        cloudDirty: false
+    };
+    const firstRemote = makeRemoteRow('user_pl_local', '历史隔离甲', [LOCAL_SONG], 1);
+    const secondRemote = makeRemoteRow('user_pl_second', '历史隔离乙', [REMOTE_SONG], 1);
+    const createdAt = new Date(Date.now() - 10_000).toISOString();
+    await openConfiguredApp(page, {
+        rows: [firstRemote, secondRemote],
+        history: [
+            {
+                playlist_id: 'user_pl_local',
+                snapshot_id: 'server-1',
+                name: '甲的旧版本',
+                songs: [LOCAL_SONG],
+                reason: 'edit',
+                created_at: createdAt
+            },
+            {
+                playlist_id: 'user_pl_second',
+                snapshot_id: 'server-1',
+                name: '乙的旧版本',
+                songs: [REMOTE_SONG],
+                reason: 'edit',
+                created_at: createdAt
+            }
+        ]
+    }, firstLocal);
+    await submitSignIn(page);
+    await closeSettings(page);
+    await openLibrary(page);
+
+    await page.getByRole('button', { name: '管理歌单「历史隔离甲」' }).click();
+    await page.getByRole('button', { name: '历史版本' }).click();
+    await expect(page.locator('#playlistHistoryList button')).toHaveCount(1);
+    await page.locator('#closePlaylistHistoryBtn').click();
+    await page.locator('#closePlaylistDetailBtn').click();
+
+    await page.getByRole('button', { name: '管理歌单「历史隔离乙」' }).click();
+    await page.getByRole('button', { name: '历史版本' }).click();
+    await expect(page.locator('#playlistHistoryList button')).toHaveCount(1);
+
+    const firstHistory = await readPlaylistVersions(page, 'user_pl_local');
+    const secondHistory = await readPlaylistVersions(page, 'user_pl_second');
+    expect(firstHistory).toHaveLength(1);
+    expect(secondHistory).toHaveLength(1);
+    expect(firstHistory[0].snapshotId).toBe('server-1');
+    expect(secondHistory[0].snapshotId).toBe('server-1');
+    expect(firstHistory[0].id).not.toBe(secondHistory[0].id);
 });
 
 test('account deletion removes cloud state and retains a device-local playlist', async ({ page }) => {

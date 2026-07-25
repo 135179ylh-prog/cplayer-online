@@ -262,6 +262,15 @@ test('nested playlist detail closes only the top dialog', async ({ page }, testI
     const libraryTrigger = page.locator(isMobileProject(testInfo) ? '#myPlaylistsBtn' : '#musicLibraryBtn');
     await libraryTrigger.click();
     await expect(page.locator('#myPlaylistsModal')).toBeVisible();
+    const libraryTabs = page.locator('#myPlaylistsModal [role="tablist"] [role="tab"]');
+    await expect(libraryTabs).toHaveCount(3);
+    await page.locator('#libraryPlaylistsTab').focus();
+    await page.keyboard.press('ArrowRight');
+    await expect(page.locator('#libraryRecentTab')).toBeFocused();
+    await page.keyboard.press('ArrowRight');
+    await expect(page.locator('#libraryTrashTab')).toBeFocused();
+    await page.keyboard.press('Home');
+    await expect(page.locator('#libraryPlaylistsTab')).toBeFocused();
     await page.locator('#myNewPlaylistName').fill('无障碍测试歌单');
     await page.locator('#myCreatePlaylistBtn').click();
     const manage = page.getByRole('button', { name: '管理歌单「无障碍测试歌单」' });
@@ -269,6 +278,16 @@ test('nested playlist detail closes only the top dialog', async ({ page }, testI
     await manage.click();
     await expect(page.locator('#playlistDetailModal')).toBeVisible();
     await expect(page.locator('#closePlaylistDetailBtn')).toBeFocused();
+
+    await page.locator('#playlistDetailHistoryBtn').click();
+    await expect(page.locator('#playlistHistoryModal')).toBeVisible();
+    await expect(page.locator('#closePlaylistHistoryBtn')).toBeFocused();
+    await expectNoSeriousAxeViolations(page, '#playlistHistoryModal');
+
+    await page.keyboard.press('Escape');
+    await expect(page.locator('#playlistHistoryModal')).toBeHidden();
+    await expect(page.locator('#playlistDetailModal')).toBeVisible();
+    await expect(page.locator('#playlistDetailHistoryBtn')).toBeFocused();
 
     await page.keyboard.press('Escape');
     await expect(page.locator('#playlistDetailModal')).toBeHidden();

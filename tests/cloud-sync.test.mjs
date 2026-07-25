@@ -4,12 +4,19 @@ import {
     CPlayerCloudService,
     decidePlaylistSync,
     formatCloudLastSuccessfulAt,
+    getPlaylistTrashRemainingDays,
+    haveSamePlaylistContent,
     isCloudConflictError,
+    isPlaylistTrashExpired,
     isSameCloudMutation,
+    makeRecoveredPlaylistName,
     makeCloudOutboxId,
     normalizeCloudConfig,
+    normalizePlaylistVersion,
     normalizeRemotePlaylist,
     projectCloudSyncStatus,
+    selectRetainedPlaylistVersions,
+    toCloudHistoryInput,
     toCloudPlaylistInput
 } from '../js/cloud-sync.js';
 
@@ -31,6 +38,7 @@ function remoteRow(overrides = {}) {
         version: 1,
         updated_at: '2026-07-23T00:00:00.000Z',
         deleted_at: null,
+        purged_at: null,
         ...overrides
     };
 }
@@ -173,10 +181,162 @@ test('remote tombstones pull clean deletes but conflict with dirty local edits',
         null
     ), { action: 'pull-delete' });
     assert.deepEqual(decidePlaylistSync(
+        { id: 'user_pl_demo', cloudVersion: 3, cloudDirty: false, deletedAt: Date.now() },
+        tombstone,
+        null
+    ), { action: 'none' });
+    assert.deepEqual(decidePlaylistSync(
         { id: 'user_pl_demo', cloudVersion: 2, cloudDirty: true },
         tombstone,
         { operation: 'upsert' }
     ), { action: 'conflict' });
+    assert.deepEqual(decidePlaylistSync(
+        { id: 'user_pl_demo', name: 'Demo', songs: [song], cloudVersion: 3, cloudDirty: true },
+        tombstone,
+        { operation: 'restore', expectedVersion: 3 }
+    ), { action: 'push', expectedVersion: 3 });
+    assert.deepEqual(decidePlaylistSync(
+        { id: 'user_pl_new', name: 'New', songs: [], cloudVersion: 0, cloudDirty: true, deletedAt: 1 },
+        null,
+        { operation: 'delete', expectedVersion: 0 }
+    ), { action: 'delete', expectedVersion: 0 });
+});
+
+test('purge markers cannot be revived and dirty content becomes a recovery copy', () => {
+    const purged = remote({
+        name: '已永久删除',
+        songs: [],
+        version: 4,
+        deleted_at: '2026-07-23T01:00:00.000Z',
+        purged_at: '2026-07-24T01:00:00.000Z'
+    });
+    assert.deepEqual(decidePlaylistSync(
+        { id: 'user_pl_demo', name: 'Local', songs: [song], cloudVersion: 3, cloudDirty: true },
+        purged,
+        { operation: 'restore' }
+    ), { action: 'recover-copy' });
+    assert.deepEqual(decidePlaylistSync(
+        { id: 'user_pl_demo', cloudVersion: 3, cloudDirty: false },
+        purged,
+        null
+    ), { action: 'pull-purge' });
+    assert.deepEqual(decidePlaylistSync(
+        { id: 'user_pl_demo', cloudVersion: 4, cloudDirty: false, deletedAt: 1, purgedAt: 2 },
+        purged,
+        null
+    ), { action: 'none' });
+    assert.deepEqual(decidePlaylistSync(null, purged, { operation: 'purge' }), { action: 'ack-purge' });
+    assert.deepEqual(decidePlaylistSync(
+        { id: 'user_pl_demo', name: '已永久删除', songs: [], cloudVersion: 3, cloudDirty: true, purgedAt: 1 },
+        remote({ version: 3 }),
+        { operation: 'purge', expectedVersion: 3 }
+    ), { action: 'purge', expectedVersion: 3 });
+});
+
+test('restore conflicts keep newer content and use a bounded recovered name', () => {
+    const local = {
+        id: 'user_pl_demo',
+        name: 'Old',
+        songs: [song],
+        cloudVersion: 1,
+        cloudDirty: true
+    };
+    assert.deepEqual(decidePlaylistSync(local, remote({ name: 'New', version: 2 }), {
+        operation: 'restore',
+        expectedVersion: 1
+    }), { action: 'recover-copy' });
+    assert.equal(haveSamePlaylistContent(local, { ...local }), true);
+    assert.equal(makeRecoveredPlaylistName('Old'), 'Old（已恢复）');
+    assert.equal(makeRecoveredPlaylistName('Old（已恢复）'), 'Old（已恢复）');
+    assert.ok(makeRecoveredPlaylistName('x'.repeat(100)).length <= 100);
+});
+
+test('history normalization strips private fields and enforces 20 versions or 90 days', () => {
+    const now = Date.parse('2026-07-25T12:00:00.000Z');
+    const entries = Array.from({ length: 22 }, (_, index) => ({
+        id: 'snapshot-' + index,
+        playlistId: 'user_pl_demo',
+        name: 'Demo ' + index,
+        songs: [{ ...song, apikey: 'private-' + index }],
+        reason: index === 0 ? 'restore' : 'edit',
+        createdAt: now - index * 60_000
+    }));
+    entries.push({
+        id: 'snapshot-old',
+        playlistId: 'user_pl_demo',
+        name: 'Old',
+        songs: [song],
+        createdAt: now - 91 * 86_400_000
+    });
+    const retained = selectRetainedPlaylistVersions(entries, now);
+    assert.equal(retained.length, 20);
+    assert.equal(retained[0].id, 'snapshot-0');
+    assert.equal(retained.some((entry) => entry.id === 'snapshot-old'), false);
+    const payload = toCloudHistoryInput(retained, 'user_pl_demo', now);
+    assert.equal(payload.length, 20);
+    assert.equal(JSON.stringify(payload).includes('apikey'), false);
+    assert.deepEqual(normalizePlaylistVersion(payload[0]), {
+        id: 'snapshot-0',
+        playlistId: 'user_pl_demo',
+        name: 'Demo 0',
+        songs: [{
+            id: 7,
+            name: 'Song',
+            artist: 'Artist',
+            album: 'Album',
+            cover: 'https://example.test/cover.jpg',
+            source: 'ChKSz'
+        }],
+        createdAt: now,
+        reason: 'restore',
+        snapshotId: 'snapshot-0',
+        cloudOwnerId: ''
+    });
+});
+
+test('history storage ids stay local while cloud snapshot ids round-trip per playlist', () => {
+    const now = Date.parse('2026-07-25T12:00:00.000Z');
+    const first = normalizePlaylistVersion({
+        id: 'local-owner-a-playlist-a-server-1',
+        snapshot_id: 'server-1',
+        playlist_id: 'user_pl_a',
+        name: 'A',
+        songs: [song],
+        reason: 'edit',
+        created_at: new Date(now).toISOString()
+    });
+    const duplicate = normalizePlaylistVersion({
+        id: 'legacy-server-1',
+        snapshotId: 'server-1',
+        playlistId: 'user_pl_a',
+        name: 'A duplicate',
+        songs: [song],
+        reason: 'edit',
+        createdAt: now - 1000
+    });
+    const secondPlaylist = normalizePlaylistVersion({
+        id: 'local-owner-a-playlist-b-server-1',
+        snapshot_id: 'server-1',
+        playlist_id: 'user_pl_b',
+        name: 'B',
+        songs: [song],
+        reason: 'edit',
+        created_at: new Date(now - 2000).toISOString()
+    });
+
+    assert.equal(first.id, 'local-owner-a-playlist-a-server-1');
+    assert.equal(first.snapshotId, 'server-1');
+    const retained = selectRetainedPlaylistVersions([duplicate, secondPlaylist, first], now);
+    assert.deepEqual(retained.map((entry) => entry.id), [first.id, secondPlaylist.id]);
+    assert.equal(toCloudHistoryInput([first], 'user_pl_a', now)[0].snapshot_id, 'server-1');
+});
+
+test('trash expiry uses a visible 30-day boundary', () => {
+    const deletedAt = Date.parse('2026-06-25T12:00:00.000Z');
+    assert.equal(getPlaylistTrashRemainingDays(deletedAt, deletedAt), 30);
+    assert.equal(getPlaylistTrashRemainingDays(deletedAt, deletedAt + 29 * 86_400_000), 1);
+    assert.equal(isPlaylistTrashExpired(deletedAt, deletedAt + 30 * 86_400_000 - 1), false);
+    assert.equal(isPlaylistTrashExpired(deletedAt, deletedAt + 30 * 86_400_000), true);
 });
 
 test('cloud conflict errors are normalized from RPC responses', () => {
@@ -235,7 +395,7 @@ test('cloud service sends only optimistic playlist RPC fields', async () => {
         songs: [song],
         apiKey: 'must-not-cross-boundary'
     }, 1);
-    assert.equal(calls[0].name, 'sync_cplayer_playlist');
+    assert.equal(calls[0].name, 'sync_cplayer_playlist_v2');
     assert.deepEqual(calls[0].args, {
         p_playlist_id: 'user_pl_demo',
         p_name: 'Demo',
@@ -247,6 +407,7 @@ test('cloud service sends only optimistic playlist RPC fields', async () => {
             cover: 'https://example.test/cover.jpg',
             source: 'ChKSz'
         }],
-        p_expected_version: 1
+        p_expected_version: 1,
+        p_history: []
     });
 });

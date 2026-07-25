@@ -4,7 +4,7 @@ import { openLibrary, openSettings, waitForAppReady } from './helpers.mjs';
 test.use({ serviceWorkers: 'block' });
 
 const DB_NAME = 'CPlayer5DB';
-const DB_VERSION = 5;
+const DB_VERSION = 6;
 const HARNESS_PATH = '/__cplayer_storage_harness__.html';
 
 const WINNER_SONG = {
@@ -141,6 +141,17 @@ async function openTestDatabase(page, version, { hold = false } = {}) {
                     outboxStore.createIndex('updatedAt', 'updatedAt');
                 }
             }
+            if (targetVersion >= 6) {
+                let historyStore;
+                if (!database.objectStoreNames.contains('playlist_versions')) {
+                    historyStore = database.createObjectStore('playlist_versions', { keyPath: 'id' });
+                } else {
+                    historyStore = tx.objectStore('playlist_versions');
+                }
+                if (!historyStore.indexNames.contains('playlistId')) historyStore.createIndex('playlistId', 'playlistId');
+                if (!historyStore.indexNames.contains('createdAt')) historyStore.createIndex('createdAt', 'createdAt');
+                if (!historyStore.indexNames.contains('cloudOwnerId')) historyStore.createIndex('cloudOwnerId', 'cloudOwnerId');
+            }
         };
         request.onsuccess = () => {
             const database = request.result;
@@ -174,7 +185,8 @@ async function readStorageSnapshot(page) {
             const database = request.result;
             if (!database.objectStoreNames.contains('playlists') ||
                 !database.objectStoreNames.contains('images') ||
-                !database.objectStoreNames.contains('cloud_outbox')) {
+                !database.objectStoreNames.contains('cloud_outbox') ||
+                !database.objectStoreNames.contains('playlist_versions')) {
                 database.close();
                 reject(new Error('storage schema is incomplete'));
                 return;
@@ -199,9 +211,13 @@ async function readStorageSnapshot(page) {
                 const imageIndexes = Array.from(
                     database.transaction('images', 'readonly').objectStore('images').indexNames
                 );
+                const historyIndexes = Array.from(
+                    database.transaction('playlist_versions', 'readonly').objectStore('playlist_versions').indexNames
+                );
                 const snapshot = {
                     version: database.version,
                     imageIndexes,
+                    historyIndexes,
                     imageCount: images.length,
                     imageUrls: images.map((record) => record.url).sort(),
                     remoteCount: remote.length,
@@ -383,7 +399,7 @@ test('localStorage SecurityError keeps the app ready and warns that changes may 
     await expect(page.locator('#settingsModal')).toBeVisible();
 });
 
-test('a real version-3 connection blocks version 5 without hanging application startup', async ({ page, context }) => {
+test('a real version-3 connection blocks version 6 without hanging application startup', async ({ page, context }) => {
     const holder = await context.newPage();
     await openStorageHarness(holder);
     const legacy = await openTestDatabase(holder, 3, { hold: true });
@@ -400,15 +416,36 @@ test('a real version-3 connection blocks version 5 without hanging application s
     }
 });
 
-test('a later version-6 upgrade makes the old application page stale', async ({ page, context }) => {
+test('the version-5 to version-6 upgrade preserves user data and adds playlist history', async ({ page }) => {
+    await openStorageHarness(page);
+    const legacy = await openTestDatabase(page, 5);
+    expect(legacy.version).toBe(5);
+    expect(legacy.stores).not.toContain('playlist_versions');
+    await seedTransientCaches(page, {
+        imageCount: 1,
+        remoteCount: 1,
+        queue: PROTECTED_QUEUE,
+        users: [PROTECTED_USER_PLAYLIST]
+    });
+
+    await page.goto('/index.html');
+    await waitForAppReady(page);
+    const snapshot = await readStorageSnapshot(page);
+    expect(snapshot.version).toBe(DB_VERSION);
+    expect(snapshot.queue.songs.map((song) => song.id)).toEqual([880003]);
+    expect(snapshot.users.map((record) => record.id)).toContain(PROTECTED_USER_PLAYLIST.id);
+    expect(snapshot.historyIndexes).toEqual(expect.arrayContaining(['playlistId', 'createdAt', 'cloudOwnerId']));
+});
+
+test('a later version-7 upgrade makes the old application page stale', async ({ page, context }) => {
     await page.goto('/index.html');
     await waitForAppReady(page);
     await expect(page.locator('html')).toHaveAttribute('data-cplayer-storage-state', 'ready');
 
     const upgrader = await context.newPage();
     await openStorageHarness(upgrader);
-    const upgraded = await openTestDatabase(upgrader, 6, { hold: true });
-    expect(upgraded.version).toBe(6);
+    const upgraded = await openTestDatabase(upgrader, 7, { hold: true });
+    expect(upgraded.version).toBe(7);
 
     try {
         await expect(page.locator('html')).toHaveAttribute('data-cplayer-storage-state', 'stale');
