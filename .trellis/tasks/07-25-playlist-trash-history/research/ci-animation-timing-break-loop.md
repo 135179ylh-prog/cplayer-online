@@ -40,3 +40,15 @@ solution because it would leave the timing assumption unchanged.
 - [x] Updated the active task research and verification evidence.
 - [x] Confirmed this project has no `src/templates/markdown/spec/` mirror to sync.
 - [ ] Record the successful replacement Actions run and final online acceptance.
+
+## Follow-up Release Gate Finding
+
+- A cleanup made after the successful full gate replaced two exact `.gitignore`
+  rules with `/output/`. Actions run 55 then failed the existing static feature
+  contract before browser tests, and the same failure reproduced locally.
+- The root cause was process order, not an Actions-only difference: a repository
+  file changed after the claimed final gate, and only the narrower repository
+  check was rerun.
+- The original exact rules are restored and `/output/*.png` is additive. The
+  release rule remains: any file change after a full gate invalidates that gate;
+  run the complete gate again before the next commit.
