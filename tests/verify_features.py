@@ -87,6 +87,9 @@ required_app = {
     "PWA controller replacement listener": "navigator.serviceWorker.addEventListener('controllerchange'",
     "PWA safe update reload": "flushScheduledQueueSave('sw_update_reload')",
     "committed playback identity": "let committedMedia = null;",
+    "prefetched next-media identity": "let preloadedNextMedia = null;",
+    "prefetched media handoff": "function takePreloadedNextMedia(index)",
+    "immediate next-media preload": "preloadNextSong(attempt);",
     "shared media reset": "function resetPlaybackIdentity()",
     "committed media resume": "async function resumeCommittedMedia(source)",
     "ended media ownership guard": "activePlaybackAttempt.token !== committedMedia.token",
@@ -158,7 +161,7 @@ require((ROOT / "js" / "vendor" / "supabase.js").stat().st_size > 100_000, "vend
 require((ROOT / "tests" / "core-utils.test.mjs").is_file(), "core utility tests are missing")
 require("user-scalable=no" not in HTML and "maximum-scale" not in HTML, "viewport still blocks browser zoom")
 
-require("cplayer5-v67-search-pagination" in SW, "service worker cache version is not updated")
+require("cplayer5-v68-background-handoff" in SW, "service worker cache version is not updated")
 require("'./js/app.js'" in SW, "production app module is not precached")
 require("./js/core-utils.js" in SW, "core utility module is not precached")
 for cloud_asset in ("./js/cloud-config.js", "./js/cloud-sync.js", "./js/vendor/supabase.js"):
@@ -439,11 +442,15 @@ for snippet in [
 for snippet in [
     "installRuntimeProbes", "PageTransitionEvent('pagehide'", "removeSongFromQueue",
     "system play resumes committed song A", "ended committed media",
+    "hidden ${scenario.mode} playback reuses", "holdAfterCount: 1",
+    "a stale prefetched target is discarded",
     "autoplay rejection after a source switch", "explicit clear-queue command",
     "seekbackward", "seekforward", "currentTimeAssignments", "loadCalls", "webglDrawCalls",
     "installAnimationFrameProbe", "setTestDocumentVisibility",
 ]:
     require(snippet in RUNTIME_RESILIENCE_E2E, f"runtime resilience browser contract is missing: {snippet}")
+require("preloadNextSong();\n                    }, 2000" not in APP,
+        "next-song preload still depends on the old two-second timer")
 require("document.documentElement.dataset.cplayerReady === 'true'" in E2E_HELPERS,
         "browser readiness helper does not use the explicit app signal")
 require("readMainAudioProbe" in PLAYBACK_ERROR_E2E and "querySelector('audio')" not in PLAYBACK_ERROR_E2E,

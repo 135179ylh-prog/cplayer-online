@@ -51,6 +51,10 @@ async function installPlaybackBoundary(page, songs, options = {}) {
     const songsById = new Map(songs.map((song) => [String(song.id), song]));
     const requestedSongIds = [];
     const heldSongId = options.holdSongId == null ? '' : String(options.holdSongId);
+    const holdAfterCount = Number.isInteger(options.holdAfterCount) && options.holdAfterCount >= 0
+        ? options.holdAfterCount
+        : 0;
+    const requestCounts = new Map();
     let releaseHeldRequests;
     let resolveHeldRequest;
     const releaseGate = new Promise((resolve) => { releaseHeldRequests = resolve; });
@@ -60,6 +64,8 @@ async function installPlaybackBoundary(page, songs, options = {}) {
         const requestUrl = new URL(route.request().url());
         const songId = requestUrl.searchParams.get('id') || '';
         requestedSongIds.push(songId);
+        const requestCount = (requestCounts.get(songId) || 0) + 1;
+        requestCounts.set(songId, requestCount);
         const song = songsById.get(songId);
         if (!song) {
             await route.fulfill({
@@ -69,7 +75,7 @@ async function installPlaybackBoundary(page, songs, options = {}) {
             });
             return;
         }
-        if (heldSongId && songId === heldSongId) {
+        if (heldSongId && songId === heldSongId && requestCount > holdAfterCount) {
             resolveHeldRequest(songId);
             await releaseGate;
         }
@@ -298,6 +304,83 @@ test('ended committed media does not skip a pending user-selected song', async (
 
     boundary.release();
     await expect.poll(async () => (await readMainAudioProbe(page)).src).toContain(String(SONG_B.id));
+});
+
+for (const scenario of [
+    { mode: 'repeat_all', current: SONG_B, currentIndex: 1, next: SONG_A },
+    { mode: 'shuffle', current: SONG_A, currentIndex: 0, next: SONG_B }
+]) {
+    test(`hidden ${scenario.mode} playback reuses the prefetched next song at ended`, async ({ page }) => {
+        await installAnimationFrameProbe(page);
+        await installRuntimeProbes(page, { audio: { duration: 180 } });
+        const boundary = await installPlaybackBoundary(page, [SONG_A, SONG_B], {
+            holdSongId: scenario.next.id,
+            holdAfterCount: 1
+        });
+
+        await page.goto('/index.html');
+        await waitForAppReady(page);
+        await page.evaluate(() => window.setPlayMode('sequence', { notify: false }));
+        await addSongsToQueue(page, [SONG_A, SONG_B]);
+        await page.evaluate((mode) => window.setPlayMode(mode, { notify: false }), scenario.mode);
+        await playSongAndWaitForCommit(page, scenario.currentIndex, scenario.current);
+
+        await expect.poll(() => boundary.requestedSongIds.filter(
+            (songId) => songId === String(scenario.next.id)
+        ).length).toBe(1);
+        await expect.poll(() => page.evaluate(() => window.__cplayerAudioProbe?.snapshot(1)?.src || ''))
+            .toContain(String(scenario.next.id));
+        await setTestDocumentVisibility(page, 'hidden');
+
+        try {
+            await setMainAudioProbeState(page, {
+                currentTime: 180,
+                duration: 180,
+                paused: true,
+                ended: true
+            });
+            await dispatchMainAudioProbeEvent(page, 'ended');
+
+            await expect.poll(async () => (await readMainAudioProbe(page)).src)
+                .toContain(String(scenario.next.id));
+            expect(boundary.requestedSongIds.filter(
+                (songId) => songId === String(scenario.next.id)
+            )).toHaveLength(1);
+        } finally {
+            boundary.release();
+        }
+    });
+}
+
+test('a stale prefetched target is discarded after the queue changes', async ({ page }) => {
+    await installRuntimeProbes(page, { audio: { duration: 180 } });
+    const boundary = await installPlaybackBoundary(page, [SONG_A, SONG_B, SONG_C]);
+
+    await page.goto('/index.html');
+    await waitForAppReady(page);
+    await page.evaluate(() => window.setPlayMode('repeat_all', { notify: false }));
+    await addSongsToQueue(page, [SONG_A, SONG_B, SONG_C]);
+    await playSongAndWaitForCommit(page, 0, SONG_A);
+    await expect.poll(() => boundary.requestedSongIds.filter(
+        (songId) => songId === String(SONG_C.id)
+    ).length).toBe(1);
+
+    await page.evaluate(() => window.removeSongFromQueue(1, { toast: false }));
+    await expect.poll(() => page.evaluate(() => window.playlist.map((song) => song.id)))
+        .toEqual([SONG_A.id, SONG_B.id]);
+    await setMainAudioProbeState(page, {
+        currentTime: 180,
+        duration: 180,
+        paused: true,
+        ended: true
+    });
+    await dispatchMainAudioProbeEvent(page, 'ended');
+
+    await expect.poll(async () => (await readMainAudioProbe(page)).src)
+        .toContain(String(SONG_B.id));
+    expect(boundary.requestedSongIds.filter(
+        (songId) => songId === String(SONG_B.id)
+    )).toHaveLength(1);
 });
 
 test('autoplay rejection after a source switch synchronizes paused state and can recover', async ({ page }) => {

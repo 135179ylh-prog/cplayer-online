@@ -278,7 +278,8 @@
         let preloadAudio = new Audio();
         preloadAudio.crossOrigin = 'anonymous';
         preloadAudio.volume = 0;
-        let preloadedSongId = null;
+        preloadAudio.preload = 'auto';
+        let preloadedNextMedia = null;
 
         let audioContext, analyser, gainNode, isPlaying = false;
         let playlist = [], currentIndex = -1, playMode = 'shuffle';
@@ -3651,26 +3652,89 @@ async function refreshUserPlaylistLibrary() {
         }
 
         // ================= 无缝播放：预加载下一首 =================
-        function preloadNextSong() {
-            if (!playlist.length) return;
+        function discardPreloadedNextMedia() {
+            preloadedNextMedia = null;
+            try {
+                preloadAudio.pause();
+                preloadAudio.removeAttribute('src');
+                preloadAudio.load();
+            } catch (error) {}
+        }
+
+        function takePreloadedNextMedia(index) {
+            const record = preloadedNextMedia;
+            const song = index >= 0 && index < playlist.length ? playlist[index] : null;
+            const songId = song && typeof song === 'object' ? song.id : song;
+            const normalizedSongId = songId == null ? '' : String(songId);
+            const matches = !!(record && record.status === 'ready' && committedMedia &&
+                record.ownerToken === committedMedia.token && record.index === index &&
+                record.songId === normalizedSongId && record.mediaUrl && record.data);
+            if (!matches) {
+                if (record) discardPreloadedNextMedia();
+                return null;
+            }
+            preloadedNextMedia = null;
+            return record;
+        }
+
+        async function preloadNextSong(ownerAttempt) {
+            if (!ownerAttempt || !isAttemptCommitted(ownerAttempt) || !playlist.length || playMode === 'repeat_one') {
+                discardPreloadedNextMedia();
+                return false;
+            }
 
             const nextIndex = getNextSongIndex();
-            if (nextIndex < 0) return;
+            if (nextIndex < 0) {
+                discardPreloadedNextMedia();
+                return false;
+            }
             const nextSong = playlist[nextIndex];
-            const nextSongId = typeof nextSong === 'object' ? nextSong.id : nextSong;
+            const nextSongIdValue = typeof nextSong === 'object' ? nextSong.id : nextSong;
+            const nextSongId = nextSongIdValue == null ? '' : String(nextSongIdValue);
+            if (!nextSongId) {
+                discardPreloadedNextMedia();
+                return false;
+            }
 
-            // 避免重复预加载
-            if (preloadedSongId === nextSongId) return;
+            if (preloadedNextMedia && preloadedNextMedia.ownerToken === ownerAttempt.token &&
+                preloadedNextMedia.index === nextIndex && preloadedNextMedia.songId === nextSongId) {
+                return preloadedNextMedia.status === 'ready';
+            }
 
-            // 异步获取下一首歌曲的 URL
-            musicService.getSong(nextSongId).then(data => {
-                if (data?.url) {
-                    preloadAudio.src = data.url;
-                    preloadAudio.load();
-                    preloadedSongId = nextSongId;
-                    console.log('🎵 预加载下一首:', nextSong.name || nextSongId);
+            const record = {
+                ownerToken: ownerAttempt.token,
+                index: nextIndex,
+                songId: nextSongId,
+                status: 'loading',
+                data: null,
+                mediaUrl: ''
+            };
+            preloadedNextMedia = record;
+
+            try {
+                const data = await musicService.getSong(nextSongIdValue);
+                if (preloadedNextMedia !== record || !activePlaybackAttempt ||
+                    activePlaybackAttempt.token !== ownerAttempt.token || !isAttemptCommitted(ownerAttempt)) return false;
+                const currentNextIndex = getNextSongIndex();
+                const currentNextSong = currentNextIndex >= 0 ? playlist[currentNextIndex] : null;
+                const currentNextSongId = currentNextSong && typeof currentNextSong === 'object'
+                    ? currentNextSong.id
+                    : currentNextSong;
+                if (currentNextIndex !== nextIndex || String(currentNextSongId ?? '') !== nextSongId) {
+                    discardPreloadedNextMedia();
+                    return false;
                 }
-            }).catch(() => { });
+                const mediaUrl = normalizePlayableUrl(data?.url);
+                record.status = 'ready';
+                record.data = data;
+                record.mediaUrl = mediaUrl;
+                preloadAudio.src = mediaUrl;
+                preloadAudio.load();
+                return true;
+            } catch (error) {
+                if (preloadedNextMedia === record) discardPreloadedNextMedia();
+                return false;
+            }
         }
 
         // ================= 音质分级识别 =================
@@ -6011,7 +6075,7 @@ async function refreshUserPlaylistLibrary() {
             playbackAttemptCounter += 1;
             activePlaybackAttempt = null;
             committedMedia = null;
-            preloadedSongId = null;
+            preloadedNextMedia = null;
             clearPlaybackSession();
             isPlaying = false;
             try { audio.pause(); } catch (error) {}
@@ -6088,6 +6152,14 @@ async function refreshUserPlaylistLibrary() {
                 reason: options.reason || 'user'
             };
             activePlaybackAttempt = attempt;
+            const prefetchedMedia = options.prefetchedMedia &&
+                options.prefetchedMedia.status === 'ready' &&
+                options.prefetchedMedia.index === index &&
+                options.prefetchedMedia.songId === String(id) &&
+                options.prefetchedMedia.data && options.prefetchedMedia.mediaUrl
+                ? options.prefetchedMedia
+                : null;
+            if (!prefetchedMedia && preloadedNextMedia) discardPreloadedNextMedia();
             setPlayerLoading(true);
             dom.progressBar.style.width = '0%';
             dom.currentTime.textContent = '0:00';
@@ -6102,7 +6174,7 @@ async function refreshUserPlaylistLibrary() {
             });
 
             try {
-                const data = await musicService.getSong(id);
+                const data = prefetchedMedia ? prefetchedMedia.data : await musicService.getSong(id);
                 if (!activePlaybackAttempt || activePlaybackAttempt.token !== token) return;
                 if (!data) throw new Error('Song API returned no data');
                 const mediaUrl = normalizePlayableUrl(data.url);
@@ -6186,9 +6258,7 @@ async function refreshUserPlaylistLibrary() {
 
                 const playResult = await tryPlayAttempt(attempt, 'play');
                 if (playResult === 'playing') {
-                    setTimeout(function () {
-                        if (activePlaybackAttempt && activePlaybackAttempt.token === token) preloadNextSong();
-                    }, 2000);
+                    preloadNextSong(attempt);
                 }
             } catch (error) {
                 if (activePlaybackAttempt && activePlaybackAttempt.token === token) {
@@ -7182,6 +7252,7 @@ async function refreshUserPlaylistLibrary() {
         window.playSongAtIndex = (index, options) => {
             options = options || {};
             if (index < 0 || index >= playlist.length) return;
+            const prefetchedMedia = options.prefetchedMedia || takePreloadedNextMedia(index);
             currentIndex = index;
             scheduleSaveCurrentQueue('play_index'); // Sync with global variable
             // currentSongIndex = index; // Removed if not defined
@@ -7192,7 +7263,8 @@ async function refreshUserPlaylistLibrary() {
             loadAndPlaySong(songId, {
                 index: index,
                 reason: options.reason || 'play_index',
-                resumeTime: options.useSavedResume === false ? 0 : getPlaybackResumeTime(index)
+                resumeTime: options.useSavedResume === false ? 0 : getPlaybackResumeTime(index),
+                prefetchedMedia
             });
 
             // Sync mobile playlist view if active
@@ -7275,7 +7347,7 @@ async function refreshUserPlaylistLibrary() {
                 applyPausedPlaybackState(false);
                 return;
             }
-            window.playSongAtIndex(nextIndex);
+            window.playSongAtIndex(nextIndex, { reason: 'ended', useSavedResume: false });
         }
 
         // Kept as a compatibility entry point for older inline integrations.

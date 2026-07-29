@@ -1,0 +1,2 @@
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"实现确定性播放身份、后台预取交接、Service Worker 缓存升级和桌面/手机浏览器合同"}
+{"file":".trellis/tasks/07-30-mobile-background-auto-advance/research.md","reason":"保持已确认的结束切歌根因、原生音频路径和实体手机验收边界"}

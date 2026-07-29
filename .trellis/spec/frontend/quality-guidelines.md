@@ -539,8 +539,13 @@ activePlaybackAttempt
 committedMedia
 // { token, songId, source, ready }; owns the main Audio source
 
+preloadedNextMedia
+// { ownerToken, index, songId, status, data, mediaUrl }; optional next-song handoff
+
 commitMediaIdentity(attempt, source)
 resetPlaybackIdentity()
+preloadNextSong(ownerAttempt)
+takePreloadedNextMedia(index)
 
 seekMainAudio(target, options)
 // options.fastSeek is optional and defaults to false
@@ -568,6 +573,13 @@ Browser tests install `Audio`, Media Session, and animation probes with
 - Page and system play commands resume the committed source even when a newer
   request is pending. An `ended` event resolves its queue index from committed
   media and returns without advancing when a different attempt is pending.
+- After playback starts, next-song prefetch begins immediately without a fixed
+  timer. The result is owned by the committed attempt token and records the
+  exact queue index, string song id, normalized media URL, and full song response.
+- List/shuffle `ended` handoff consumes prefetched media only when owner, index,
+  id, URL, and current queue state still match. A valid handoff must not call the
+  song API again; a missing, failed, or stale record falls back to the normal
+  load path and can never select the cached song blindly.
 - Replacing `audio.src` synchronizes paused UI, Media Session, and visual state
   before autoplay. Policy/abort failures repeat that synchronization when the
   native element is paused, so the next user play command remains usable.
@@ -598,6 +610,8 @@ Browser tests install `Audio`, Media Session, and animation probes with
 | Song A plays while song B API response is pending | Lifecycle save uses A id/index/time, or safely declines; never B plus A time. |
 | A is paused while B is pending, then system play fires | Resume A's committed source without cancelling B. |
 | A ends while user-selected B is pending | Stop A's visual/system state and keep waiting for B; do not request C. |
+| A ends hidden after B was prefetched | Commit/play B without a second B song-API request. |
+| Queue or shuffle target changes after prefetch | Reject the stale record and load the newly calculated target. |
 | Replacing A with B is autoplay-blocked | Audio, UI, Media Session, and visuals remain paused; a later play can retry B. |
 | New source is assigned but metadata is not ready | Clear old system position; do not persist a new resume snapshot yet. |
 | Last queue song is removed | Queue stays empty; both audio sources are unloaded; system metadata/position cleared and playback state is `none`. |
@@ -615,6 +629,9 @@ Browser tests install `Audio`, Media Session, and animation probes with
 - Good: hold song B at the routed `/163_music` boundary, give real probed song A
   a 61-second clock, dispatch `pagehide`, and assert the persisted record is A at
   61 seconds before releasing B.
+- Good: allow the first B song-API request to warm the next-media record, block a
+  second B request, hide the page, dispatch A `ended`, and observe B playing with
+  exactly one B API request in repeat-all and shuffle modes.
 - Base: invoke system forward seek without an offset at 40/120 seconds and observe
   50 seconds plus a valid `{ duration, position, playbackRate }` update.
 - Bad: query `document.querySelector('audio')` and treat `null` as paused, use
@@ -628,6 +645,8 @@ Browser tests install `Audio`, Media Session, and animation probes with
 - Browser desktop `1280x800` and mobile `390x844`: explicit ready plus queue
   restore; pending-request session ownership; final-item source/system cleanup;
   committed resume and ended-event ownership while another request is pending;
+  hidden repeat-all/shuffle handoff without a duplicate song-API request; stale
+  prefetched-target rejection after a queue change;
   blocked-autoplay state recovery; captured play invalidation; bounded Media
   Session absolute/default/custom and invalid seeks; position-state publication
   and reset.

@@ -1,0 +1,2 @@
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"核对后台交接所有权、失效回退、播放失败、缓存版本和完整发布门禁"}
+{"file":".trellis/tasks/07-30-mobile-background-auto-advance/prd.md","reason":"逐项核对列表循环、随机、队列变化、用户主动切歌和实体手机验收标准"}
