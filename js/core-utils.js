@@ -6,6 +6,7 @@
 export const API_REQUEST_TIMEOUT_MS = 15000;
 export const API_REQUEST_RETRIES = 1;
 export const API_RETRY_DELAY_MS = 350;
+export const SEARCH_PAGE_SIZE = 30;
 export const PLAYBACK_SESSION_VERSION = 1;
 export const PLAYBACK_SESSION_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 
@@ -43,6 +44,55 @@ export function normalizeSongObject(song) {
         album,
         source: song.source || 'Search'
     };
+}
+
+/** Decode one ChKSz search page without losing the upstream pagination cursor. */
+export function normalizeSearchPage(payload, options = {}) {
+    const offset = Number.isInteger(options.offset) && options.offset >= 0
+        ? options.offset
+        : 0;
+    const limit = Number.isInteger(options.limit) && options.limit > 0
+        ? options.limit
+        : SEARCH_PAGE_SIZE;
+    const data = payload && typeof payload === 'object' ? payload.data : null;
+    const result = payload && typeof payload === 'object' ? payload.result : null;
+    let items = [];
+    let rawTotal = null;
+
+    if (Array.isArray(data)) {
+        items = data;
+    } else if (data && Array.isArray(data.songs)) {
+        items = data.songs;
+        rawTotal = data.total ?? data.songCount ?? null;
+    } else if (result && Array.isArray(result.songs)) {
+        items = result.songs;
+        rawTotal = result.total ?? result.songCount ?? null;
+    }
+
+    const nextOffset = offset + items.length;
+    const parsedTotal = Number(rawTotal);
+    const total = rawTotal !== null && rawTotal !== '' && Number.isFinite(parsedTotal) && parsedTotal >= 0
+        ? Math.max(nextOffset, Math.floor(parsedTotal))
+        : null;
+    const hasMore = items.length > 0 && (total === null
+        ? items.length >= limit
+        : nextOffset < total);
+
+    return { items, total, offset, nextOffset, hasMore };
+}
+
+/** Merge search pages by stable song id while preserving the first-seen order. */
+export function mergeUniqueSearchSongs(existing = [], incoming = []) {
+    const merged = [];
+    const seen = new Set();
+    for (const song of [...existing, ...incoming]) {
+        if (!song || typeof song !== 'object') continue;
+        const id = song.id === null || song.id === undefined ? '' : String(song.id).trim();
+        if (!id || seen.has(id)) continue;
+        seen.add(id);
+        merged.push(song);
+    }
+    return merged;
 }
 
 function qualityResult(text, className, icon, detail, source) {

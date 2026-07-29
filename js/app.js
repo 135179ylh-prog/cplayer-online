@@ -3,13 +3,16 @@
             API_REQUEST_TIMEOUT_MS,
             API_RETRY_DELAY_MS,
             PLAYBACK_SESSION_VERSION,
+            SEARCH_PAGE_SIZE,
             clampMediaSeekTime,
             classifyPlaybackFailure,
             classifyPlaybackQuality,
             fetchJsonWithRetry,
             getSafePlaybackResumeTime,
             getSleepTimerRemainingMs,
+            mergeUniqueSearchSongs,
             normalizePlaybackSession,
+            normalizeSearchPage,
             normalizeSongObject
         } from './core-utils.js';
         import {
@@ -199,31 +202,28 @@
                 return writeLocalStorage(`cp_${key}`, value);
             }
 
-            async search(query) {
-                const url = ChKSzAPI.buildUrl('/163_search', { keyword: query, limit: 30 });
+            async searchPage(query, options = {}) {
+                const offset = Number.isInteger(options.offset) && options.offset >= 0 ? options.offset : 0;
+                const limit = Number.isInteger(options.limit) && options.limit > 0
+                    ? options.limit
+                    : SEARCH_PAGE_SIZE;
+                const url = ChKSzAPI.buildUrl('/163_search', { keyword: query, limit, offset });
                 try {
                     const json = await fetchJsonWithTimeout(url);
-                    let items = [];
                     if (json.code === 200) {
-                        if (Array.isArray(json.data)) items = json.data;
-                        else if (json.data && Array.isArray(json.data.songs)) items = json.data.songs;
-                        else if (json.result && Array.isArray(json.result.songs)) items = json.result.songs;
-                    }
-                    if (items.length > 0) {
-                        return items.map(item => ({
-                            id: item.id,
-                            name: item.name,
-                            artist: item.artists ? (Array.isArray(item.artists) ? item.artists.map(a => a.name).join(', ') : (typeof item.artists === 'string' ? item.artists : (item.artists.name || 'Unknown'))) : 'Unknown',
-                            album: item.album ? (typeof item.album === 'string' ? item.album : item.album.name) : '',
+                        const page = normalizeSearchPage(json, { offset, limit });
+                        const songs = mergeUniqueSearchSongs([], page.items.map(item => normalizeSongObject({
+                            ...item,
                             cover: item.picUrl || (item.album ? item.album.picUrl : '') || '',
                             source: 'ChKSz'
-                        }));
+                        })));
+                        return { ...page, songs };
                     }
                 } catch (e) {
                     console.error('Search API Error:', e);
                     throw e;
                 }
-                return [];
+                return { songs: [], total: 0, offset, nextOffset: offset, hasMore: false };
             }
 
             async getSong(id) {
@@ -5616,6 +5616,110 @@ async function refreshUserPlaylistLibrary() {
             container.replaceChildren(state);
         }
 
+        function renderSearchPaginationControl(container, state, options = {}) {
+            if (!container) return;
+            const oldControl = container.querySelector('.js-search-pagination');
+            if (oldControl) oldControl.remove();
+            if (!state.songs.length) return;
+
+            const compact = options.compact === true;
+            const control = document.createElement('div');
+            control.className = 'js-search-pagination flex flex-col items-center gap-2 px-3 py-3';
+
+            const progress = document.createElement('div');
+            progress.className = compact ? 'text-xs opacity-70' : 'text-sm opacity-70';
+            progress.setAttribute('role', 'status');
+            progress.setAttribute('aria-live', 'polite');
+            progress.textContent = state.total === null
+                ? `已显示 ${state.songs.length} 首`
+                : `已显示 ${state.songs.length} / 共 ${state.total} 首`;
+            control.appendChild(progress);
+
+            if (state.error) {
+                const error = document.createElement('div');
+                error.className = compact ? 'text-xs text-red-300' : 'text-sm text-red-300';
+                error.textContent = '加载失败，已保留当前结果';
+                control.appendChild(error);
+            }
+
+            if (state.hasMore) {
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.className = compact
+                    ? 'min-h-[44px] px-5 rounded-full border border-white/25 text-sm font-medium disabled:opacity-50'
+                    : 'min-h-[44px] px-6 rounded-full border border-white/25 text-sm font-medium hover:bg-white/10 disabled:opacity-50';
+                button.setAttribute('aria-label', '加载更多搜索结果');
+                button.disabled = state.loading;
+                button.textContent = state.loading ? '加载中…' : (state.error ? '重试加载' : '加载更多');
+                button.addEventListener('click', function (event) {
+                    event.stopPropagation();
+                    if (typeof options.onLoadMore === 'function') options.onLoadMore();
+                });
+                control.appendChild(button);
+            }
+
+            container.appendChild(control);
+        }
+
+        function createSearchResultPager(options) {
+            const state = {
+                query: options.query,
+                songs: [],
+                nextOffset: 0,
+                total: null,
+                hasMore: true,
+                loading: false,
+                error: false
+            };
+
+            const renderControl = function () {
+                renderSearchPaginationControl(options.container, state, {
+                    compact: options.compact,
+                    onLoadMore: loadNext
+                });
+            };
+
+            async function loadNext() {
+                if (state.loading || !state.hasMore || !options.isCurrent()) return;
+                const previousHasMore = state.hasMore;
+                state.loading = true;
+                state.error = false;
+                renderControl();
+                try {
+                    const page = await musicService.searchPage(state.query, {
+                        limit: SEARCH_PAGE_SIZE,
+                        offset: state.nextOffset
+                    });
+                    if (!options.isCurrent()) return;
+
+                    const previousCount = state.songs.length;
+                    const merged = mergeUniqueSearchSongs(state.songs, page.songs);
+                    const addedSongs = merged.slice(previousCount);
+                    state.songs = merged;
+                    state.nextOffset = page.nextOffset;
+                    state.total = page.total;
+                    state.hasMore = page.hasMore && addedSongs.length > 0;
+                    state.loading = false;
+
+                    if (addedSongs.length) options.appendSongs(addedSongs);
+                    if (!state.songs.length) options.renderEmpty();
+                    renderControl();
+                } catch (error) {
+                    if (!options.isCurrent()) return;
+                    state.loading = false;
+                    state.hasMore = previousHasMore;
+                    if (!state.songs.length) {
+                        options.renderInitialError(error);
+                        return;
+                    }
+                    state.error = true;
+                    renderControl();
+                }
+            }
+
+            return { state, loadNext };
+        }
+
         async function searchSongs(query) {
             query = String(query || '').trim();
             const requestId = ++desktopSearchRequestId;
@@ -5690,124 +5794,122 @@ async function refreshUserPlaylistLibrary() {
             `).join('');
             dom.searchResults.classList.remove('hidden');
 
-            try {
-                const songs = await musicService.search(query);
-                if (requestId !== desktopSearchRequestId) return;
+            const appendSongs = function (songs) {
+                songs.forEach(song => {
+                    const div = document.createElement('div');
+                    div.className = 'playlist-item p-2 rounded-xl hover:bg-surface-container-high-color flex items-center gap-2 transition-all theme-text-on-surface mb-1';
 
-                // [需求4] 限制显示30条结果
-                const limitedSongs = songs ? songs.slice(0, 30) : [];
-
-                if (limitedSongs.length) {
-                    dom.searchResults.innerHTML = '';
-                    limitedSongs.forEach(song => {
-                        const div = document.createElement('div');
-                        div.className = 'playlist-item p-2 rounded-xl hover:bg-surface-container-high-color flex items-center gap-2 transition-all theme-text-on-surface mb-1';
-
-                        const coverDiv = document.createElement('span');
-                        coverDiv.className = 'w-10 h-10 rounded-lg bg-surface-container-color flex-shrink-0 overflow-hidden';
-                        if (song.cover) {
-                            const img = document.createElement('img');
-                            img.className = 'w-full h-full object-cover';
-                            img.loading = 'lazy';
-                            img.width = 40;
-                            img.height = 40;
-                            img.decoding = 'async';
-                            img.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
-                            window.getCachedImage(`${song.cover}?param=80y80`).then(cachedSrc => {
-                                if (img.isConnected) img.src = cachedSrc;
-                            });
-                            img.alt = song.name;
-                            img.onerror = () => { img.style.display = 'none'; };
-                            coverDiv.appendChild(img);
-                        } else {
-                            coverDiv.innerHTML = '<i class="fas fa-music text-xs opacity-30 flex items-center justify-center w-full h-full"></i>';
-                        }
-
-                        const infoDiv = document.createElement('span');
-                        infoDiv.className = 'flex-1 min-w-0';
-                        const titleDiv = document.createElement('span');
-                        titleDiv.className = 'block truncate text-sm font-medium';
-                        titleDiv.textContent = song.name || '未知歌曲';
-                        const artistDiv = document.createElement('span');
-                        artistDiv.className = 'block truncate text-xs opacity-50';
-                        artistDiv.textContent = song.artist || '未知艺术家';
-
-                        infoDiv.appendChild(titleDiv);
-                        infoDiv.appendChild(artistDiv);
-
-                        const playButton = document.createElement('button');
-                        playButton.type = 'button';
-                        playButton.className = 'flex flex-1 min-w-0 items-center gap-3 text-left rounded-lg';
-                        playButton.setAttribute('aria-label', '添加并播放「' + (song.name || '未知歌曲') + '」');
-                        playButton.appendChild(coverDiv);
-                        playButton.appendChild(infoDiv);
-                        div.appendChild(playButton);
-
-                        const actions = document.createElement('div');
-                        actions.className = 'flex items-center gap-1 flex-shrink-0';
-                        const addBtn = document.createElement('button');
-                        addBtn.type = 'button';
-                        addBtn.className = 'js-add-queue px-3 h-11 rounded-full border border-white/30 text-xs whitespace-nowrap';
-                        addBtn.textContent = '加入播放列表';
-                        addBtn.title = '加入播放列表（不立即播放）';
-                        addBtn.setAttribute('aria-label', '加入播放列表（不立即播放）');
-                        const plBtn = document.createElement('button');
-                        plBtn.type = 'button';
-                        plBtn.className = 'js-add-playlist px-3 h-11 rounded-full border border-white/30 text-xs whitespace-nowrap';
-                        plBtn.textContent = '收藏到歌单';
-                        plBtn.title = '收藏到歌单';
-                        plBtn.setAttribute('aria-label', '收藏到歌单');
-                        actions.appendChild(addBtn);
-                        actions.appendChild(plBtn);
-                        div.appendChild(actions);
-                        const newSong = {
-                            id: song.id, name: song.name, artist: song.artist,
-                            cover: song.cover, album: song.album || '', source: song.source || 'Search'
-                        };
-                        try {
-                            const payload = JSON.stringify(newSong);
-                            addBtn.dataset.song = payload;
-                            plBtn.dataset.song = payload;
-                        } catch (e) {}
-                        addBtn.onclick = function (e) {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            window.addSongToQueueOnly(newSong);
-                            // keep search results visible; just refresh playlist counters
-                            if (typeof renderAllPlaylistItems === 'function') renderAllPlaylistItems();
-                        };
-                        plBtn.onclick = function (e) {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            window.openAddToPlaylistModal(newSong);
-                        };
-                        playButton.onclick = function () {
-                            const targetIndex = window.insertSongToPlaylist(newSong);
-                            renderAllPlaylistItems();
-                            playSongAtIndex(targetIndex);
-                            dom.searchResults.classList.add('hidden');
-                            dom.searchInput.value = '';
-                            showToast('已添加并播放: ' + newSong.name);
-                        };
-                        dom.searchResults.appendChild(div);
-                    });
-                } else {
-                    dom.searchResults.innerHTML = '<div class="p-4 text-center opacity-60">未找到相关歌曲</div>';
-                }
-            } catch (error) {
-                if (requestId !== desktopSearchRequestId) return;
-                console.error(error);
-                renderSearchRecoveryState(dom.searchResults, {
-                    query: query,
-                    error: error,
-                    onRetry: function (retryQuery) {
-                        if (dom.searchInput) dom.searchInput.value = retryQuery;
-                        searchSongs(retryQuery);
+                    const coverDiv = document.createElement('span');
+                    coverDiv.className = 'w-10 h-10 rounded-lg bg-surface-container-color flex-shrink-0 overflow-hidden';
+                    if (song.cover) {
+                        const img = document.createElement('img');
+                        img.className = 'w-full h-full object-cover';
+                        img.loading = 'lazy';
+                        img.width = 40;
+                        img.height = 40;
+                        img.decoding = 'async';
+                        img.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+                        window.getCachedImage(`${song.cover}?param=80y80`).then(cachedSrc => {
+                            if (img.isConnected) img.src = cachedSrc;
+                        });
+                        img.alt = song.name;
+                        img.onerror = () => { img.style.display = 'none'; };
+                        coverDiv.appendChild(img);
+                    } else {
+                        coverDiv.innerHTML = '<i class="fas fa-music text-xs opacity-30 flex items-center justify-center w-full h-full"></i>';
                     }
+
+                    const infoDiv = document.createElement('span');
+                    infoDiv.className = 'flex-1 min-w-0';
+                    const titleDiv = document.createElement('span');
+                    titleDiv.className = 'block truncate text-sm font-medium';
+                    titleDiv.textContent = song.name || '未知歌曲';
+                    const artistDiv = document.createElement('span');
+                    artistDiv.className = 'block truncate text-xs opacity-50';
+                    artistDiv.textContent = song.artist || '未知艺术家';
+
+                    infoDiv.appendChild(titleDiv);
+                    infoDiv.appendChild(artistDiv);
+
+                    const playButton = document.createElement('button');
+                    playButton.type = 'button';
+                    playButton.className = 'flex flex-1 min-w-0 items-center gap-3 text-left rounded-lg';
+                    playButton.setAttribute('aria-label', '添加并播放「' + (song.name || '未知歌曲') + '」');
+                    playButton.appendChild(coverDiv);
+                    playButton.appendChild(infoDiv);
+                    div.appendChild(playButton);
+
+                    const actions = document.createElement('div');
+                    actions.className = 'flex items-center gap-1 flex-shrink-0';
+                    const addBtn = document.createElement('button');
+                    addBtn.type = 'button';
+                    addBtn.className = 'js-add-queue px-3 h-11 rounded-full border border-white/30 text-xs whitespace-nowrap';
+                    addBtn.textContent = '加入播放列表';
+                    addBtn.title = '加入播放列表（不立即播放）';
+                    addBtn.setAttribute('aria-label', '加入播放列表（不立即播放）');
+                    const plBtn = document.createElement('button');
+                    plBtn.type = 'button';
+                    plBtn.className = 'js-add-playlist px-3 h-11 rounded-full border border-white/30 text-xs whitespace-nowrap';
+                    plBtn.textContent = '收藏到歌单';
+                    plBtn.title = '收藏到歌单';
+                    plBtn.setAttribute('aria-label', '收藏到歌单');
+                    actions.appendChild(addBtn);
+                    actions.appendChild(plBtn);
+                    div.appendChild(actions);
+                    const newSong = {
+                        id: song.id, name: song.name, artist: song.artist,
+                        cover: song.cover, album: song.album || '', source: song.source || 'Search'
+                    };
+                    try {
+                        const payload = JSON.stringify(newSong);
+                        addBtn.dataset.song = payload;
+                        plBtn.dataset.song = payload;
+                    } catch (e) {}
+                    addBtn.onclick = function (e) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        window.addSongToQueueOnly(newSong);
+                        if (typeof renderAllPlaylistItems === 'function') renderAllPlaylistItems();
+                    };
+                    plBtn.onclick = function (e) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        window.openAddToPlaylistModal(newSong);
+                    };
+                    playButton.onclick = function () {
+                        const targetIndex = window.insertSongToPlaylist(newSong);
+                        renderAllPlaylistItems();
+                        playSongAtIndex(targetIndex);
+                        dom.searchResults.classList.add('hidden');
+                        dom.searchInput.value = '';
+                        showToast('已添加并播放: ' + newSong.name);
+                    };
+                    dom.searchResults.appendChild(div);
                 });
-            } finally {
-                // 搜索loader已移除
-            }
+            };
+
+            dom.searchResults.innerHTML = '';
+            const pager = createSearchResultPager({
+                query,
+                container: dom.searchResults,
+                isCurrent: () => requestId === desktopSearchRequestId,
+                appendSongs,
+                renderEmpty: () => {
+                    dom.searchResults.innerHTML = '<div class="p-4 text-center opacity-60">未找到相关歌曲</div>';
+                },
+                renderInitialError: (error) => {
+                    console.error(error);
+                    renderSearchRecoveryState(dom.searchResults, {
+                        query,
+                        error,
+                        onRetry: function (retryQuery) {
+                            if (dom.searchInput) dom.searchInput.value = retryQuery;
+                            searchSongs(retryQuery);
+                        }
+                    });
+                }
+            });
+            await pager.loadNext();
         }
 
         const MEDIA_SESSION_SEEK_STEP_SECONDS = 10;
@@ -7470,6 +7572,7 @@ async function refreshUserPlaylistLibrary() {
                 this.currentMode = 'cover';
                 this.activeSheetTab = 'playlist'; // playlist | search
                 this.searchRequestId = 0;
+                this.pendingSearchQuery = '';
 
                 this.dom = {
                     mobileLayout: document.getElementById('mobileLayout'),
@@ -7621,10 +7724,10 @@ async function refreshUserPlaylistLibrary() {
 
                 // Search Input
                 this.dom.searchInput?.addEventListener('change', (e) => {
-                    this.handleSearch(e.target.value);
+                    this.submitSearch(e.target.value);
                 });
                 this.dom.searchInput?.addEventListener('keypress', (e) => {
-                    if (e.key === 'Enter') this.handleSearch(e.target.value);
+                    if (e.key === 'Enter') this.submitSearch(e.target.value);
                 });
 
                 // ★ 拖拽关闭手势
@@ -7896,6 +7999,15 @@ async function refreshUserPlaylistLibrary() {
                 }
             }
 
+            submitSearch(query) {
+                const normalizedQuery = String(query || '').trim();
+                if (normalizedQuery && this.pendingSearchQuery === normalizedQuery) return;
+                this.pendingSearchQuery = normalizedQuery;
+                Promise.resolve(this.handleSearch(normalizedQuery)).finally(() => {
+                    if (this.pendingSearchQuery === normalizedQuery) this.pendingSearchQuery = '';
+                });
+            }
+
             async handleSearch(query) {
                 query = String(query || '').trim();
                 const requestId = ++this.searchRequestId;
@@ -7948,7 +8060,7 @@ async function refreshUserPlaylistLibrary() {
                                 query: query,
                                 error: e,
                                 compact: true,
-                                onRetry: (retryQuery) => this.handleSearch(retryQuery)
+                                onRetry: (retryQuery) => this.submitSearch(retryQuery)
                             });
                         } else {
                             container.innerHTML = '<div class="p-4 text-center opacity-50 text-xs text-red-400">加载失败</div>';
@@ -7960,19 +8072,8 @@ async function refreshUserPlaylistLibrary() {
                 const container = this.dom.searchResults;
                 container.innerHTML = '<div class="p-4 text-center opacity-50 text-xs">搜索中...</div>';
 
-                try {
-                    // Use global musicService instance
-                    const results = await musicService.search(query);
-                    if (requestId !== this.searchRequestId) return;
-                    container.innerHTML = '';
-                    container.classList.remove('hidden');
-
-                    if (!results || results.length === 0) {
-                        container.innerHTML = '<div class="p-4 text-center opacity-50 text-xs">无结果</div>';
-                        return;
-                    }
-
-                    results.forEach(song => {
+                const appendSongs = (songs) => {
+                    songs.forEach(song => {
                         const div = document.createElement('div');
                         div.className = 'flex items-center gap-2 p-2 rounded-xl active:bg-white/5 transition-colors';
 
@@ -8031,17 +8132,30 @@ async function refreshUserPlaylistLibrary() {
                         };
                         container.appendChild(div);
                     });
+                };
 
-                } catch (e) {
-                    if (requestId !== this.searchRequestId) return;
-                    console.error('Search failed', e);
-                    renderSearchRecoveryState(container, {
-                        query: query,
-                        error: e,
-                        compact: true,
-                        onRetry: (retryQuery) => this.handleSearch(retryQuery)
-                    });
-                }
+                container.innerHTML = '';
+                container.classList.remove('hidden');
+                const pager = createSearchResultPager({
+                    query,
+                    container,
+                    compact: true,
+                    isCurrent: () => requestId === this.searchRequestId,
+                    appendSongs,
+                    renderEmpty: () => {
+                        container.innerHTML = '<div class="p-4 text-center opacity-50 text-xs">无结果</div>';
+                    },
+                    renderInitialError: (error) => {
+                        console.error('Search failed', error);
+                        renderSearchRecoveryState(container, {
+                            query,
+                            error,
+                            compact: true,
+                            onRetry: (retryQuery) => this.submitSearch(retryQuery)
+                        });
+                    }
+                });
+                await pager.loadNext();
             }
 
             handleResize() {

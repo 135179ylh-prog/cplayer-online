@@ -447,6 +447,18 @@ base remains the value of `meta[name="cplayer-api-base-url"]`.
 - The UI message is `API 密钥无效或额度已用完，请在设置中检查密钥`. Search keeps
   its query and recovery control; remote-playlist and lyric paths must not
   replace this message with a generic empty-result or ID error.
+- Text search requests use 30-item pages with explicit `limit` and `offset`.
+  The API boundary owns extraction of `songs`, `total`, `nextOffset`, and
+  `hasMore`; desktop and mobile share the same paging state instead of slicing
+  or inventing separate cursors in their renderers.
+- Search result pages merge by stringified song id while preserving first-seen
+  order. The upstream cursor advances by raw items consumed, not by the
+  de-duplicated visible count. A duplicate-only page stops pagination rather
+  than issuing an unbounded loop.
+- The search panel shows honest `已显示 N / 共 M 首` progress and an accessible
+  44px `加载更多搜索结果` button. A next-page failure keeps existing rows and
+  offers retry; a response belonging to an older query cannot append to the
+  current query.
 - The settings copy must say that the value stays in this browser but is sent
   to the selected API in the request URL. Do not describe localStorage as
   network secrecy.
@@ -464,6 +476,9 @@ base remains the value of `meta[name="cplayer-api-base-url"]`.
 | Playback gets an auth error | Pause/stop recovery; do not request the next queue item. |
 | Settings reset | Remove both storage keys; subsequent requests use the default without `apikey`. |
 | Same-origin custom base sends `apikey` | Network response is used; no cached response is read or written for that URL. |
+| Search reports more than 30 results | Render the first 30 and expose a load-more control carrying `offset=30`. |
+| Next search page fails | Preserve visible songs and progress; expose `重试加载` instead of replacing the list. |
+| Old query page resolves after a new query | Ignore the late page; keep only the new query result and progress. |
 
 ### 5. Good / Base / Bad Cases
 
@@ -491,6 +506,10 @@ base remains the value of `meta[name="cplayer-api-base-url"]`.
   response, fetch it under the active Worker, prove the network response wins,
   delete the entry, fetch again, and prove the URL is still absent from every
   application cache.
+- Search pagination browser test on desktop/mobile: assert the first request is
+  `limit=30&offset=0`, load-more uses `offset=30`, rows append without
+  duplicates, progress reaches the reported total, a failed page can retry
+  without losing current rows, and a late old-query page is ignored.
 
 ### 7. Wrong vs Correct
 

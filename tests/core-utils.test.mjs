@@ -7,10 +7,45 @@ import {
     fetchJsonWithRetry,
     getSafePlaybackResumeTime,
     getSleepTimerRemainingMs,
+    mergeUniqueSearchSongs,
     normalizePlaybackSession,
+    normalizeSearchPage,
     normalizeSongObject,
     shouldRetryRequest
 } from '../js/core-utils.js';
+
+test('search page normalization keeps the upstream cursor and total', () => {
+    const songs = Array.from({ length: 30 }, (_, index) => ({ id: index + 31 }));
+    const page = normalizeSearchPage({
+        code: 200,
+        data: { songs, total: 65 }
+    }, { offset: 30, limit: 30 });
+
+    assert.equal(page.items.length, 30);
+    assert.equal(page.total, 65);
+    assert.equal(page.offset, 30);
+    assert.equal(page.nextOffset, 60);
+    assert.equal(page.hasMore, true);
+
+    const finalPage = normalizeSearchPage({
+        code: 200,
+        data: { songs: [{ id: 61 }], total: 61 }
+    }, { offset: 60, limit: 30 });
+    assert.equal(finalPage.nextOffset, 61);
+    assert.equal(finalPage.hasMore, false);
+
+    const legacyPage = normalizeSearchPage({ code: 200, data: [{ id: 1 }] });
+    assert.equal(legacyPage.total, null);
+    assert.equal(legacyPage.hasMore, false);
+});
+
+test('search page merge de-duplicates ids and drops invalid entries', () => {
+    const merged = mergeUniqueSearchSongs(
+        [{ id: 1, name: '第一页' }],
+        [{ id: '1', name: '重复项' }, { id: 2, name: '第二页' }, { name: '无 ID' }]
+    );
+    assert.deepEqual(merged.map((song) => song.name), ['第一页', '第二页']);
+});
 
 test('normalizeSongObject handles primitive and API-shaped songs', () => {
     assert.deepEqual(normalizeSongObject(123), {
