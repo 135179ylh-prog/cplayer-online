@@ -672,3 +672,36 @@ Replaced four complete-glyph Noto TTF assets with hinting-preserving WOFF2, redu
 ### Next Steps
 
 - None - task complete
+
+
+## Session 21: 搜索结果完整分页
+
+**Date**: 2026-07-29
+**Task**: 搜索结果完整分页
+**Branch**: `main`
+
+### Summary
+
+修复歌手搜索固定只显示 30 首的问题；桌面与手机支持逐页加载、真实总数、失败重试、跨页去重和查询竞态保护；完整质量门禁与正式站 30→60 验收通过。
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `1c70c31` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
