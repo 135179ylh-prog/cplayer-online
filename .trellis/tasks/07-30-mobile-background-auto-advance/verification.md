@@ -11,5 +11,13 @@
 
 ## 待完成
 
-- 独立提交并推送 `main`，等待 GitHub Pages 部署成功。
-- 正式站基础播放与实体手机后台自然结束验收。
+- 无。
+
+## 线上部署
+
+- 独立提交：`0beeb10 fix: stabilize mobile background auto advance`。
+- 已推送 `main`；GitHub Actions `Deploy GitHub Pages` 第 60 次运行（run `30476166827`）中，`quality` 与 `deploy` 均为 `success`，部署的 head SHA 为 `0beeb104d187913a50c5f300148ef2a70e2ed499`。
+- 正式站直接读取验证：`sw.js` 为 `cplayer5-v68-background-handoff`；`js/app.js` 包含 `preloadedNextMedia`、`preloadNextSong(attempt)`，且不存在旧的 2 秒预取结构。
+- 真实 Chrome 后台标签刷新到新 Worker 后：页面 `cplayerReady=true`、构建标记 `v32`、Service Worker 已控制页面，持久化队列正常恢复并可发起歌曲播放请求。
+- 自动化后台标签不能等同于手机系统后台冻结，因此额外保留实体手机验收作为最终证据。
+- 2026-08-01 实体手机验收（用户确认）：列表循环和随机模式在后台自然播放结束后均能自动进入下一首，无停住问题。
