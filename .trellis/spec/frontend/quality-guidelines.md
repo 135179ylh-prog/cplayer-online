@@ -459,6 +459,10 @@ base remains the value of `meta[name="cplayer-api-base-url"]`.
   44px `加载更多搜索结果` button. A next-page failure keeps existing rows and
   offers retry; a response belonging to an older query cannot append to the
   current query.
+- Near-bottom auto-pagination may react only after real user scroll intent
+  (wheel, touch, pointer-drag, or paging keys) is observed. Programmatic
+  `scrollIntoView()` used to reveal the manual button must not replace that
+  button with an in-flight request before its click handler runs.
 - The settings copy must say that the value stays in this browser but is sent
   to the selected API in the request URL. Do not describe localStorage as
   network secrecy.
@@ -509,7 +513,9 @@ base remains the value of `meta[name="cplayer-api-base-url"]`.
 - Search pagination browser test on desktop/mobile: assert the first request is
   `limit=30&offset=0`, load-more uses `offset=30`, rows append without
   duplicates, progress reaches the reported total, a failed page can retry
-  without losing current rows, and a late old-query page is ignored.
+  without losing current rows, a late old-query page is ignored, and a real
+  wheel/touch scroll triggers auto-pagination without a programmatic reveal
+  stealing the manual button.
 
 ### 7. Wrong vs Correct
 

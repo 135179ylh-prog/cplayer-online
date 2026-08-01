@@ -5750,6 +5750,7 @@ async function refreshUserPlaylistLibrary() {
                 error: false
             };
             let autoLoadFrame = 0;
+            let userScrollIntent = false;
 
             const loadWhenNearBottom = function () {
                 if (options.autoLoad === false || state.loading || state.error || !state.hasMore || !options.isCurrent()) return;
@@ -5766,11 +5767,34 @@ async function refreshUserPlaylistLibrary() {
             };
 
             const onScroll = function () {
+                if (!userScrollIntent) return;
                 scheduleAutoLoad();
             };
+            const markUserScrollIntent = function () {
+                userScrollIntent = true;
+                scheduleAutoLoad();
+            };
+            const onPointerDown = function (event) {
+                if (event.target.closest('button, a, input, [role="button"]')) return;
+                markUserScrollIntent();
+            };
+            const onKeyDown = function (event) {
+                if (event.target.closest('button, a, input, [role="button"]')) return;
+                if (['ArrowDown', 'ArrowUp', 'PageDown', 'PageUp', 'Home', 'End', ' '].includes(event.key)) {
+                    markUserScrollIntent();
+                }
+            };
             container.addEventListener('scroll', onScroll, { passive: true });
+            container.addEventListener('wheel', markUserScrollIntent, { passive: true });
+            container.addEventListener('touchmove', markUserScrollIntent, { passive: true });
+            container.addEventListener('pointerdown', onPointerDown);
+            container.addEventListener('keydown', onKeyDown);
             const cleanup = function () {
                 container.removeEventListener('scroll', onScroll);
+                container.removeEventListener('wheel', markUserScrollIntent);
+                container.removeEventListener('touchmove', markUserScrollIntent);
+                container.removeEventListener('pointerdown', onPointerDown);
+                container.removeEventListener('keydown', onKeyDown);
                 if (autoLoadFrame) cancelAnimationFrame(autoLoadFrame);
                 autoLoadFrame = 0;
                 if (searchPagerCleanups.get(container) === cleanup) searchPagerCleanups.delete(container);
@@ -5782,7 +5806,7 @@ async function refreshUserPlaylistLibrary() {
                     compact: options.compact,
                     onLoadMore: loadNext
                 });
-                scheduleAutoLoad();
+                if (userScrollIntent) scheduleAutoLoad();
             };
 
             async function loadNext() {

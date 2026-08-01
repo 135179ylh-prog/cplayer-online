@@ -88,6 +88,7 @@ test('search auto-loads the next page near the bottom on desktop and mobile', as
     expect(requests).toEqual([{ limit: 30, offset: 0 }]);
 
     await search.results.evaluate((container) => {
+        container.dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: 1000 }));
         container.scrollTop = container.scrollHeight;
         container.dispatchEvent(new Event('scroll'));
     });
