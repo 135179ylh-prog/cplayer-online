@@ -705,3 +705,37 @@ Replaced four complete-glyph Noto TTF assets with hinting-preserving WOFF2, redu
 ### Next Steps
 
 - None - task complete
+
+
+## Session 22: 完成手机后台自动续播可靠性
+
+**Date**: 2026-08-01
+**Task**: 完成手机后台自动续播可靠性
+**Branch**: `main`
+
+### Summary
+
+复用播放期间预取的下一首媒体，修复列表循环和随机模式在手机后台自然结束后偶发停住；补充队列变化/用户主动切歌回归，完成本机完整 npm run verify、GitHub Pages 部署和实体手机验收。阅读 Linux.do 主题 2689616，确认其 Flask 代理可参考接口分层和 Range 流式处理，但搜索固定 limit=30、无分页，不能直接解决歌手搜索不全。
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `0beeb10` | (see git log) |
+| `0c8edc7` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
