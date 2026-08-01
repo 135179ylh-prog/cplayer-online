@@ -5706,6 +5706,13 @@ async function refreshUserPlaylistLibrary() {
                 control.appendChild(error);
             }
 
+            if (state.hasMore && !state.loading && !state.error) {
+                const hint = document.createElement('div');
+                hint.className = compact ? 'text-[11px] opacity-50' : 'text-xs opacity-50';
+                hint.textContent = '继续下滑会自动加载下一页';
+                control.appendChild(hint);
+            }
+
             if (state.hasMore) {
                 const button = document.createElement('button');
                 button.type = 'button';
@@ -5725,7 +5732,14 @@ async function refreshUserPlaylistLibrary() {
             container.appendChild(control);
         }
 
+        const SEARCH_AUTO_LOAD_THRESHOLD_PX = 240;
+        const searchPagerCleanups = new WeakMap();
+
         function createSearchResultPager(options) {
+            const container = options.container;
+            const previousCleanup = searchPagerCleanups.get(container);
+            if (typeof previousCleanup === 'function') previousCleanup();
+
             const state = {
                 query: options.query,
                 songs: [],
@@ -5735,12 +5749,40 @@ async function refreshUserPlaylistLibrary() {
                 loading: false,
                 error: false
             };
+            let autoLoadFrame = 0;
+
+            const loadWhenNearBottom = function () {
+                if (options.autoLoad === false || state.loading || state.error || !state.hasMore || !options.isCurrent()) return;
+                const remaining = container.scrollHeight - container.scrollTop - container.clientHeight;
+                if (remaining <= SEARCH_AUTO_LOAD_THRESHOLD_PX) loadNext();
+            };
+
+            const scheduleAutoLoad = function () {
+                if (options.autoLoad === false || autoLoadFrame) return;
+                autoLoadFrame = requestAnimationFrame(function () {
+                    autoLoadFrame = 0;
+                    loadWhenNearBottom();
+                });
+            };
+
+            const onScroll = function () {
+                scheduleAutoLoad();
+            };
+            container.addEventListener('scroll', onScroll, { passive: true });
+            const cleanup = function () {
+                container.removeEventListener('scroll', onScroll);
+                if (autoLoadFrame) cancelAnimationFrame(autoLoadFrame);
+                autoLoadFrame = 0;
+                if (searchPagerCleanups.get(container) === cleanup) searchPagerCleanups.delete(container);
+            };
+            searchPagerCleanups.set(container, cleanup);
 
             const renderControl = function () {
-                renderSearchPaginationControl(options.container, state, {
+                renderSearchPaginationControl(container, state, {
                     compact: options.compact,
                     onLoadMore: loadNext
                 });
+                scheduleAutoLoad();
             };
 
             async function loadNext() {
@@ -5781,7 +5823,7 @@ async function refreshUserPlaylistLibrary() {
                 }
             }
 
-            return { state, loadNext };
+            return { state, loadNext, cleanup };
         }
 
         async function searchSongs(query) {

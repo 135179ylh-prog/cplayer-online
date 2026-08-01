@@ -64,6 +64,43 @@ test('search loads every result page with honest progress', async ({ page }, tes
     ]);
 });
 
+test('search auto-loads the next page near the bottom on desktop and mobile', async ({ page }, testInfo) => {
+    const requests = [];
+    await page.route(/\/163_search\?/, async (route) => {
+        const url = new URL(route.request().url());
+        const limit = Number(url.searchParams.get('limit'));
+        const offset = Number(url.searchParams.get('offset'));
+        requests.push({ limit, offset });
+        const songs = offset === 0
+            ? Array.from({ length: 30 }, (_, index) => searchResult(index + 1))
+            : Array.from({ length: 5 }, (_, index) => searchResult(index + 31));
+        await route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({ code: 200, data: { songs, total: 35 } })
+        });
+    });
+
+    await page.goto('/index.html');
+    const search = await openSearch(page, testInfo.project.name);
+    await submitSearch(page, testInfo.project.name, search.input);
+    await expect(search.results.getByRole('button', { name: /添加并播放「分页歌曲/ })).toHaveCount(30);
+    expect(requests).toEqual([{ limit: 30, offset: 0 }]);
+
+    await search.results.evaluate((container) => {
+        container.scrollTop = container.scrollHeight;
+        container.dispatchEvent(new Event('scroll'));
+    });
+
+    await expect(search.results.getByRole('button', { name: /添加并播放「分页歌曲/ })).toHaveCount(35);
+    await expect(search.results.getByText('已显示 35 / 共 35 首')).toBeVisible();
+    await expect(search.results.getByRole('button', { name: '加载更多搜索结果' })).toHaveCount(0);
+    expect(requests).toEqual([
+        { limit: 30, offset: 0 },
+        { limit: 30, offset: 30 }
+    ]);
+});
+
 test('a failed next page keeps current songs and can retry', async ({ page }, testInfo) => {
     let nextPageAvailable = false;
     await page.route(/\/163_search\?/, async (route) => {
