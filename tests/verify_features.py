@@ -66,6 +66,7 @@ required_html = {
     "cloud status badge": 'id="cloudStatusBadge"',
     "cloud pending count": 'id="cloudPendingCount"',
     "cloud conflict count": 'id="cloudConflictCount"',
+    "cloud conflict diff": 'id="cloudAccountConflictDiff"',
     "cloud last success": 'id="cloudLastSuccessfulAt"',
     "cloud last error": 'id="cloudLastError"',
     "cloud entry indicators": 'data-cloud-status-indicator',
@@ -119,6 +120,7 @@ required_app = {
     "cloud auth initialization": "async function initializeCloudAccount()",
     "cloud single-flight sync": "async function syncCloudPlaylists(reason)",
     "cloud conflict choices": "async function resolveCloudConflict(useLocal)",
+    "cloud conflict diff renderer": "function renderCloudConflictDiff(conflict)",
     "cloud account deletion": "async function cloudDeleteAccount()",
     "cloud pending count owner": "async function refreshCloudPendingCount(ownerId)",
     "cloud status projection render": "function applyCloudStatusProjection(projection)",
@@ -161,7 +163,7 @@ require((ROOT / "js" / "vendor" / "supabase.js").stat().st_size > 100_000, "vend
 require((ROOT / "tests" / "core-utils.test.mjs").is_file(), "core utility tests are missing")
 require("user-scalable=no" not in HTML and "maximum-scale" not in HTML, "viewport still blocks browser zoom")
 
-require("cplayer5-v69-search-auto-pagination" in SW, "service worker cache version is not updated")
+require("cplayer5-v70-conflict-diff-preview" in SW, "service worker cache version is not updated")
 require("'./js/app.js'" in SW, "production app module is not precached")
 require("./js/core-utils.js" in SW, "core utility module is not precached")
 for cloud_asset in ("./js/cloud-config.js", "./js/cloud-sync.js", "./js/vendor/supabase.js"):
@@ -329,7 +331,7 @@ require("service-role key" in CLOUD_CONFIG and not re.match(r"(?:sb_secret_|serv
         "cloud config does not forbid administrator credentials or contains an unsafe key")
 require("cp_api_key" not in CLOUD_SYNC and "cp_api_base" not in CLOUD_SYNC,
         "music API settings leaked into the cloud sync module")
-require("toCloudPlaylistInput" in CLOUD_SYNC and "p_expected_version" in CLOUD_SYNC,
+require("toCloudPlaylistInput" in CLOUD_SYNC and "diffPlaylistContent" in CLOUD_SYNC and "p_expected_version" in CLOUD_SYNC,
         "cloud payload or optimistic version boundary is missing")
 require("projectCloudSyncStatus" in CLOUD_SYNC and "formatCloudLastSuccessfulAt" in CLOUD_SYNC,
         "cloud status projection boundary is missing")
@@ -342,6 +344,7 @@ for snippet in [
     "cloudStatusBadge",
     "data-cplayer-cloud-pending",
     "cloudAccountConflictPosition",
+    "cloudAccountConflictDiff",
     "sync error keeps pending data visible and succeeds through retry",
 ]:
     require(snippet in ACCOUNT_CLOUD_E2E, f"cloud status-center browser contract is missing: {snippet}")

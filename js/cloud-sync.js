@@ -264,6 +264,87 @@ export function haveSamePlaylistContent(left, right) {
     }
 }
 
+function diffSongKey(song) {
+    const id = song && song.id;
+    return typeof id === 'number' ? 'number:' + id : 'string:' + String(id);
+}
+
+function diffSongSummary(song) {
+    return {
+        id: song.id,
+        name: song.name,
+        artist: song.artist,
+        album: song.album
+    };
+}
+
+function diffSongMetadata(left, right) {
+    return ['name', 'artist', 'cover', 'album', 'source'].some((field) => left[field] !== right[field]);
+}
+
+export function diffPlaylistContent(localRecord, remoteRecord) {
+    const local = localRecord ? toCloudPlaylistInput(localRecord) : {
+        id: '',
+        name: '',
+        songs: []
+    };
+    const remote = remoteRecord ? toCloudPlaylistInput(remoteRecord) : {
+        id: local.id,
+        name: '',
+        songs: []
+    };
+    const localByKey = new Map(local.songs.map((song) => [diffSongKey(song), song]));
+    const remoteByKey = new Map(remote.songs.map((song) => [diffSongKey(song), song]));
+    const localOnly = local.songs
+        .filter((song) => !remoteByKey.has(diffSongKey(song)))
+        .map(diffSongSummary);
+    const remoteOnly = remote.songs
+        .filter((song) => !localByKey.has(diffSongKey(song)))
+        .map(diffSongSummary);
+    const metadataChanged = [];
+    local.songs.forEach((song) => {
+        const key = diffSongKey(song);
+        const counterpart = remoteByKey.get(key);
+        if (!counterpart || !diffSongMetadata(song, counterpart)) return;
+        metadataChanged.push({
+            id: song.id,
+            local: diffSongSummary(song),
+            remote: diffSongSummary(counterpart)
+        });
+    });
+
+    const localCommonOrder = local.songs
+        .filter((song) => remoteByKey.has(diffSongKey(song)))
+        .map(diffSongKey);
+    const remoteCommonOrder = remote.songs
+        .filter((song) => localByKey.has(diffSongKey(song)))
+        .map(diffSongKey);
+    const orderChanged = JSON.stringify(localCommonOrder) !== JSON.stringify(remoteCommonOrder);
+    const localOrder = local.songs
+        .filter((song) => remoteByKey.has(diffSongKey(song)))
+        .map(diffSongSummary);
+    const remoteOrder = remote.songs
+        .filter((song) => localByKey.has(diffSongKey(song)))
+        .map(diffSongSummary);
+    const nameChanged = local.name !== remote.name;
+
+    return {
+        localName: local.name,
+        remoteName: remote.name,
+        nameChanged,
+        localSongCount: local.songs.length,
+        remoteSongCount: remote.songs.length,
+        localOnly,
+        remoteOnly,
+        metadataChanged,
+        orderChanged,
+        localOrder,
+        remoteOrder,
+        hasChanges: nameChanged || localOnly.length > 0 || remoteOnly.length > 0 ||
+            metadataChanged.length > 0 || orderChanged
+    };
+}
+
 export function makeRecoveredPlaylistName(name) {
     const suffix = '（已恢复）';
     const base = cleanString(name || '未命名歌单', 100, true);

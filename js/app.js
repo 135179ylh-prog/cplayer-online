@@ -19,6 +19,7 @@
             CLOUD_MAX_PLAYLISTS,
             CPlayerCloudService,
             decidePlaylistSync,
+            diffPlaylistContent,
             getPlaylistTrashRemainingDays,
             haveSamePlaylistContent,
             isPlaylistTrashExpired,
@@ -4546,6 +4547,103 @@ async function refreshUserPlaylistLibrary() {
             element.inert = !visible;
         }
 
+        const CLOUD_DIFF_PREVIEW_LIMIT = 6;
+
+        function makeCloudDiffSongText(song) {
+            const name = song && song.name ? song.name : '未知歌曲';
+            const artist = song && song.artist ? song.artist : '未知艺术家';
+            return name + ' · ' + artist;
+        }
+
+        function appendCloudDiffSection(container, title, items, emptyText, renderItem) {
+            const section = document.createElement('div');
+            section.className = 'rounded-xl border border-white/10 bg-black/10 p-2.5';
+            const heading = document.createElement('div');
+            heading.className = 'text-[11px] font-semibold opacity-70';
+            heading.textContent = title;
+            section.appendChild(heading);
+            const list = document.createElement('div');
+            list.className = 'mt-1 space-y-1';
+            const values = Array.isArray(items) ? items : [];
+            if (!values.length) {
+                const empty = document.createElement('div');
+                empty.className = 'text-[11px] opacity-45';
+                empty.textContent = emptyText;
+                list.appendChild(empty);
+            } else {
+                values.slice(0, CLOUD_DIFF_PREVIEW_LIMIT).forEach(function (item) {
+                    const row = document.createElement('div');
+                    row.className = 'min-w-0 text-[11px] leading-5';
+                    row.textContent = renderItem(item);
+                    list.appendChild(row);
+                });
+                if (values.length > CLOUD_DIFF_PREVIEW_LIMIT) {
+                    const more = document.createElement('div');
+                    more.className = 'text-[11px] opacity-45';
+                    more.textContent = '还有 ' + (values.length - CLOUD_DIFF_PREVIEW_LIMIT) + ' 项未展开';
+                    list.appendChild(more);
+                }
+            }
+            section.appendChild(list);
+            container.appendChild(section);
+        }
+
+        function renderCloudConflictDiff(conflict) {
+            const box = document.getElementById('cloudAccountConflictDiff');
+            if (!box) return;
+            box.innerHTML = '';
+            if (!conflict) return;
+            const summary = document.createElement('div');
+            summary.className = 'text-[11px] opacity-75';
+            try {
+                const diff = diffPlaylistContent(conflict.local, conflict.remote);
+                const parts = [];
+                if (diff.nameChanged) parts.push('名称不同');
+                if (diff.localOnly.length) parts.push('本机多 ' + diff.localOnly.length + ' 首');
+                if (diff.remoteOnly.length) parts.push('云端多 ' + diff.remoteOnly.length + ' 首');
+                if (diff.metadataChanged.length) parts.push(diff.metadataChanged.length + ' 首信息不同');
+                if (diff.orderChanged) parts.push('顺序不同');
+                summary.textContent = parts.length
+                    ? '差异：' + parts.join(' · ')
+                    : '两边歌单内容相同，请确认要保留哪一份';
+                box.appendChild(summary);
+
+                const counts = document.createElement('div');
+                counts.className = 'mt-2 grid grid-cols-2 gap-2 text-[11px]';
+                const localCount = document.createElement('div');
+                localCount.className = 'rounded-lg bg-white/5 px-2.5 py-2';
+                localCount.textContent = '本机：' + (diff.localName || '未命名歌单') + ' · ' + diff.localSongCount + ' 首';
+                const remoteCount = document.createElement('div');
+                remoteCount.className = 'rounded-lg bg-white/5 px-2.5 py-2';
+                remoteCount.textContent = '云端：' + (diff.remoteName || '未命名歌单') + ' · ' + diff.remoteSongCount + ' 首';
+                counts.appendChild(localCount);
+                counts.appendChild(remoteCount);
+                box.appendChild(counts);
+
+                const sections = document.createElement('div');
+                sections.className = 'mt-2 grid gap-2';
+                appendCloudDiffSection(sections, '仅本机有', diff.localOnly, '没有本机独有歌曲', makeCloudDiffSongText);
+                appendCloudDiffSection(sections, '仅云端有', diff.remoteOnly, '没有云端独有歌曲', makeCloudDiffSongText);
+                appendCloudDiffSection(sections, '歌曲信息变化', diff.metadataChanged, '没有同歌不同信息', function (item) {
+                    return '本机：' + makeCloudDiffSongText(item.local) + '；云端：' + makeCloudDiffSongText(item.remote);
+                });
+                const orderItems = diff.orderChanged ? [
+                    { label: '本机顺序', songs: diff.localOrder },
+                    { label: '云端顺序', songs: diff.remoteOrder }
+                ] : [];
+                appendCloudDiffSection(sections, '共同歌曲顺序', orderItems, '共同歌曲顺序一致', function (item) {
+                    return item.label + '：' + item.songs.slice(0, CLOUD_DIFF_PREVIEW_LIMIT)
+                        .map(makeCloudDiffSongText).join(' → ') +
+                        (item.songs.length > CLOUD_DIFF_PREVIEW_LIMIT ? ' …' : '');
+                });
+                box.appendChild(sections);
+            } catch (error) {
+                summary.textContent = '差异预览暂时不可用，但你仍可以选择保留本机或云端版本';
+                box.appendChild(summary);
+                console.warn('[cloud] conflict diff preview failed', error);
+            }
+        }
+
         function refreshCloudConflictUI() {
             const panel = document.getElementById('cloudAccountConflict');
             const name = document.getElementById('cloudAccountConflictName');
@@ -4556,6 +4654,7 @@ async function refreshUserPlaylistLibrary() {
                 ? (conflict.local && conflict.local.name) || (conflict.remote && conflict.remote.name) || '未命名歌单'
                 : '';
             if (position) position.textContent = conflict ? '1 / ' + cloudConflicts.size : '0 / 0';
+            renderCloudConflictDiff(conflict);
         }
 
         function refreshCloudAccountUI() {

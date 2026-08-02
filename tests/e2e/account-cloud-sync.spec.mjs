@@ -547,6 +547,12 @@ test('conflict choice can explicitly keep the cloud copy', async ({ page }) => {
     await expect(page.locator('#cloudStatusBadge')).toHaveText('有冲突');
     await expect(page.locator('#cloudConflictCount')).toHaveText('1');
     await expect(page.locator('#cloudAccountConflictPosition')).toHaveText('1 / 1');
+    const diff = page.locator('#cloudAccountConflictDiff');
+    await expect(diff).toContainText('名称不同');
+    await expect(diff).toContainText('本机版本');
+    await expect(diff).toContainText('云端版本');
+    await expect(diff).toContainText('本地同步歌曲');
+    await expect(diff).toContainText('云端同步歌曲');
     await page.locator('#cloudAccountUseCloudBtn').click();
     await expect.poll(() => page.evaluate(() => document.documentElement.dataset.cplayerCloudState))
         .toBe('synced');

@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
     CPlayerCloudService,
     decidePlaylistSync,
+    diffPlaylistContent,
     formatCloudLastSuccessfulAt,
     getPlaylistTrashRemainingDays,
     haveSamePlaylistContent,
@@ -144,6 +145,47 @@ test('cloud playlist payload strips unrelated local fields', () => {
     });
     assert.equal(JSON.stringify(payload).includes('apikey'), false);
     assert.equal(makeCloudOutboxId('owner-a', 'user_pl_demo'), 'owner-a:user_pl_demo');
+});
+
+test('playlist conflict diff reports names, additions, metadata and order without private fields', () => {
+    const localSong = { ...song, name: '本机歌曲' };
+    const localOnly = { id: 8, name: '本机新增', artist: '本机歌手', album: '本机专辑' };
+    const remoteOnly = { id: 9, name: '云端新增', artist: '云端歌手', album: '云端专辑' };
+    const diff = diffPlaylistContent(
+        {
+            id: 'user_pl_demo',
+            name: '本机歌单',
+            songs: [localSong, localOnly]
+        },
+        remote({
+            name: '云端歌单',
+            songs: [remoteOnly, { ...song, name: '云端歌曲' }]
+        })
+    );
+
+    assert.equal(diff.nameChanged, true);
+    assert.equal(diff.localSongCount, 2);
+    assert.equal(diff.remoteSongCount, 2);
+    assert.deepEqual(diff.localOnly.map((item) => item.id), [8]);
+    assert.deepEqual(diff.remoteOnly.map((item) => item.id), [9]);
+    assert.equal(diff.metadataChanged.length, 1);
+    assert.equal(diff.metadataChanged[0].local.name, '本机歌曲');
+    assert.equal(diff.metadataChanged[0].remote.name, '云端歌曲');
+    assert.equal(diff.orderChanged, false);
+    assert.equal(diff.hasChanges, true);
+    assert.equal(JSON.stringify(diff).includes('apikey'), false);
+});
+
+test('playlist conflict diff detects relative order changes among common songs', () => {
+    const first = { id: 1, name: '第一首', artist: '歌手一' };
+    const second = { id: 2, name: '第二首', artist: '歌手二' };
+    const diff = diffPlaylistContent(
+        { id: 'user_pl_demo', name: 'Demo', songs: [first, second] },
+        remote({ songs: [second, first] })
+    );
+    assert.equal(diff.orderChanged, true);
+    assert.deepEqual(diff.localOrder.map((item) => item.id), [1, 2]);
+    assert.deepEqual(diff.remoteOrder.map((item) => item.id), [2, 1]);
 });
 
 test('sync decisions preserve local and cloud edits instead of silent overwrite', () => {
