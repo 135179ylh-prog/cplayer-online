@@ -2014,20 +2014,29 @@
             return candidate;
         }
 
-        async function importRecoveryPackageFile(file) {
+        async function readRecoveryPackageFile(file) {
             if (!file || typeof file.text !== 'function') throw new Error('请选择 JSON 恢复包文件');
             if (file.size > PLAYLIST_BACKUP_MAX_BYTES) throw new Error('恢复包文件超过 5 MB 限制');
             if (file.name && !/\.json$/i.test(file.name)) throw new Error('请选择 .json 恢复包文件');
-            const parsed = parseRecoveryPackage(await file.text());
+            return parseRecoveryPackage(await file.text());
+        }
+
+        async function createRecoveryImportPlan(parsed) {
             if (!db && typeof initDatabase === 'function') await initDatabase();
             if (!db) throw new Error('数据库未就绪');
 
             const existing = await listUserPlaylists({ includeForeign: true, includeTrash: true, includePurged: true });
-            const usedNames = new Set(existing.map(function (item) { return String(item.name || '').toLocaleLowerCase(); }));
+            const existingNames = new Set(existing.map(function (item) { return String(item.name || '').toLocaleLowerCase(); }));
+            const usedNames = new Set(existingNames);
             const usedIds = new Set(existing.map(function (item) { return item.id; }));
+            const sourceNames = new Set();
+            let conflictCount = 0;
             const idMap = new Map();
             const now = Date.now();
             const records = parsed.playlists.map(function (item, index) {
+                const sourceNameKey = String(item.name || '').toLocaleLowerCase();
+                if (existingNames.has(sourceNameKey) || sourceNames.has(sourceNameKey)) conflictCount += 1;
+                sourceNames.add(sourceNameKey);
                 const id = createUserPlaylistId(usedIds);
                 idMap.set(item.sourceId, id);
                 return {
@@ -2056,6 +2065,27 @@
                 };
             });
 
+            return {
+                records: records,
+                history: history,
+                summary: {
+                    activeCount: parsed.playlists.filter(function (item) { return !item.deletedAt; }).length,
+                    trashCount: parsed.playlists.filter(function (item) { return !!item.deletedAt; }).length,
+                    historyCount: history.length,
+                    conflictCount: conflictCount
+                }
+            };
+        }
+
+        async function commitRecoveryImportPlan(plan) {
+            if (!plan || !Array.isArray(plan.records) || !Array.isArray(plan.history)) {
+                throw new Error('恢复包导入计划无效');
+            }
+            if (!db && typeof initDatabase === 'function') await initDatabase();
+            if (!db) throw new Error('数据库未就绪');
+            const records = plan.records;
+            const history = plan.history;
+
             try {
                 await runCriticalStorageWrite(async function () {
                     const stores = ['playlists'];
@@ -2081,6 +2111,12 @@
                 throw error;
             }
             return { records: records, historyCount: history.length };
+        }
+
+        async function importRecoveryPackageFile(file) {
+            const parsed = await readRecoveryPackageFile(file);
+            const plan = await createRecoveryImportPlan(parsed);
+            return commitRecoveryImportPlan(plan);
         }
 
         function getUniqueImportedPlaylistName(name, usedNames) {
@@ -2968,7 +3004,7 @@ async function refreshUserPlaylistLibrary() {
 
         function isOverlayInteractionTarget(target) {
             return !!(target && target.closest && target.closest(
-                '#userPlaylistModal, #myPlaylistsModal, #playlistDetailModal, #playlistHistoryModal, #settingsModal, #welcomeModal'
+                '#userPlaylistModal, #myPlaylistsModal, #playlistDetailModal, #playlistHistoryModal, #recoveryImportPreviewModal, #settingsModal, #welcomeModal'
             ));
         }
 
@@ -3356,11 +3392,66 @@ async function refreshUserPlaylistLibrary() {
             }
         }
 
-        async function handleRecoveryPackageInput(file) {
-            const importButton = document.getElementById('recoveryPackageImportBtn');
-            if (importButton) importButton.disabled = true;
+        let pendingRecoveryImport = null;
+        let recoveryImportPreviewBusy = false;
+
+        function renderRecoveryImportPreview(summary) {
+            const values = {
+                active: summary && Number.isFinite(summary.activeCount) ? summary.activeCount : 0,
+                trash: summary && Number.isFinite(summary.trashCount) ? summary.trashCount : 0,
+                history: summary && Number.isFinite(summary.historyCount) ? summary.historyCount : 0,
+                conflicts: summary && Number.isFinite(summary.conflictCount) ? summary.conflictCount : 0
+            };
+            Object.keys(values).forEach(function (key) {
+                const element = document.getElementById('recoveryImportPreview' + key.charAt(0).toUpperCase() + key.slice(1));
+                if (element) element.textContent = String(values[key]);
+            });
+            const status = document.getElementById('recoveryImportPreviewStatus');
+            if (status) status.textContent = '等待确认';
+        }
+
+        function openRecoveryImportPreview(parsed, plan) {
+            const modal = document.getElementById('recoveryImportPreviewModal');
+            if (!modal) throw new Error('恢复包预览窗口缺失，请强刷');
+            pendingRecoveryImport = { parsed: parsed, plan: plan };
+            renderRecoveryImportPreview(plan.summary);
+            modal.classList.remove('hidden');
+            modal.style.display = 'flex';
+            openAccessibleOverlay(modal, {
+                close: closeRecoveryImportPreview,
+                initialFocus: '#recoveryImportPreviewCancelBtn'
+            });
+        }
+
+        function closeRecoveryImportPreview() {
+            if (recoveryImportPreviewBusy) return;
+            const modal = document.getElementById('recoveryImportPreviewModal');
+            pendingRecoveryImport = null;
+            if (!modal) return;
+            modal.style.display = 'none';
+            modal.classList.add('hidden');
+            const status = document.getElementById('recoveryImportPreviewStatus');
+            if (status) status.textContent = '';
+            closeAccessibleOverlay(modal);
+        }
+
+        async function confirmRecoveryImport() {
+            if (!pendingRecoveryImport) return;
+            const confirmButton = document.getElementById('recoveryImportPreviewConfirmBtn');
+            const cancelButton = document.getElementById('recoveryImportPreviewCancelBtn');
+            const cancelBottomButton = document.getElementById('recoveryImportPreviewCancelBtnBottom');
+            const status = document.getElementById('recoveryImportPreviewStatus');
+            recoveryImportPreviewBusy = true;
+            if (confirmButton) confirmButton.disabled = true;
+            if (cancelButton) cancelButton.disabled = true;
+            if (cancelBottomButton) cancelBottomButton.disabled = true;
+            if (status) status.textContent = '正在读取当前歌单并准备恢复，请稍候…';
             try {
-                const result = await importRecoveryPackageFile(file);
+                const parsed = pendingRecoveryImport.parsed;
+                const plan = await createRecoveryImportPlan(parsed);
+                const result = await commitRecoveryImportPlan(plan);
+                recoveryImportPreviewBusy = false;
+                closeRecoveryImportPreview();
                 await refreshMyPlaylists();
                 await refreshPlaylistTrash();
                 if (typeof showToast === 'function') {
@@ -3368,6 +3459,25 @@ async function refreshUserPlaylistLibrary() {
                 }
             } catch (error) {
                 console.error('[recovery] import failed', error);
+                if (status) status.textContent = error.message || '恢复包导入失败';
+                if (typeof showToast === 'function') showToast(error.message || '恢复包导入失败', true);
+            } finally {
+                recoveryImportPreviewBusy = false;
+                if (confirmButton) confirmButton.disabled = false;
+                if (cancelButton) cancelButton.disabled = false;
+                if (cancelBottomButton) cancelBottomButton.disabled = false;
+            }
+        }
+
+        async function handleRecoveryPackageInput(file) {
+            const importButton = document.getElementById('recoveryPackageImportBtn');
+            if (importButton) importButton.disabled = true;
+            try {
+                const parsed = await readRecoveryPackageFile(file);
+                const plan = await createRecoveryImportPlan(parsed);
+                openRecoveryImportPreview(parsed, plan);
+            } catch (error) {
+                console.error('[recovery] preview failed', error);
                 if (typeof showToast === 'function') showToast(error.message || '恢复包导入失败', true);
             } finally {
                 if (importButton) importButton.disabled = false;
@@ -3886,6 +3996,18 @@ async function refreshUserPlaylistLibrary() {
                     if (file) await handleRecoveryPackageInput(file);
                 });
             }
+            const recoveryPreviewModal = document.getElementById('recoveryImportPreviewModal');
+            const recoveryPreviewCancelButton = document.getElementById('recoveryImportPreviewCancelBtn');
+            const recoveryPreviewCancelBottomButton = document.getElementById('recoveryImportPreviewCancelBtnBottom');
+            const recoveryPreviewConfirmButton = document.getElementById('recoveryImportPreviewConfirmBtn');
+            if (recoveryPreviewCancelButton) recoveryPreviewCancelButton.addEventListener('click', closeRecoveryImportPreview);
+            if (recoveryPreviewCancelBottomButton) recoveryPreviewCancelBottomButton.addEventListener('click', closeRecoveryImportPreview);
+            if (recoveryPreviewConfirmButton) recoveryPreviewConfirmButton.addEventListener('click', function () {
+                void confirmRecoveryImport();
+            });
+            if (recoveryPreviewModal) recoveryPreviewModal.addEventListener('click', function (event) {
+                if (event.target === recoveryPreviewModal) closeRecoveryImportPreview();
+            });
             [
                 ['myNewPlaylistName', 'myCreatePlaylistBtn'],
                 ['settingsCreatePlaylistName', 'settingsCreatePlaylistBtn'],

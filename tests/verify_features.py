@@ -74,6 +74,9 @@ required_html = {
     "recovery package export": 'id="recoveryPackageExportBtn"',
     "recovery package import": 'id="recoveryPackageImportBtn"',
     "recovery package input": 'id="recoveryPackageInput"',
+    "recovery import preview modal": 'id="recoveryImportPreviewModal"',
+    "recovery import preview summary": 'id="recoveryImportPreviewSummary"',
+    "recovery import preview confirm": 'id="recoveryImportPreviewConfirmBtn"',
 }
 
 required_app = {
@@ -132,6 +135,8 @@ required_app = {
     "recovery package format": "const RECOVERY_PACKAGE_FORMAT = 'cplayer-recovery-package';",
     "recovery package export": "async function createRecoveryPackage()",
     "recovery package validation": "function parseRecoveryPackage(text)",
+    "recovery import plan": "async function createRecoveryImportPlan(parsed)",
+    "recovery import preview": "function openRecoveryImportPreview(parsed, plan)",
     "recovery package atomic import": "async function importRecoveryPackageFile(file)",
     "recovery package no outbox": "const stores = ['playlists'];",
 }
@@ -172,7 +177,7 @@ require((ROOT / "js" / "vendor" / "supabase.js").stat().st_size > 100_000, "vend
 require((ROOT / "tests" / "core-utils.test.mjs").is_file(), "core utility tests are missing")
 require("user-scalable=no" not in HTML and "maximum-scale" not in HTML, "viewport still blocks browser zoom")
 
-require("cplayer5-v71-self-recovery" in SW, "service worker cache version is not updated")
+require("cplayer5-v72-recovery-import-preview" in SW, "service worker cache version is not updated")
 require("'./js/app.js'" in SW, "production app module is not precached")
 require("./js/core-utils.js" in SW, "core utility module is not precached")
 for cloud_asset in ("./js/cloud-config.js", "./js/cloud-sync.js", "./js/vendor/supabase.js"):

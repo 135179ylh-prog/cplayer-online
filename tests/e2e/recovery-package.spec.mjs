@@ -61,6 +61,12 @@ function recoveryPayload() {
     };
 }
 
+async function confirmRecoveryPreview(page) {
+    await expect(page.locator('#recoveryImportPreviewModal')).toBeVisible();
+    await page.getByRole('button', { name: '确认恢复' }).click();
+    await expect(page.locator('#copyToast span')).toContainText('已恢复 2 个歌单');
+}
+
 test('recovery package export includes active trash history but excludes sensitive fields', async ({ page }) => {
     await page.goto('/index.html');
     await waitForAppReady(page);
@@ -109,8 +115,15 @@ test('recovery package import mints ids, maps history, preserves trash, and crea
     await page.goto('/index.html');
     await waitForAppReady(page);
     await openLibrary(page);
+    const beforePreview = await readRecoveryStorage(page);
     await page.locator('#recoveryPackageInput').setInputFiles(recoveryFile(recoveryPayload()));
-    await expect(page.locator('#copyToast span')).toContainText('已恢复 2 个歌单');
+    await expect(page.locator('#recoveryImportPreviewModal')).toBeVisible();
+    await expect(page.locator('#recoveryImportPreviewActive')).toHaveText('1');
+    await expect(page.locator('#recoveryImportPreviewTrash')).toHaveText('1');
+    await expect(page.locator('#recoveryImportPreviewHistory')).toHaveText('1');
+    const afterPreview = await readRecoveryStorage(page);
+    expect(afterPreview).toEqual(beforePreview);
+    await confirmRecoveryPreview(page);
 
     const storage = await readRecoveryStorage(page);
     const imported = storage.playlists.filter((record) => String(record.id).startsWith('user_pl_'));
@@ -129,12 +142,50 @@ test('recovery package import mints ids, maps history, preserves trash, and crea
     expect(storage.outbox).toHaveLength(0);
 });
 
+test('recovery package preview can be cancelled without changing storage', async ({ page }) => {
+    await page.goto('/index.html');
+    await waitForAppReady(page);
+    await openLibrary(page);
+    const before = await readRecoveryStorage(page);
+    await page.locator('#recoveryPackageInput').setInputFiles(recoveryFile(recoveryPayload()));
+    await expect(page.locator('#recoveryImportPreviewModal')).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(page.locator('#recoveryImportPreviewModal')).toBeHidden();
+    const after = await readRecoveryStorage(page);
+    expect(after).toEqual(before);
+});
+
+test('recovery package preview reports name conflicts and keeps the recovered suffix', async ({ page }) => {
+    await page.goto('/index.html');
+    await waitForAppReady(page);
+    await page.evaluate(() => new Promise((resolve, reject) => {
+        const open = indexedDB.open('CPlayer5DB', 6);
+        open.onerror = () => reject(open.error);
+        open.onsuccess = () => {
+            const db = open.result;
+            const tx = db.transaction('playlists', 'readwrite');
+            tx.objectStore('playlists').put({
+                id: 'user_pl_existing_same_name', name: '恢复目标', songs: [], timestamp: Date.now(),
+                deletedAt: 0, purgedAt: 0, cloudOwnerId: '', cloudVersion: 0, cloudDirty: false
+            });
+            tx.oncomplete = () => { db.close(); resolve(); };
+            tx.onerror = () => { db.close(); reject(tx.error); };
+        };
+    }));
+    await openLibrary(page);
+    await page.locator('#recoveryPackageInput').setInputFiles(recoveryFile(recoveryPayload()));
+    await expect(page.locator('#recoveryImportPreviewConflicts')).toHaveText('1');
+    await confirmRecoveryPreview(page);
+    const storage = await readRecoveryStorage(page);
+    expect(storage.playlists.some((record) => record.name === '恢复目标（已恢复）')).toBe(true);
+});
+
 test('invalid recovery package fails before writing existing playlists', async ({ page }) => {
     await page.goto('/index.html');
     await waitForAppReady(page);
     await openLibrary(page);
     await page.locator('#recoveryPackageInput').setInputFiles(recoveryFile(recoveryPayload()));
-    await expect(page.locator('#copyToast span')).toContainText('已恢复 2 个歌单');
+    await confirmRecoveryPreview(page);
     const before = await readRecoveryStorage(page);
     await page.locator('#recoveryPackageInput').setInputFiles(recoveryFile({ format: 'wrong', version: 1 }, 'broken.json'));
     await expect(page.locator('#copyToast span')).toContainText('不是 CPlayer 恢复包');

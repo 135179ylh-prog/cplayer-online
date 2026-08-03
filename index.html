@@ -1213,6 +1213,31 @@
             .music-library-row.music-library-recent-row { grid-template-columns: 44px minmax(0, 1fr) 44px; }
             .music-library-recent-row .music-library-row-actions { grid-column: 3; }
         }
+        .recovery-import-preview-dialog {
+            width: min(520px, 94vw);
+            max-height: min(82vh, 640px);
+            overflow: auto;
+            background: #181818;
+            color: #fff;
+            border: 1px solid rgba(255,255,255,.16);
+            border-radius: 16px;
+            box-shadow: 0 24px 70px rgba(0,0,0,.5);
+        }
+        .recovery-import-preview-action {
+            min-height: 44px;
+            padding: 0 16px;
+            border-radius: 10px;
+            border: 1px solid rgba(255,255,255,.16);
+            background: rgba(255,255,255,.08);
+            color: #fff;
+            font-size: 14px;
+            font-weight: 600;
+        }
+        .recovery-import-preview-action.primary { background: #fff; color: #000; }
+        .recovery-import-preview-action:disabled { opacity: .4; cursor: wait; }
+        @media (max-width: 767px) {
+            .recovery-import-preview-dialog { width: 100%; max-height: 88vh; border-radius: 16px 16px 0 0; }
+        }
     </style>
     <link rel="stylesheet" href="css/tailwind.css">
     <script src="playlist.js"></script>
@@ -2088,6 +2113,37 @@
                     </div>
                     <div id="playlistTrashList" class="flex-1 min-h-0 overflow-y-auto custom-scrollbar px-4 pb-[max(12px,env(safe-area-inset-bottom))]" aria-live="polite"></div>
                 </section>
+            </div>
+        </div>
+
+        <!-- 恢复包导入预览：确认前不写入本机数据 -->
+        <div id="recoveryImportPreviewModal" class="fixed inset-0 hidden items-center justify-center bg-black/70 px-3" inert
+            style="z-index:2147483003;display:none;" role="dialog" aria-modal="true" aria-hidden="true"
+            aria-labelledby="recoveryImportPreviewTitle" aria-describedby="recoveryImportPreviewDescription">
+            <div class="recovery-import-preview-dialog">
+                <div class="flex items-center justify-between gap-3 px-4 py-4 border-b border-white/10">
+                    <div id="recoveryImportPreviewTitle" class="font-semibold text-lg">确认恢复本机歌单？</div>
+                    <button id="recoveryImportPreviewCancelBtn" type="button" class="music-library-icon-button" aria-label="取消恢复包导入" title="取消">
+                        <i class="fas fa-times" aria-hidden="true"></i>
+                    </button>
+                </div>
+                <div class="px-4 py-4 space-y-4">
+                    <p id="recoveryImportPreviewDescription" class="text-sm leading-6 opacity-75">
+                        下面内容只是在内存中预览。确认后会生成新的歌单副本，不会覆盖现有歌单；重名会自动加“（已恢复）”。
+                    </p>
+                    <div id="recoveryImportPreviewSummary" class="grid grid-cols-2 gap-3 text-sm" aria-live="polite">
+                        <div class="rounded-xl bg-white/5 px-3 py-3"><div class="opacity-55">活动歌单</div><strong id="recoveryImportPreviewActive" class="mt-1 block text-xl">0</strong></div>
+                        <div class="rounded-xl bg-white/5 px-3 py-3"><div class="opacity-55">回收站歌单</div><strong id="recoveryImportPreviewTrash" class="mt-1 block text-xl">0</strong></div>
+                        <div class="rounded-xl bg-white/5 px-3 py-3"><div class="opacity-55">历史版本</div><strong id="recoveryImportPreviewHistory" class="mt-1 block text-xl">0</strong></div>
+                        <div class="rounded-xl bg-white/5 px-3 py-3"><div class="opacity-55">重名处理</div><strong id="recoveryImportPreviewConflicts" class="mt-1 block text-xl">0</strong></div>
+                    </div>
+                    <p class="text-xs opacity-55">重名处理数量表示原名称与现有歌单或同一恢复包中的其他歌单重复的数量。</p>
+                    <div id="recoveryImportPreviewStatus" class="min-h-5 text-sm text-primary-color" role="status" aria-live="polite"></div>
+                    <div class="flex justify-end gap-2 pt-1">
+                        <button id="recoveryImportPreviewCancelBtnBottom" type="button" class="recovery-import-preview-action">取消</button>
+                        <button id="recoveryImportPreviewConfirmBtn" type="button" class="recovery-import-preview-action primary">确认恢复</button>
+                    </div>
+                </div>
             </div>
         </div>
 
