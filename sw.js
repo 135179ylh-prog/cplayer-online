@@ -1,4 +1,4 @@
-const CACHE_NAME = 'cplayer5-v73-sync-health-check';
+const CACHE_NAME = 'cplayer5-v74-sync-health-state';
 const COVER_CACHE_LIMIT = 160;
 const DYNAMIC_API_PATH_SEGMENTS = new Set([
   '163_search',

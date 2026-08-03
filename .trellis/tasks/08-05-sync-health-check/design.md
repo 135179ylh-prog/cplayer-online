@@ -28,4 +28,4 @@
 
 ## 缓存
 
-修改 `index.html` 与 `js/app.js` 后将 Service Worker cache name 更新为 `cplayer5-v73-sync-health-check`。
+修改 `index.html` 与 `js/app.js` 后将 Service Worker cache name 更新为 `cplayer5-v74-sync-health-state`。
