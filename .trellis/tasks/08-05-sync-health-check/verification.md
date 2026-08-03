@@ -9,7 +9,7 @@
 | `python tests/verify_features.py` | 通过 |
 | 健康检查定向 Playwright（桌面 + 手机） | 2/2 通过 |
 | `npm run verify` | 通过：45 个单测、222 个浏览器测试通过，12 个按项目配置跳过 |
-| GitHub Pages 线上验证 | 待推送后运行 |
+| GitHub Pages 线上验证 | 通过：公开页面包含健康检查入口，运行结果 4 项通过；缓存为 `cplayer5-v73-sync-health-check` |
 
 ## 浏览器验收矩阵
 
