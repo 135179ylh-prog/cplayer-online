@@ -1482,6 +1482,10 @@ artifact and cannot hide a server secret in shipped JavaScript.
   fresh database count with a stale in-memory projection. Any pending or syncing
   state is `warn`, while an unconfigured local-only state with no pending work is
   `pass`.
+- A displayed health-check snapshot is point-in-time evidence. When the cloud
+  state, pending count, conflict set, or successful-sync observation changes after
+  the check, mark the snapshot stale, keep the old rows for context, and disable
+  its diagnostic export until a new read-only check completes.
 - Different playlist ids merge. A clean local version pulls a newer cloud row;
   a dirty local version meeting a newer cloud row enters conflict and shows
   explicit “使用本机” and “使用云端” actions. No old row may silently replace
@@ -1535,6 +1539,7 @@ artifact and cannot hide a server secret in shipped JavaScript.
 | Remote row is trash or purged | Pull recoverable trash or a content-free marker; never silently discard unsynced local content. |
 | Offline restore or purge exists | Keep one durable owner outbox row and report the real pending count until confirmed. |
 | Health check runs after a new outbox row is written | Database and cloud items show the same pending count and the summary reports `需留意`. |
+| A new local/cloud state appears after a health check | The old report remains visible but says it is stale and its export action is disabled until re-check. |
 
 ### 5. Tests Required
 
@@ -1553,6 +1558,9 @@ artifact and cannot hide a server secret in shipped JavaScript.
   prove authorized responses never enter the current or unrelated cache.
 - Browser coverage must include a same-id foreign-owner collision and prove the
   foreign local record remains intact.
+- Browser coverage must run a health check, create a new pending state, prove the
+  stale notice and export protection in desktop/mobile, then re-check and prove
+  the notice clears.
 - SQL/static checks must assert RLS, owner policies, restricted RPC grants,
   pinned vendor dependency, DB v6, additive history schema/RLS/RPC grants, a
   non-empty HTTPS production URL with a
