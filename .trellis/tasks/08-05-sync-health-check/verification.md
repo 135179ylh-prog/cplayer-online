@@ -9,7 +9,7 @@
 | `python tests/verify_features.py` | 通过 |
 | 健康检查定向 Playwright（桌面 + 手机） | 2/2 通过 |
 | `npm run verify` | 通过：45 个单测、222 个浏览器测试通过，12 个按项目配置跳过 |
-| GitHub Pages 线上验证 | 通过：公开页面包含健康检查入口，运行结果 4 项通过；缓存为 `cplayer5-v73-sync-health-check` |
+| GitHub Pages 线上验证 | 通过：公开 `sw.js` 返回 `cplayer5-v74-sync-health-state`，公开 `app.js` 包含健康检查和最近成功同步提示 |
 
 ## 浏览器验收矩阵
 
@@ -23,3 +23,4 @@
 - 定向命令：`npx playwright test tests/e2e/cloud-health-check.spec.mjs --project=desktop-chromium --project=mobile-chromium`
 - 完整命令：`npm run verify`
 - 完整门禁还确认 Pages 构建产物上的 Service Worker、恢复包、冲突、离线和播放回归均通过。
+- 线上静态证据：`Last-Modified: 2026-08-03 08:38:39 GMT`，`sw.js` 返回 v74；此前线上 tab 已验证健康检查结果为 4 项通过。
