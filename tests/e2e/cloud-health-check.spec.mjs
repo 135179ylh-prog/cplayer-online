@@ -59,3 +59,44 @@ test('本机同步健康检查只读、可导出脱敏报告', async ({ page }) 
     await expect(page.locator('#cloudHealthCheckExportBtn')).toBeVisible();
     await expect(page.locator('#cloudHealthCheckBtn')).toBeEnabled();
 });
+
+test('健康检查使用最新 outbox 数量并把待办标为需留意', async ({ page }) => {
+    await page.addInitScript(() => {
+        window.CPLAYER_CLOUD_CONFIG = { url: '', publishableKey: '' };
+    });
+    await page.goto('/index.html');
+    await waitForAppReady(page);
+    await openSettings(page);
+
+    await page.evaluate(() => new Promise((resolve, reject) => {
+        const request = indexedDB.open('CPlayer5DB', 6);
+        request.onerror = () => reject(request.error);
+        request.onsuccess = () => {
+            const database = request.result;
+            const transaction = database.transaction('cloud_outbox', 'readwrite');
+            transaction.objectStore('cloud_outbox').put({
+                id: 'health-freshness-test',
+                ownerId: 'health-freshness-owner',
+                playlistId: 'user_pl_health_freshness',
+                operation: 'upsert',
+                mutationId: 'health-freshness-mutation',
+                updatedAt: Date.now()
+            });
+            transaction.oncomplete = () => {
+                database.close();
+                resolve();
+            };
+            transaction.onerror = () => reject(transaction.error);
+        };
+    }));
+
+    await page.locator('#cloudHealthCheckBtn').click();
+    await expect(page.locator('#cloudHealthCheckStatus')).toContainText('1 项需留意');
+    const report = await page.evaluate(() => window.getCloudHealthReport());
+    const indexedDb = report.items.find((item) => item.id === 'indexeddb');
+    const cloud = report.items.find((item) => item.id === 'cloud');
+    expect(indexedDb.detail).toContain('待同步 1 项');
+    expect(cloud.status).toBe('warn');
+    expect(cloud.detail).toContain('1 项');
+    expect(cloud.recommendation).toMatch(/登录|联网|同步/);
+});

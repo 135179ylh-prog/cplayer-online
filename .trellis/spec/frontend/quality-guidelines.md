@@ -1477,6 +1477,11 @@ artifact and cannot hide a server secret in shipped JavaScript.
   count, conflict count/position, last success, last error, and an actionable retry.
   Both 44px settings triggers expose the same summary through their accessible
   names; decorative status dots are never separate controls.
+- A one-shot sync health check must derive its pending count from the same
+  read-only IndexedDB snapshot that reports `cloud_outbox`; it must not combine a
+  fresh database count with a stale in-memory projection. Any pending or syncing
+  state is `warn`, while an unconfigured local-only state with no pending work is
+  `pass`.
 - Different playlist ids merge. A clean local version pulls a newer cloud row;
   a dirty local version meeting a newer cloud row enters conflict and shows
   explicit “使用本机” and “使用云端” actions. No old row may silently replace
@@ -1529,6 +1534,7 @@ artifact and cannot hide a server secret in shipped JavaScript.
 | A pass has remaining outbox or conflicts | Do not update last success and do not toast `歌单同步完成`. |
 | Remote row is trash or purged | Pull recoverable trash or a content-free marker; never silently discard unsynced local content. |
 | Offline restore or purge exists | Keep one durable owner outbox row and report the real pending count until confirmed. |
+| Health check runs after a new outbox row is written | Database and cloud items show the same pending count and the summary reports `需留意`. |
 
 ### 5. Tests Required
 

@@ -5256,19 +5256,27 @@ async function refreshUserPlaylistLibrary() {
             };
         }
 
-        function inspectCloudHealth() {
+        function inspectCloudHealth(pendingCountOverride) {
+            const suppliedPendingCount = Number(pendingCountOverride);
+            const pendingCount = Number.isSafeInteger(suppliedPendingCount) && suppliedPendingCount >= 0
+                ? suppliedPendingCount
+                : cloudPendingCount;
             const configured = Boolean(getConfiguredCloud());
             const signedIn = Boolean(cloudSession && cloudUserId);
             if (!configured) {
                 return {
                     id: 'cloud',
-                    status: 'pass',
-                    detail: '云同步未配置；播放器保持本机优先且无需登录。',
-                    recommendation: '如需跨设备歌单，再在设置中配置云同步并登录。',
+                    status: pendingCount > 0 ? 'warn' : 'pass',
+                    detail: pendingCount > 0
+                        ? '云同步未配置；本机仍有 ' + pendingCount + ' 项待同步改动，播放器保持本机优先。'
+                        : '云同步未配置；播放器保持本机优先且无需登录。',
+                    recommendation: pendingCount > 0
+                        ? '如需保留这些改动并跨设备同步，请配置并登录对应账号；在此之前不要清理站点数据。'
+                        : '如需跨设备歌单，再在设置中配置云同步并登录。',
                     configured: false,
                     signedIn: false,
                     state: 'disabled',
-                    pendingCount: cloudPendingCount,
+                    pendingCount: pendingCount,
                     conflictCount: cloudConflicts.size,
                     hasRecentSuccess: false
                 };
@@ -5276,23 +5284,23 @@ async function refreshUserPlaylistLibrary() {
             if (!signedIn) {
                 return {
                     id: 'cloud',
-                    status: cloudPendingCount > 0 ? 'warn' : 'pass',
-                    detail: cloudPendingCount > 0
-                        ? '尚未登录，本机有 ' + cloudPendingCount + ' 项等待对应账号同步。'
+                    status: pendingCount > 0 ? 'warn' : 'pass',
+                    detail: pendingCount > 0
+                        ? '尚未登录，本机有 ' + pendingCount + ' 项等待对应账号同步。'
                         : '云同步已配置但当前未登录；本机歌单仍可完整使用。',
-                    recommendation: cloudPendingCount > 0 ? '登录对应账号后再同步，避免把本机改动留在待同步队列。' : '如需跨设备同步，请登录对应账号。',
+                    recommendation: pendingCount > 0 ? '登录对应账号后再同步，避免把本机改动留在待同步队列。' : '如需跨设备同步，请登录对应账号。',
                     configured: true,
                     signedIn: false,
                     state: cloudState,
-                    pendingCount: cloudPendingCount,
+                    pendingCount: pendingCount,
                     conflictCount: cloudConflicts.size,
                     hasRecentSuccess: false
                 };
             }
             const hasConflict = cloudConflicts.size > 0 || cloudState === 'conflict';
             const hasError = cloudState === 'error';
-            const hasPending = cloudPendingCount > 0 || cloudState === 'pending' || cloudState === 'syncing';
-            const status = hasConflict || hasError ? 'warn' : 'pass';
+            const hasPending = pendingCount > 0 || cloudState === 'pending' || cloudState === 'syncing';
+            const status = hasConflict || hasError || hasPending ? 'warn' : 'pass';
             const recentSuccessDetail = cloudLastSuccessfulAt > 0 ? '最近有成功同步记录。' : '尚无成功同步记录。';
             return {
                 id: 'cloud',
@@ -5302,13 +5310,13 @@ async function refreshUserPlaylistLibrary() {
                     : hasError
                         ? '已登录，但最近一次同步报错；本机数据仍保留。' + recentSuccessDetail
                         : hasPending
-                            ? '已登录，当前有 ' + cloudPendingCount + ' 项等待同步。' + recentSuccessDetail
+                            ? '已登录，当前有 ' + pendingCount + ' 项等待同步。' + recentSuccessDetail
                             : '已登录，云同步状态正常。' + recentSuccessDetail,
                 recommendation: hasConflict ? '打开冲突差异预览，明确选择本机或云端版本。' : hasError ? '联网后点击“重试同步”；不要手动覆盖歌单。' : hasPending ? '保持联网，或点击“立即同步”。' : '无需处理。',
                 configured: true,
                 signedIn: true,
                 state: cloudState,
-                pendingCount: cloudPendingCount,
+                pendingCount: pendingCount,
                 conflictCount: cloudConflicts.size,
                 hasRecentSuccess: cloudLastSuccessfulAt > 0
             };
@@ -5413,7 +5421,7 @@ async function refreshUserPlaylistLibrary() {
             try {
                 const indexedDb = await inspectIndexedDbHealth();
                 const serviceWorker = await inspectServiceWorkerHealth();
-                const cloud = inspectCloudHealth();
+                const cloud = inspectCloudHealth(indexedDb.pendingCount);
                 const recovery = inspectRecoveryHealth();
                 const items = [
                     { ...indexedDb, title: '本机数据库与待同步队列' },
