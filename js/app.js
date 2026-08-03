@@ -725,6 +725,9 @@
         const PLAYLIST_BACKUP_MAX_BYTES = 5 * 1024 * 1024;
         const PLAYLIST_BACKUP_MAX_PLAYLISTS = 500;
         const PLAYLIST_BACKUP_MAX_SONGS = 10000;
+        const RECOVERY_PACKAGE_FORMAT = 'cplayer-recovery-package';
+        const RECOVERY_PACKAGE_VERSION = 1;
+        const RECOVERY_PACKAGE_MAX_HISTORY = PLAYLIST_BACKUP_MAX_PLAYLISTS * 20;
         const QUEUE_WRITER_ID = (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
             ? crypto.randomUUID()
             : 'queue-' + Date.now() + '-' + Math.random().toString(36).slice(2);
@@ -1810,6 +1813,274 @@
             link.remove();
             setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
             return backup.playlists.length;
+        }
+
+        function validateRecoveryPlaylistId(value, label) {
+            const id = validateBackupString(value, label, 160, true);
+            if (!id.startsWith(USER_PL_PREFIX)) throw new Error(label + ' id 鏃犳晥');
+            return id;
+        }
+
+        function normalizeRecoveryTimestamp(value, label, allowZero) {
+            const numberValue = Number(value);
+            if (Number.isFinite(numberValue) && (allowZero ? numberValue >= 0 : numberValue > 0)) return numberValue;
+            if (typeof value === 'string') {
+                const parsed = Date.parse(value);
+                if (Number.isFinite(parsed) && (allowZero ? parsed >= 0 : parsed > 0)) return parsed;
+            }
+            throw new Error(label + '鏃堕棿鏍煎紡閿欒');
+        }
+
+        function readRecoveryHistoryRecords(playlistIds) {
+            if (!db || !hasPlaylistHistoryStore() || !playlistIds.size) return Promise.resolve([]);
+            return new Promise(function (resolve, reject) {
+                let tx;
+                let requestError = null;
+                let entries = [];
+                try {
+                    tx = db.transaction(PLAYLIST_HISTORY_STORE, 'readonly');
+                    const request = tx.objectStore(PLAYLIST_HISTORY_STORE).getAll();
+                    request.onsuccess = function () { entries = request.result || []; };
+                    request.onerror = function () { requestError = request.error; };
+                } catch (error) {
+                    reject(error);
+                    return;
+                }
+                transactionDone(tx).then(function () {
+                    const normalized = [];
+                    entries.forEach(function (entry) {
+                        if (!entry || !playlistIds.has(String(entry.playlistId || ''))) return;
+                        try {
+                            const item = normalizePlaylistVersion(entry);
+                            normalized.push({
+                                sourcePlaylistId: item.playlistId,
+                                name: item.name,
+                                songs: item.songs.map(function (song) {
+                                    return validateBackupSong(song, 0, 0);
+                                }),
+                                createdAt: item.createdAt,
+                                reason: item.reason,
+                                snapshotId: item.snapshotId
+                            });
+                        } catch (error) {
+                            throw new Error('本地历史版本格式损坏，无法生成恢复包');
+                        }
+                    });
+                    resolve(normalized);
+                }, function (error) {
+                    reject(requestError || error);
+                });
+            });
+        }
+
+        async function createRecoveryPackage() {
+            const records = await readUserPlaylistRecords({
+                includeForeign: true,
+                includeTrash: true,
+                includePurged: false
+            });
+            const playlists = records.map(function (item, playlistIndex) {
+                const state = normalizeLocalPlaylistState(item);
+                if (!Array.isArray(item.songs)) throw new Error('本地歌单歌曲数据损坏，无法生成恢复包');
+                return {
+                    sourceId: validateRecoveryPlaylistId(item.id, 'playlist #' + (playlistIndex + 1)),
+                    name: validateBackupString(item.name, 'playlist #' + (playlistIndex + 1) + ' name', 100, true),
+                    songs: item.songs.map(function (song, songIndex) {
+                        return validateBackupSong(normalizeSongObject(song), playlistIndex, songIndex);
+                    }),
+                    deletedAt: state.deletedAt
+                };
+            });
+            if (playlists.length > PLAYLIST_BACKUP_MAX_PLAYLISTS) {
+                throw new Error('恢复包中的歌单数量过多');
+            }
+            const playlistIds = new Set(playlists.map(function (item) { return item.sourceId; }));
+            const history = await readRecoveryHistoryRecords(playlistIds);
+            if (history.length > RECOVERY_PACKAGE_MAX_HISTORY) {
+                throw new Error('恢复包中的历史版本数量过多');
+            }
+            return {
+                format: RECOVERY_PACKAGE_FORMAT,
+                version: RECOVERY_PACKAGE_VERSION,
+                exportedAt: new Date().toISOString(),
+                playlists: playlists,
+                history: history
+            };
+        }
+
+        async function downloadRecoveryPackage() {
+            const recovery = await createRecoveryPackage();
+            const blob = new Blob([JSON.stringify(recovery, null, 2)], { type: 'application/json;charset=utf-8' });
+            if (blob.size > PLAYLIST_BACKUP_MAX_BYTES) throw new Error('恢复包超过 5 MB，无法生成可导入文件');
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = 'cplayer-recovery-' + new Date().toISOString().slice(0, 10) + '.json';
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+            return { playlistCount: recovery.playlists.length, historyCount: recovery.history.length };
+        }
+
+        function parseRecoveryPackage(text) {
+            if (typeof text !== 'string' || !text.trim()) throw new Error('恢复包文件为空');
+            if (new TextEncoder().encode(text).byteLength > PLAYLIST_BACKUP_MAX_BYTES) {
+                throw new Error('恢复包文件超过 5 MB 限制');
+            }
+            let payload;
+            try {
+                payload = JSON.parse(text);
+            } catch (error) {
+                throw new Error('不是有效的 JSON 文件');
+            }
+            if (!isPlainRecord(payload)) throw new Error('恢复包根节点格式错误');
+            if (payload.format !== RECOVERY_PACKAGE_FORMAT) throw new Error('不是 CPlayer 恢复包');
+            if (payload.version !== RECOVERY_PACKAGE_VERSION) throw new Error('不支持的恢复包版本');
+            if (typeof payload.exportedAt !== 'string' || !Number.isFinite(Date.parse(payload.exportedAt))) {
+                throw new Error('恢复包导出时间格式错误');
+            }
+            if (!Array.isArray(payload.playlists)) throw new Error('恢复包中缺少歌单列表');
+            if (payload.playlists.length > PLAYLIST_BACKUP_MAX_PLAYLISTS) throw new Error('恢复包中的歌单数量过多');
+            if (!Array.isArray(payload.history)) throw new Error('恢复包中缺少历史版本列表');
+            if (payload.history.length > RECOVERY_PACKAGE_MAX_HISTORY) throw new Error('恢复包中的历史版本数量过多');
+
+            const sourceIds = new Set();
+            const playlists = payload.playlists.map(function (item, playlistIndex) {
+                if (!isPlainRecord(item)) throw new Error('第' + (playlistIndex + 1) + ' 个恢复歌单格式错误');
+                const sourceId = validateRecoveryPlaylistId(item.sourceId, '第' + (playlistIndex + 1) + ' 个恢复歌单');
+                if (sourceIds.has(sourceId)) throw new Error('恢复包中存在重复歌单 id');
+                sourceIds.add(sourceId);
+                const name = validateBackupString(item.name, '第' + (playlistIndex + 1) + ' 个恢复歌单名称', 100, true);
+                if (!Array.isArray(item.songs)) throw new Error('恢复歌单“' + name + '”缺少歌曲列表');
+                if (item.songs.length > PLAYLIST_BACKUP_MAX_SONGS) throw new Error('恢复歌单“' + name + '”歌曲数量过多');
+                const deletedAt = item.deletedAt == null ? 0 : normalizeRecoveryTimestamp(item.deletedAt, '恢复歌单删除时间', true);
+                return {
+                    sourceId: sourceId,
+                    name: name,
+                    songs: item.songs.map(function (song, songIndex) {
+                        return validateBackupSong(song, playlistIndex, songIndex);
+                    }),
+                    deletedAt: deletedAt
+                };
+            });
+
+            const history = payload.history.map(function (item, historyIndex) {
+                if (!isPlainRecord(item)) throw new Error('第' + (historyIndex + 1) + ' 个历史版本格式错误');
+                const sourcePlaylistId = validateRecoveryPlaylistId(item.sourcePlaylistId, '第' + (historyIndex + 1) + ' 个历史版本歌单');
+                if (!sourceIds.has(sourcePlaylistId)) throw new Error('历史版本引用了不存在的歌单');
+                const name = validateBackupString(item.name, '第' + (historyIndex + 1) + ' 个历史版本名称', 100, true);
+                if (!Array.isArray(item.songs)) throw new Error('历史版本“' + name + '”缺少歌曲列表');
+                if (item.songs.length > PLAYLIST_BACKUP_MAX_SONGS) throw new Error('历史版本“' + name + '”歌曲数量过多');
+                const snapshotId = validateBackupString(item.snapshotId, '第' + (historyIndex + 1) + ' 个历史版本 snapshotId', 200, true);
+                const createdAt = normalizeRecoveryTimestamp(item.createdAt, '历史版本创建时间', false);
+                const reason = ['edit', 'delete', 'restore', 'remote'].includes(item.reason) ? item.reason : 'edit';
+                return {
+                    sourcePlaylistId: sourcePlaylistId,
+                    name: name,
+                    songs: item.songs.map(function (song, songIndex) {
+                        return validateBackupSong(song, historyIndex, songIndex);
+                    }),
+                    createdAt: createdAt,
+                    reason: reason,
+                    snapshotId: snapshotId
+                };
+            });
+            return {
+                format: RECOVERY_PACKAGE_FORMAT,
+                version: RECOVERY_PACKAGE_VERSION,
+                exportedAt: payload.exportedAt,
+                playlists: playlists,
+                history: history
+            };
+        }
+
+        function getUniqueRecoveredPlaylistName(name, usedNames) {
+            const key = function (value) { return value.toLocaleLowerCase(); };
+            const base = makeRecoveredPlaylistName(name);
+            if (!usedNames.has(key(base))) {
+                usedNames.add(key(base));
+                return base;
+            }
+            let suffix = 2;
+            let candidate = '';
+            while (true) {
+                const suffixText = '（恢复 ' + suffix + '）';
+                candidate = String(name || '未命名歌单').slice(0, 100 - suffixText.length).trimEnd() + suffixText;
+                if (!usedNames.has(key(candidate))) break;
+                suffix += 1;
+            }
+            usedNames.add(key(candidate));
+            return candidate;
+        }
+
+        async function importRecoveryPackageFile(file) {
+            if (!file || typeof file.text !== 'function') throw new Error('请选择 JSON 恢复包文件');
+            if (file.size > PLAYLIST_BACKUP_MAX_BYTES) throw new Error('恢复包文件超过 5 MB 限制');
+            if (file.name && !/\.json$/i.test(file.name)) throw new Error('请选择 .json 恢复包文件');
+            const parsed = parseRecoveryPackage(await file.text());
+            if (!db && typeof initDatabase === 'function') await initDatabase();
+            if (!db) throw new Error('数据库未就绪');
+
+            const existing = await listUserPlaylists({ includeForeign: true, includeTrash: true, includePurged: true });
+            const usedNames = new Set(existing.map(function (item) { return String(item.name || '').toLocaleLowerCase(); }));
+            const usedIds = new Set(existing.map(function (item) { return item.id; }));
+            const idMap = new Map();
+            const now = Date.now();
+            const records = parsed.playlists.map(function (item, index) {
+                const id = createUserPlaylistId(usedIds);
+                idMap.set(item.sourceId, id);
+                return {
+                    id: id,
+                    name: getUniqueRecoveredPlaylistName(item.name, usedNames),
+                    songs: item.songs,
+                    timestamp: now - index,
+                    deletedAt: item.deletedAt || 0,
+                    purgedAt: 0,
+                    cloudOwnerId: '',
+                    cloudVersion: 0,
+                    cloudDirty: false
+                };
+            });
+            const history = parsed.history.map(function (item) {
+                const playlistId = idMap.get(item.sourcePlaylistId);
+                return {
+                    id: makeCloudMutationId(),
+                    playlistId: playlistId,
+                    name: item.name,
+                    songs: item.songs,
+                    createdAt: item.createdAt,
+                    reason: item.reason,
+                    snapshotId: item.snapshotId,
+                    cloudOwnerId: ''
+                };
+            });
+
+            try {
+                await runCriticalStorageWrite(async function () {
+                    const stores = ['playlists'];
+                    if (hasPlaylistHistoryStore()) stores.push(PLAYLIST_HISTORY_STORE);
+                    const tx = db.transaction(stores, 'readwrite');
+                    const playlistStore = tx.objectStore('playlists');
+                    try {
+                        records.forEach(function (record) { playlistStore.put(record); });
+                        if (hasPlaylistHistoryStore()) {
+                            const historyStore = tx.objectStore(PLAYLIST_HISTORY_STORE);
+                            history.forEach(function (entry) { historyStore.put(entry); });
+                        }
+                    } catch (error) {
+                        try { tx.abort(); } catch (abortError) {}
+                        throw error;
+                    }
+                    await transactionDone(tx);
+                });
+            } catch (error) {
+                setStorageState('degraded', isQuotaExceededError(error)
+                    ? '恢复包导入失败，浏览器存储空间不足'
+                    : STORAGE_WARNING, error);
+                throw error;
+            }
+            return { records: records, historyCount: history.length };
         }
 
         function getUniqueImportedPlaylistName(name, usedNames) {
@@ -3085,6 +3356,24 @@ async function refreshUserPlaylistLibrary() {
             }
         }
 
+        async function handleRecoveryPackageInput(file) {
+            const importButton = document.getElementById('recoveryPackageImportBtn');
+            if (importButton) importButton.disabled = true;
+            try {
+                const result = await importRecoveryPackageFile(file);
+                await refreshMyPlaylists();
+                await refreshPlaylistTrash();
+                if (typeof showToast === 'function') {
+                    showToast('已恢复 ' + result.records.length + ' 个歌单，' + result.historyCount + ' 个历史版本');
+                }
+            } catch (error) {
+                console.error('[recovery] import failed', error);
+                if (typeof showToast === 'function') showToast(error.message || '恢复包导入失败', true);
+            } finally {
+                if (importButton) importButton.disabled = false;
+            }
+        }
+
         function openPlaylistHistory() {
             const modal = document.getElementById('playlistHistoryModal');
             if (!modal || !currentDetailPlaylistId) return;
@@ -3548,6 +3837,27 @@ async function refreshUserPlaylistLibrary() {
                     if (input) input.click();
                     return;
                 }
+                if (target.closest('#recoveryPackageExportBtn')) {
+                    event.preventDefault();
+                    const button = document.getElementById('recoveryPackageExportBtn');
+                    if (button) button.disabled = true;
+                    try {
+                        const result = await downloadRecoveryPackage();
+                        if (typeof showToast === 'function') showToast('已导出 ' + result.playlistCount + ' 个歌单和 ' + result.historyCount + ' 个历史版本');
+                    } catch (error) {
+                        console.error('[recovery] export failed', error);
+                        if (typeof showToast === 'function') showToast(error.message || '恢复包导出失败', true);
+                    } finally {
+                        if (button) button.disabled = false;
+                    }
+                    return;
+                }
+                if (target.closest('#recoveryPackageImportBtn')) {
+                    event.preventDefault();
+                    const input = document.getElementById('recoveryPackageInput');
+                    if (input) input.click();
+                    return;
+                }
                 if (target.closest('#clearRecentHistoryBtn')) {
                     event.preventDefault();
                     if (!readRecentHistory().length) return;
@@ -3566,6 +3876,14 @@ async function refreshUserPlaylistLibrary() {
                     const file = backupInput.files && backupInput.files[0];
                     backupInput.value = '';
                     if (file) await handlePlaylistBackupInput(file);
+                });
+            }
+            const recoveryInput = document.getElementById('recoveryPackageInput');
+            if (recoveryInput) {
+                recoveryInput.addEventListener('change', async function () {
+                    const file = recoveryInput.files && recoveryInput.files[0];
+                    recoveryInput.value = '';
+                    if (file) await handleRecoveryPackageInput(file);
                 });
             }
             [
@@ -8244,7 +8562,6 @@ async function refreshUserPlaylistLibrary() {
                     if (this.pendingSearchQuery === normalizedQuery) this.pendingSearchQuery = '';
                 });
             }
-
             async handleSearch(query) {
                 query = String(query || '').trim();
                 const requestId = ++this.searchRequestId;

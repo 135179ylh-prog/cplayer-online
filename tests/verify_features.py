@@ -32,6 +32,7 @@ SHELL_E2E = (ROOT / "tests" / "e2e" / "app-shell.spec.mjs").read_text(encoding="
 API_CONFIG_E2E = (ROOT / "tests" / "e2e" / "api-config.spec.mjs").read_text(encoding="utf-8")
 ACCOUNT_CLOUD_E2E = (ROOT / "tests" / "e2e" / "account-cloud-sync.spec.mjs").read_text(encoding="utf-8")
 PLAYLIST_CRUD_E2E = (ROOT / "tests" / "e2e" / "playlist-crud.spec.mjs").read_text(encoding="utf-8")
+RECOVERY_PACKAGE_E2E = (ROOT / "tests" / "e2e" / "recovery-package.spec.mjs").read_text(encoding="utf-8")
 SW_UPDATE_E2E = (ROOT / "tests" / "e2e" / "service-worker-update.spec.mjs").read_text(encoding="utf-8")
 SW_KEY_CACHE_E2E = (ROOT / "tests" / "e2e" / "service-worker-key-cache.spec.mjs").read_text(encoding="utf-8")
 STORAGE_RESILIENCE_E2E = (ROOT / "tests" / "e2e" / "storage-resilience.spec.mjs").read_text(encoding="utf-8")
@@ -70,6 +71,9 @@ required_html = {
     "cloud last success": 'id="cloudLastSuccessfulAt"',
     "cloud last error": 'id="cloudLastError"',
     "cloud entry indicators": 'data-cloud-status-indicator',
+    "recovery package export": 'id="recoveryPackageExportBtn"',
+    "recovery package import": 'id="recoveryPackageImportBtn"',
+    "recovery package input": 'id="recoveryPackageInput"',
 }
 
 required_app = {
@@ -125,6 +129,11 @@ required_app = {
     "cloud pending count owner": "async function refreshCloudPendingCount(ownerId)",
     "cloud status projection render": "function applyCloudStatusProjection(projection)",
     "cloud last success owner": "function rememberCloudSyncSuccess(ownerId)",
+    "recovery package format": "const RECOVERY_PACKAGE_FORMAT = 'cplayer-recovery-package';",
+    "recovery package export": "async function createRecoveryPackage()",
+    "recovery package validation": "function parseRecoveryPackage(text)",
+    "recovery package atomic import": "async function importRecoveryPackageFile(file)",
+    "recovery package no outbox": "const stores = ['playlists'];",
 }
 
 for label, snippet in required_html.items():
@@ -163,7 +172,7 @@ require((ROOT / "js" / "vendor" / "supabase.js").stat().st_size > 100_000, "vend
 require((ROOT / "tests" / "core-utils.test.mjs").is_file(), "core utility tests are missing")
 require("user-scalable=no" not in HTML and "maximum-scale" not in HTML, "viewport still blocks browser zoom")
 
-require("cplayer5-v70-conflict-diff-preview" in SW, "service worker cache version is not updated")
+require("cplayer5-v71-self-recovery" in SW, "service worker cache version is not updated")
 require("'./js/app.js'" in SW, "production app module is not precached")
 require("./js/core-utils.js" in SW, "core utility module is not precached")
 for cloud_asset in ("./js/cloud-config.js", "./js/cloud-sync.js", "./js/vendor/supabase.js"):
@@ -442,6 +451,13 @@ for snippet in [
     "history preview restores a version",
 ]:
     require(snippet in PLAYLIST_CRUD_E2E, f"local playlist recovery browser contract is missing: {snippet}")
+for snippet in [
+    "recovery package export includes active trash history",
+    "mints ids, maps history, preserves trash",
+    "invalid recovery package fails before writing",
+    "cloud_outbox",
+]:
+    require(snippet in RECOVERY_PACKAGE_E2E, f"self recovery browser contract is missing: {snippet}")
 for snippet in [
     "installRuntimeProbes", "PageTransitionEvent('pagehide'", "removeSongFromQueue",
     "system play resumes committed song A", "ended committed media",
