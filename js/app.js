@@ -1108,8 +1108,7 @@
                 } else if (cloudUserId) {
                     return;
                 }
-                cloudPendingCount = records.length;
-                refreshCloudAccountUI();
+                setCloudPendingCount(records.length);
             } catch (error) {
                 if (readToken !== cloudPendingReadToken) return;
                 const sameOwner = requestedOwnerId ? cloudUserId === requestedOwnerId : !cloudUserId;
@@ -1121,8 +1120,11 @@
 
         function setCloudPendingCount(value) {
             const count = Number(value);
+            const normalized = Number.isSafeInteger(count) && count >= 0 ? count : 0;
+            const changed = normalized !== cloudPendingCount;
             cloudPendingReadToken += 1;
-            cloudPendingCount = Number.isSafeInteger(count) && count >= 0 ? count : 0;
+            cloudPendingCount = normalized;
+            if (changed) invalidateCloudHealthSnapshot('待同步项目数量已变化');
             refreshCloudAccountUI();
         }
 
@@ -4858,11 +4860,15 @@ async function refreshUserPlaylistLibrary() {
 
         function rememberCloudSyncSuccess(ownerId) {
             if (!ownerId || cloudUserId !== ownerId) return;
+            const previous = cloudLastSuccessfulAt;
             cloudLastSuccessfulAt = Date.now();
             writeLocalStorage(CLOUD_LAST_SUCCESS_KEY, JSON.stringify({
                 ownerId,
                 at: cloudLastSuccessfulAt
             }));
+            if (cloudLastSuccessfulAt !== previous) {
+                invalidateCloudHealthSnapshot('最近成功同步记录已更新');
+            }
         }
 
         function forgetCloudSyncSuccess(ownerId) {
@@ -4949,6 +4955,8 @@ async function refreshUserPlaylistLibrary() {
         }
 
         function setCloudState(nextState, message, error) {
+            const stateChanged = cloudState !== nextState ||
+                (message && cloudStateMessage !== message);
             cloudState = nextState;
             if (message) cloudStateMessage = message;
             if (nextState === 'error') cloudLastErrorMessage = message || '云同步操作失败';
@@ -4957,6 +4965,7 @@ async function refreshUserPlaylistLibrary() {
             }
             document.documentElement.dataset.cplayerCloudState = nextState;
             if (error) console.warn('[cloud]', message || nextState, error);
+            if (stateChanged) invalidateCloudHealthSnapshot('云同步状态已变化');
             refreshCloudAccountUI();
         }
 
@@ -5154,6 +5163,33 @@ async function refreshUserPlaylistLibrary() {
 
         let cloudHealthCheckBusy = false;
         let cloudHealthSnapshot = null;
+        let cloudHealthRevision = 0;
+
+        function isCloudHealthSnapshotFresh() {
+            return !!cloudHealthSnapshot && cloudHealthSnapshot.revision === cloudHealthRevision;
+        }
+
+        function renderCloudHealthFreshness() {
+            const notice = document.getElementById('cloudHealthCheckFreshness');
+            const exportButton = document.getElementById('cloudHealthCheckExportBtn');
+            const fresh = isCloudHealthSnapshotFresh();
+            if (notice) {
+                notice.classList.toggle('hidden', !cloudHealthSnapshot || fresh);
+                notice.textContent = fresh
+                    ? ''
+                    : '本机状态已变化，当前报告已过期；请重新检查后再导出报告。';
+            }
+            if (exportButton) {
+                exportButton.classList.toggle('hidden', !cloudHealthSnapshot);
+                exportButton.disabled = !fresh || cloudHealthCheckBusy;
+            }
+        }
+
+        function invalidateCloudHealthSnapshot(reason) {
+            cloudHealthRevision += 1;
+            if (!cloudHealthSnapshot) return;
+            renderCloudHealthFreshness(reason);
+        }
 
         function cloudHealthStatusLabel(status) {
             return status === 'pass' ? '通过' : status === 'warn' ? '需留意' : '受阻';
@@ -5339,7 +5375,6 @@ async function refreshUserPlaylistLibrary() {
         function renderCloudHealthSnapshot(snapshot) {
             const status = document.getElementById('cloudHealthCheckStatus');
             const list = document.getElementById('cloudHealthCheckList');
-            const exportButton = document.getElementById('cloudHealthCheckExportBtn');
             if (!status || !list) return;
             const counts = snapshot.items.reduce(function (result, item) {
                 result[item.status] += 1;
@@ -5371,10 +5406,7 @@ async function refreshUserPlaylistLibrary() {
                 row.appendChild(recommendation);
                 list.appendChild(row);
             });
-            if (exportButton) {
-                exportButton.classList.remove('hidden');
-                exportButton.disabled = false;
-            }
+            renderCloudHealthFreshness();
         }
 
         function sanitizeCloudHealthReport(snapshot) {
@@ -5382,6 +5414,7 @@ async function refreshUserPlaylistLibrary() {
                 format: 'cplayer-sync-health-report',
                 version: 1,
                 generatedAt: snapshot.generatedAt,
+                stale: !isCloudHealthSnapshotFresh(),
                 items: snapshot.items.map(function (item) {
                     return {
                         id: item.id,
@@ -5396,7 +5429,11 @@ async function refreshUserPlaylistLibrary() {
         }
 
         function exportCloudHealthReport() {
-            if (!cloudHealthSnapshot) return;
+            if (!isCloudHealthSnapshotFresh()) {
+                renderCloudHealthFreshness();
+                showToast('健康检查结果已过期，请重新检查', true);
+                return;
+            }
             const report = sanitizeCloudHealthReport(cloudHealthSnapshot);
             const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
             const url = URL.createObjectURL(blob);
@@ -5433,7 +5470,12 @@ async function refreshUserPlaylistLibrary() {
                     result[item.status] += 1;
                     return result;
                 }, { pass: 0, warn: 0, fail: 0 });
-                cloudHealthSnapshot = { generatedAt: Date.now(), items: items, summary: summary };
+                cloudHealthSnapshot = {
+                    generatedAt: Date.now(),
+                    revision: cloudHealthRevision,
+                    items: items,
+                    summary: summary
+                };
                 renderCloudHealthSnapshot(cloudHealthSnapshot);
             } catch (error) {
                 cloudHealthSnapshot = null;
@@ -5442,7 +5484,7 @@ async function refreshUserPlaylistLibrary() {
             } finally {
                 cloudHealthCheckBusy = false;
                 if (button) button.disabled = false;
-                if (exportButton && cloudHealthSnapshot) exportButton.disabled = false;
+                renderCloudHealthFreshness();
             }
         }
 
@@ -5809,6 +5851,7 @@ async function refreshUserPlaylistLibrary() {
                 outbox: outbox || null
             });
             if (conflicts === cloudConflicts) {
+                invalidateCloudHealthSnapshot('冲突集合已变化');
                 setCloudState('conflict', '发现歌单冲突，请在设置中选择保留哪一份');
             }
         }

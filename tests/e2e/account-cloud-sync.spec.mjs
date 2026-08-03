@@ -637,6 +637,43 @@ test('offline playlist edit stays pending and syncs after reconnect', async ({ p
     expect(mock.rows.some((row) => row.name === '离线新建歌单')).toBe(true);
 });
 
+test('health report becomes stale after a new pending edit and refreshes safely', async ({ page, context }) => {
+    await openConfiguredApp(page);
+    await submitSignIn(page);
+
+    await page.locator('#cloudHealthCheckBtn').click();
+    await expect(page.locator('#cloudHealthCheckStatus')).toContainText('检查完成');
+    await expect(page.locator('#cloudHealthCheckFreshness')).toBeHidden();
+    await expect(page.locator('#cloudHealthCheckExportBtn')).toBeEnabled();
+
+    await closeSettings(page);
+    await openLibrary(page);
+    await context.setOffline(true);
+    try {
+        await page.locator('#myNewPlaylistName').fill('健康检查过期测试');
+        await page.locator('#myCreatePlaylistBtn').click();
+        await expect(page.locator('#myPlaylistsList')).toContainText('健康检查过期测试');
+        await expect(page.locator('html')).toHaveAttribute('data-cplayer-cloud-pending', '1');
+        await page.locator('#closeMyPlaylistsBtn').click();
+        await expect(page.locator('#myPlaylistsModal')).toBeHidden();
+
+        await openSettings(page);
+        await expect(page.locator('#cloudHealthCheckFreshness')).toBeVisible();
+        await expect(page.locator('#cloudHealthCheckFreshness')).toContainText('过期');
+        await expect(page.locator('#cloudHealthCheckExportBtn')).toBeDisabled();
+
+        await page.locator('#cloudHealthCheckBtn').click();
+        await expect(page.locator('#cloudHealthCheckStatus')).toContainText('检查完成');
+        await expect(page.locator('#cloudHealthCheckFreshness')).toBeHidden();
+        await expect(page.locator('#cloudHealthCheckExportBtn')).toBeEnabled();
+        const report = await page.evaluate(() => window.getCloudHealthReport());
+        expect(report.stale).toBe(false);
+        expect(report.items.find((item) => item.id === 'cloud').detail).toContain('1 项');
+    } finally {
+        await context.setOffline(false);
+    }
+});
+
 test('signed-in session restores after reload and local sign-out clears it', async ({ page }) => {
     await openConfiguredApp(page);
     await submitSignIn(page);

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'cplayer5-v75-sync-health-freshness';
+const CACHE_NAME = 'cplayer5-v76-sync-health-snapshot-expiry';
 const COVER_CACHE_LIMIT = 160;
 const DYNAMIC_API_PATH_SEGMENTS = new Set([
   '163_search',

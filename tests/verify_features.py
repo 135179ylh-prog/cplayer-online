@@ -80,6 +80,7 @@ required_html = {
     "recovery import preview confirm": 'id="recoveryImportPreviewConfirmBtn"',
     "cloud health check button": 'id="cloudHealthCheckBtn"',
     "cloud health check status": 'id="cloudHealthCheckStatus"',
+    "cloud health check freshness": 'id="cloudHealthCheckFreshness"',
     "cloud health check list": 'id="cloudHealthCheckList"',
     "cloud health report export": 'id="cloudHealthCheckExportBtn"',
 }
@@ -146,6 +147,10 @@ required_app = {
     "recovery package no outbox": "const stores = ['playlists'];",
     "cloud health snapshot": "async function runCloudHealthCheck()",
     "cloud health report sanitizer": "function sanitizeCloudHealthReport(snapshot)",
+    "cloud health revision": "let cloudHealthRevision = 0;",
+    "cloud health freshness guard": "function isCloudHealthSnapshotFresh()",
+    "cloud health stale invalidation": "function invalidateCloudHealthSnapshot(reason)",
+    "cloud health export protection": "健康检查结果已过期，请重新检查",
     "cloud health IndexedDB probe": "async function inspectIndexedDbHealth()",
     "cloud health Service Worker probe": "async function inspectServiceWorkerHealth()",
 }
@@ -186,7 +191,7 @@ require((ROOT / "js" / "vendor" / "supabase.js").stat().st_size > 100_000, "vend
 require((ROOT / "tests" / "core-utils.test.mjs").is_file(), "core utility tests are missing")
 require("user-scalable=no" not in HTML and "maximum-scale" not in HTML, "viewport still blocks browser zoom")
 
-require("cplayer5-v75-sync-health-freshness" in SW, "service worker cache version is not updated")
+require("cplayer5-v76-sync-health-snapshot-expiry" in SW, "service worker cache version is not updated")
 require("'./js/app.js'" in SW, "production app module is not precached")
 require("./js/core-utils.js" in SW, "core utility module is not precached")
 for cloud_asset in ("./js/cloud-config.js", "./js/cloud-sync.js", "./js/vendor/supabase.js"):
@@ -480,6 +485,13 @@ for snippet in [
     "publishableKey",
 ]:
     require(snippet in HEALTH_CHECK_E2E, f"sync health browser contract is missing: {snippet}")
+for snippet in [
+    "health report becomes stale after a new pending edit",
+    "cloudHealthCheckFreshness",
+    "toBeDisabled",
+    "report.stale",
+]:
+    require(snippet in ACCOUNT_CLOUD_E2E, f"sync health freshness browser contract is missing: {snippet}")
 for snippet in [
     "installRuntimeProbes", "PageTransitionEvent('pagehide'", "removeSongFromQueue",
     "system play resumes committed song A", "ended committed media",
