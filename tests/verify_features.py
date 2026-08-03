@@ -71,6 +71,9 @@ required_html = {
     "cloud conflict diff": 'id="cloudAccountConflictDiff"',
     "cloud last success": 'id="cloudLastSuccessfulAt"',
     "cloud last error": 'id="cloudLastError"',
+    "cloud pending queue": 'id="cloudPendingQueue"',
+    "cloud pending list": 'id="cloudPendingList"',
+    "cloud retry all": 'id="cloudRetryAllBtn"',
     "cloud entry indicators": 'data-cloud-status-indicator',
     "recovery package export": 'id="recoveryPackageExportBtn"',
     "recovery package import": 'id="recoveryPackageImportBtn"',
@@ -131,11 +134,14 @@ required_app = {
     "bounded remote playlist cache": "const REMOTE_PLAYLIST_CACHE_LIMIT = 12;",
     "cloud outbox store": "const CLOUD_OUTBOX_STORE = 'cloud_outbox';",
     "cloud auth initialization": "async function initializeCloudAccount()",
-    "cloud single-flight sync": "async function syncCloudPlaylists(reason)",
+    "cloud single-flight sync": "async function syncCloudPlaylists(reason, options)",
     "cloud conflict choices": "async function resolveCloudConflict(useLocal)",
     "cloud conflict diff renderer": "function renderCloudConflictDiff(conflict)",
     "cloud account deletion": "async function cloudDeleteAccount()",
     "cloud pending count owner": "async function refreshCloudPendingCount(ownerId)",
+    "cloud pending queue renderer": "function renderCloudPendingUI()",
+    "cloud single-item retry": "async function retryCloudOutboxItem(outboxId)",
+    "cloud all-items retry": "async function retryAllCloudOutbox()",
     "cloud status projection render": "function applyCloudStatusProjection(projection)",
     "cloud last success owner": "function rememberCloudSyncSuccess(ownerId)",
     "recovery package format": "const RECOVERY_PACKAGE_FORMAT = 'cplayer-recovery-package';",
@@ -191,7 +197,7 @@ require((ROOT / "js" / "vendor" / "supabase.js").stat().st_size > 100_000, "vend
 require((ROOT / "tests" / "core-utils.test.mjs").is_file(), "core utility tests are missing")
 require("user-scalable=no" not in HTML and "maximum-scale" not in HTML, "viewport still blocks browser zoom")
 
-require("cplayer5-v77-sync-error-persistence" in SW, "service worker cache version is not updated")
+require("cplayer5-v78-sync-retry-queue" in SW, "service worker cache version is not updated")
 require("'./js/app.js'" in SW, "production app module is not precached")
 require("./js/core-utils.js" in SW, "core utility module is not precached")
 for cloud_asset in ("./js/cloud-config.js", "./js/cloud-sync.js", "./js/vendor/supabase.js"):

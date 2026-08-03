@@ -720,6 +720,12 @@ test('sync error keeps pending data visible and succeeds through retry', async (
     await expect(page.locator('#cloudLastError')).toBeVisible();
     await expect(page.locator('#cloudLastError')).toContainText('最近错误');
     await expect(page.locator('#cloudAccountSyncBtnLabel')).toHaveText('重试同步');
+    await page.locator('#cloudHealthCheckBtn').click();
+    await expect(page.locator('#cloudHealthCheckStatus')).toContainText('检查完成');
+    const errorReport = await page.evaluate(() => window.getCloudHealthReport());
+    const storedError = await page.evaluate(() => JSON.parse(localStorage.getItem('cp_cloud_last_error')));
+    expect(errorReport.items.find((item) => item.id === 'cloud').lastError).toBe(storedError.message);
+    expect(JSON.stringify(errorReport)).not.toContain('apikey');
 
     mock.playlistListUnavailable = false;
     await page.locator('#cloudAccountSyncBtn').click();
@@ -730,6 +736,55 @@ test('sync error keeps pending data visible and succeeds through retry', async (
     await expect(page.locator('#cloudPendingCount')).toHaveText('0');
     expect((await readCloudStorage(page)).outbox).toEqual([]);
     expect(mock.rows.some((row) => row.name === '等待重试')).toBe(true);
+});
+
+test('pending queue lists concrete playlists and supports single then all retry', async ({ page, context }) => {
+    const mock = await openConfiguredApp(page);
+    await submitSignIn(page);
+    await closeSettings(page);
+    await openLibrary(page);
+
+    mock.playlistListUnavailable = true;
+    await page.locator('#myNewPlaylistName').fill('单项重试歌单');
+    await page.locator('#myCreatePlaylistBtn').click();
+    await page.locator('#myNewPlaylistName').fill('全部重试歌单');
+    await page.locator('#myCreatePlaylistBtn').click();
+    await expect(page.locator('#myPlaylistsList')).toContainText('单项重试歌单');
+    await expect(page.locator('#myPlaylistsList')).toContainText('全部重试歌单');
+    await expect(page.locator('html')).toHaveAttribute('data-cplayer-cloud-pending', '2');
+    expect((await readCloudStorage(page)).outbox).toHaveLength(2);
+    await expect.poll(() => page.evaluate(() => document.documentElement.dataset.cplayerCloudState))
+        .toBe('error');
+
+    await page.locator('#closeMyPlaylistsBtn').click();
+    await expect(page.locator('#myPlaylistsModal')).toBeHidden();
+    await openSettings(page);
+    await expect(page.locator('#cloudPendingQueue')).toBeVisible();
+    await expect(page.locator('#cloudPendingList')).toContainText('单项重试歌单');
+    await expect(page.locator('#cloudPendingList')).toContainText('全部重试歌单');
+    await expect(page.locator('#cloudPendingList button')).toHaveCount(2);
+    await expect(page.locator('#cloudRetryAllBtn')).toBeEnabled();
+    await context.setOffline(true);
+    await expect(page.locator('#cloudPendingList button').first()).toBeDisabled();
+    await expect(page.locator('#cloudRetryAllBtn')).toBeDisabled();
+    await context.setOffline(false);
+    await expect.poll(() => page.evaluate(() => document.documentElement.dataset.cplayerCloudState))
+        .toBe('error');
+
+    mock.playlistListUnavailable = false;
+    await page.getByRole('button', { name: '重试歌单「单项重试歌单」' }).click();
+    await expect.poll(async () => (await readCloudStorage(page)).outbox.length).toBe(1);
+    await expect(page.locator('#cloudPendingList')).toContainText('全部重试歌单');
+    await expect(page.locator('#cloudPendingList')).not.toContainText('单项重试歌单');
+    await expect(page.locator('#cloudPendingList button')).toHaveCount(1);
+    await expect(page.locator('#cloudPendingQueue')).toBeVisible();
+
+    await page.locator('#cloudRetryAllBtn').click();
+    await expect.poll(async () => (await readCloudStorage(page)).outbox.length).toBe(0);
+    await expect(page.locator('#cloudPendingQueue')).toBeHidden();
+    await expect(page.locator('#cloudPendingCount')).toHaveText('0');
+    expect(mock.rows.some((row) => row.name === '单项重试歌单')).toBe(true);
+    expect(mock.rows.some((row) => row.name === '全部重试歌单')).toBe(true);
 });
 
 test('foreign account sync error is not shown to the current account', async ({ page }) => {
