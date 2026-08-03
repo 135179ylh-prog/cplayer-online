@@ -5,4 +5,4 @@
 - [x] 在资料库 UI 增加恢复包导出/导入入口，保留普通备份入口。
 - [x] 增加恢复包浏览器验证：active、trash、history、敏感字段排除、原子失败、无 outbox。
 - [x] 更新 `tests/verify_features.py`、Service Worker 缓存版本和 Trellis 验证文档。
-- [ ] 运行线上部署后的桌面/手机复验，完成独立提交并推送。
+- [x] 运行线上部署后的桌面/手机复验，完成独立提交并推送。
