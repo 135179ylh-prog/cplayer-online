@@ -5119,7 +5119,7 @@ async function refreshUserPlaylistLibrary() {
             const status = document.getElementById('cloudAccountStatus');
             const email = document.getElementById('cloudAccountUserEmail');
             const emailInput = document.getElementById('cloudAccountEmail');
-            const allButtons = card.querySelectorAll('button');
+            const allButtons = card.querySelectorAll('button:not(#cloudHealthCheckBtn):not(#cloudHealthCheckExportBtn)');
 
             setCloudSectionVisible(signedOut, configured && !signedIn && !cloudRecoveryMode);
             setCloudSectionVisible(signedInPanel, signedIn && !cloudRecoveryMode);
@@ -5151,6 +5151,296 @@ async function refreshUserPlaylistLibrary() {
             if (remoteButton) remoteButton.disabled = cloudAccountBusy || !conflict;
             refreshCloudConflictUI();
         }
+
+        let cloudHealthCheckBusy = false;
+        let cloudHealthSnapshot = null;
+
+        function cloudHealthStatusLabel(status) {
+            return status === 'pass' ? '通过' : status === 'warn' ? '需留意' : '受阻';
+        }
+
+        function cloudHealthStatusClasses(status) {
+            if (status === 'pass') return ['border-emerald-200/25', 'bg-emerald-300/10', 'text-emerald-100'];
+            if (status === 'warn') return ['border-amber-200/25', 'bg-amber-300/10', 'text-amber-100'];
+            return ['border-red-200/25', 'bg-red-300/10', 'text-red-100'];
+        }
+
+        async function inspectIndexedDbHealth() {
+            const requiredStores = ['playlists', 'lyrics', 'images', CLOUD_OUTBOX_STORE, PLAYLIST_HISTORY_STORE];
+            try {
+                if (!db) await initDatabase();
+                if (!db) throw new Error('IndexedDB connection unavailable');
+                const stores = Array.from(db.objectStoreNames);
+                const missingStores = requiredStores.filter(function (name) { return stores.indexOf(name) === -1; });
+                const outbox = await readCloudOutbox(cloudUserId || '');
+                if (missingStores.length) {
+                    return {
+                        id: 'indexeddb',
+                        status: 'fail',
+                        detail: '本机数据库可读取，但缺少关键数据表：' + missingStores.join('、'),
+                        recommendation: '请刷新页面；如果仍然出现，请关闭其他播放器页面后重试。',
+                        dbVersion: Number(db.version) || 0,
+                        stores: stores,
+                        pendingCount: outbox.length
+                    };
+                }
+                const state = storageState === 'ready' ? 'pass' : storageState === 'degraded' ? 'warn' : 'fail';
+                return {
+                    id: 'indexeddb',
+                    status: state,
+                    detail: '本机数据库可读取，版本 v' + (Number(db.version) || 0) + '，待同步 ' + outbox.length + ' 项。',
+                    recommendation: state === 'pass' ? '无需处理。' : '请刷新页面；暂时不要清理浏览器站点数据。',
+                    dbVersion: Number(db.version) || 0,
+                    stores: stores,
+                    pendingCount: outbox.length
+                };
+            } catch (error) {
+                return {
+                    id: 'indexeddb',
+                    status: 'fail',
+                    detail: '本机数据库暂时无法读取。',
+                    recommendation: '请刷新页面并关闭其他播放器页面；在处理前不要清理站点数据。',
+                    dbVersion: 0,
+                    stores: [],
+                    pendingCount: 0
+                };
+            }
+        }
+
+        async function inspectServiceWorkerHealth() {
+            const supported = typeof navigator !== 'undefined' && 'serviceWorker' in navigator;
+            const cacheSupported = typeof window !== 'undefined' && 'caches' in window;
+            if (!supported) {
+                return {
+                    id: 'service-worker',
+                    status: 'warn',
+                    detail: '当前浏览器不支持 Service Worker，离线页面缓存不可用。',
+                    recommendation: '播放器仍可在线使用；如需离线打开，请换用支持 PWA 的浏览器。',
+                    supported: false,
+                    controller: false,
+                    cacheSupported: cacheSupported,
+                    appCacheCount: 0
+                };
+            }
+            let appCacheCount = 0;
+            try {
+                if (cacheSupported) {
+                    const keys = await caches.keys();
+                    appCacheCount = keys.filter(function (key) { return key.indexOf('cplayer5-') === 0; }).length;
+                }
+            } catch (error) {
+                return {
+                    id: 'service-worker',
+                    status: 'warn',
+                    detail: 'Service Worker 已支持，但无法读取缓存状态。',
+                    recommendation: '联网后刷新一次页面；不要因此删除本机歌单。',
+                    supported: true,
+                    controller: Boolean(navigator.serviceWorker.controller),
+                    cacheSupported: cacheSupported,
+                    appCacheCount: 0
+                };
+            }
+            const controller = Boolean(navigator.serviceWorker.controller);
+            const status = controller && cacheSupported && appCacheCount > 0 ? 'pass' : 'warn';
+            return {
+                id: 'service-worker',
+                status: status,
+                detail: controller
+                    ? (appCacheCount > 0 ? 'Service Worker 已接管，检测到 ' + appCacheCount + ' 个应用缓存。' : 'Service Worker 已接管，但暂未检测到应用缓存。')
+                    : 'Service Worker 尚未接管当前页面。',
+                recommendation: status === 'pass' ? '无需处理。' : '联网后刷新一次页面，等待应用完成首次缓存。',
+                supported: true,
+                controller: controller,
+                cacheSupported: cacheSupported,
+                appCacheCount: appCacheCount
+            };
+        }
+
+        function inspectCloudHealth() {
+            const configured = Boolean(getConfiguredCloud());
+            const signedIn = Boolean(cloudSession && cloudUserId);
+            if (!configured) {
+                return {
+                    id: 'cloud',
+                    status: 'pass',
+                    detail: '云同步未配置；播放器保持本机优先且无需登录。',
+                    recommendation: '如需跨设备歌单，再在设置中配置云同步并登录。',
+                    configured: false,
+                    signedIn: false,
+                    state: 'disabled',
+                    pendingCount: cloudPendingCount,
+                    conflictCount: cloudConflicts.size,
+                    hasRecentSuccess: false
+                };
+            }
+            if (!signedIn) {
+                return {
+                    id: 'cloud',
+                    status: cloudPendingCount > 0 ? 'warn' : 'pass',
+                    detail: cloudPendingCount > 0
+                        ? '尚未登录，本机有 ' + cloudPendingCount + ' 项等待对应账号同步。'
+                        : '云同步已配置但当前未登录；本机歌单仍可完整使用。',
+                    recommendation: cloudPendingCount > 0 ? '登录对应账号后再同步，避免把本机改动留在待同步队列。' : '如需跨设备同步，请登录对应账号。',
+                    configured: true,
+                    signedIn: false,
+                    state: cloudState,
+                    pendingCount: cloudPendingCount,
+                    conflictCount: cloudConflicts.size,
+                    hasRecentSuccess: false
+                };
+            }
+            const hasConflict = cloudConflicts.size > 0 || cloudState === 'conflict';
+            const hasError = cloudState === 'error';
+            const hasPending = cloudPendingCount > 0 || cloudState === 'pending' || cloudState === 'syncing';
+            const status = hasConflict || hasError ? 'warn' : 'pass';
+            return {
+                id: 'cloud',
+                status: status,
+                detail: hasConflict
+                    ? '已登录，但有 ' + cloudConflicts.size + ' 个冲突需要选择保留版本。'
+                    : hasError
+                        ? '已登录，但最近一次同步报错；本机数据仍保留。'
+                        : hasPending
+                            ? '已登录，当前有 ' + cloudPendingCount + ' 项等待同步。'
+                            : '已登录，云同步状态正常。',
+                recommendation: hasConflict ? '打开冲突差异预览，明确选择本机或云端版本。' : hasError ? '联网后点击“重试同步”；不要手动覆盖歌单。' : hasPending ? '保持联网，或点击“立即同步”。' : '无需处理。',
+                configured: true,
+                signedIn: true,
+                state: cloudState,
+                pendingCount: cloudPendingCount,
+                conflictCount: cloudConflicts.size,
+                hasRecentSuccess: cloudLastSuccessfulAt > 0
+            };
+        }
+
+        function inspectRecoveryHealth() {
+            const exportReady = Boolean(document.getElementById('recoveryPackageExportBtn') && typeof createRecoveryPackage === 'function');
+            const importPreviewReady = Boolean(document.getElementById('recoveryPackageImportBtn') && document.getElementById('recoveryImportPreviewModal') && typeof openRecoveryImportPreview === 'function');
+            const status = exportReady && importPreviewReady ? 'pass' : 'fail';
+            return {
+                id: 'recovery',
+                status: status,
+                detail: status === 'pass' ? '恢复包导出和导入预览入口可用。' : '恢复能力入口不完整。',
+                recommendation: status === 'pass' ? '定期导出恢复包，并把文件保存在安全位置。' : '请刷新页面；如果仍缺失，请重新部署应用。',
+                exportReady: exportReady,
+                importPreviewReady: importPreviewReady
+            };
+        }
+
+        function renderCloudHealthSnapshot(snapshot) {
+            const status = document.getElementById('cloudHealthCheckStatus');
+            const list = document.getElementById('cloudHealthCheckList');
+            const exportButton = document.getElementById('cloudHealthCheckExportBtn');
+            if (!status || !list) return;
+            const counts = snapshot.items.reduce(function (result, item) {
+                result[item.status] += 1;
+                return result;
+            }, { pass: 0, warn: 0, fail: 0 });
+            status.textContent = '检查完成：' + counts.pass + ' 项通过，' + counts.warn + ' 项需留意，' + counts.fail + ' 项受阻。';
+            list.innerHTML = '';
+            snapshot.items.forEach(function (item) {
+                const row = document.createElement('div');
+                row.className = 'rounded-xl border px-3 py-2 text-[11px]';
+                row.classList.add(...cloudHealthStatusClasses(item.status));
+                const heading = document.createElement('div');
+                heading.className = 'flex items-center justify-between gap-2 font-semibold';
+                const title = document.createElement('span');
+                title.textContent = item.title;
+                const badge = document.createElement('span');
+                badge.className = 'shrink-0';
+                badge.textContent = cloudHealthStatusLabel(item.status);
+                heading.appendChild(title);
+                heading.appendChild(badge);
+                const detail = document.createElement('div');
+                detail.className = 'mt-1';
+                detail.textContent = item.detail;
+                const recommendation = document.createElement('div');
+                recommendation.className = 'mt-1 opacity-75';
+                recommendation.textContent = '建议：' + item.recommendation;
+                row.appendChild(heading);
+                row.appendChild(detail);
+                row.appendChild(recommendation);
+                list.appendChild(row);
+            });
+            if (exportButton) {
+                exportButton.classList.remove('hidden');
+                exportButton.disabled = false;
+            }
+        }
+
+        function sanitizeCloudHealthReport(snapshot) {
+            return {
+                format: 'cplayer-sync-health-report',
+                version: 1,
+                generatedAt: snapshot.generatedAt,
+                items: snapshot.items.map(function (item) {
+                    return {
+                        id: item.id,
+                        title: item.title,
+                        status: item.status,
+                        detail: item.detail,
+                        recommendation: item.recommendation
+                    };
+                }),
+                summary: snapshot.summary
+            };
+        }
+
+        function exportCloudHealthReport() {
+            if (!cloudHealthSnapshot) return;
+            const report = sanitizeCloudHealthReport(cloudHealthSnapshot);
+            const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = 'cplayer-sync-health-' + new Date(report.generatedAt).toISOString().slice(0, 10) + '.json';
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            setTimeout(function () { URL.revokeObjectURL(url); }, 0);
+        }
+
+        async function runCloudHealthCheck() {
+            if (cloudHealthCheckBusy) return;
+            const button = document.getElementById('cloudHealthCheckBtn');
+            const exportButton = document.getElementById('cloudHealthCheckExportBtn');
+            const status = document.getElementById('cloudHealthCheckStatus');
+            cloudHealthCheckBusy = true;
+            if (button) button.disabled = true;
+            if (exportButton) exportButton.disabled = true;
+            if (status) status.textContent = '正在读取本机状态，请稍候…';
+            try {
+                const indexedDb = await inspectIndexedDbHealth();
+                const serviceWorker = await inspectServiceWorkerHealth();
+                const cloud = inspectCloudHealth();
+                const recovery = inspectRecoveryHealth();
+                const items = [
+                    { ...indexedDb, title: '本机数据库与待同步队列' },
+                    { ...cloud, title: '账号与云同步状态' },
+                    { ...serviceWorker, title: 'Service Worker 与离线缓存' },
+                    { ...recovery, title: '自助恢复入口' }
+                ];
+                const summary = items.reduce(function (result, item) {
+                    result[item.status] += 1;
+                    return result;
+                }, { pass: 0, warn: 0, fail: 0 });
+                cloudHealthSnapshot = { generatedAt: Date.now(), items: items, summary: summary };
+                renderCloudHealthSnapshot(cloudHealthSnapshot);
+            } catch (error) {
+                cloudHealthSnapshot = null;
+                if (status) status.textContent = '健康检查失败，但没有修改本机数据。请刷新页面后重试。';
+                console.warn('[cloud-health] read-only check failed', error);
+            } finally {
+                cloudHealthCheckBusy = false;
+                if (button) button.disabled = false;
+                if (exportButton && cloudHealthSnapshot) exportButton.disabled = false;
+            }
+        }
+
+        window.runCloudHealthCheck = runCloudHealthCheck;
+        window.getCloudHealthReport = function () {
+            return cloudHealthSnapshot ? sanitizeCloudHealthReport(cloudHealthSnapshot) : null;
+        };
 
         function setCloudAccountBusy(value) {
             cloudAccountBusy = !!value;
@@ -5817,6 +6107,10 @@ async function refreshUserPlaylistLibrary() {
             bind('cloudAccountSyncBtn', function () { return syncCloudPlaylists('manual'); });
             bind('cloudAccountUseLocalBtn', function () { return resolveCloudConflict(true); });
             bind('cloudAccountUseCloudBtn', function () { return resolveCloudConflict(false); });
+            const healthButton = document.getElementById('cloudHealthCheckBtn');
+            if (healthButton) healthButton.addEventListener('click', function () { void runCloudHealthCheck(); });
+            const healthExportButton = document.getElementById('cloudHealthCheckExportBtn');
+            if (healthExportButton) healthExportButton.addEventListener('click', exportCloudHealthReport);
             refreshCloudAccountUI();
         }
 
