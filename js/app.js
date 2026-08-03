@@ -5293,16 +5293,17 @@ async function refreshUserPlaylistLibrary() {
             const hasError = cloudState === 'error';
             const hasPending = cloudPendingCount > 0 || cloudState === 'pending' || cloudState === 'syncing';
             const status = hasConflict || hasError ? 'warn' : 'pass';
+            const recentSuccessDetail = cloudLastSuccessfulAt > 0 ? '最近有成功同步记录。' : '尚无成功同步记录。';
             return {
                 id: 'cloud',
                 status: status,
                 detail: hasConflict
                     ? '已登录，但有 ' + cloudConflicts.size + ' 个冲突需要选择保留版本。'
                     : hasError
-                        ? '已登录，但最近一次同步报错；本机数据仍保留。'
+                        ? '已登录，但最近一次同步报错；本机数据仍保留。' + recentSuccessDetail
                         : hasPending
-                            ? '已登录，当前有 ' + cloudPendingCount + ' 项等待同步。'
-                            : '已登录，云同步状态正常。',
+                            ? '已登录，当前有 ' + cloudPendingCount + ' 项等待同步。' + recentSuccessDetail
+                            : '已登录，云同步状态正常。' + recentSuccessDetail,
                 recommendation: hasConflict ? '打开冲突差异预览，明确选择本机或云端版本。' : hasError ? '联网后点击“重试同步”；不要手动覆盖歌单。' : hasPending ? '保持联网，或点击“立即同步”。' : '无需处理。',
                 configured: true,
                 signedIn: true,
