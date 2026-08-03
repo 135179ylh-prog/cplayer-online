@@ -761,6 +761,7 @@
         const cloudConflicts = new Map();
         const CLOUD_DETACH_PENDING_KEY = 'cp_cloud_detach_pending';
         const CLOUD_LAST_SUCCESS_KEY = 'cp_cloud_last_success';
+        const CLOUD_LAST_ERROR_KEY = 'cp_cloud_last_error';
 
         document.documentElement.dataset.cplayerCloudState = cloudState;
 
@@ -2628,6 +2629,7 @@
             }
             await detachCloudOwner(ownerId);
             forgetCloudSyncSuccess(ownerId);
+            forgetCloudSyncError(ownerId);
             removeLocalStorage(CLOUD_DETACH_PENDING_KEY);
             return true;
         }
@@ -4763,6 +4765,52 @@ async function refreshUserPlaylistLibrary() {
             }
         }
 
+        function normalizeCloudLastErrorRecord(record) {
+            const ownerId = record && typeof record.ownerId === 'string' ? record.ownerId.trim() : '';
+            const at = Number(record && record.at);
+            const message = record && typeof record.message === 'string' ? record.message.trim().slice(0, 240) : '';
+            if (!ownerId || !Number.isFinite(at) || at <= 0 || !message) return null;
+            return { ownerId, at, message };
+        }
+
+        function readCloudLastError(ownerId) {
+            if (!ownerId) return '';
+            try {
+                const record = normalizeCloudLastErrorRecord(
+                    JSON.parse(readLocalStorage(CLOUD_LAST_ERROR_KEY, 'null') || 'null')
+                );
+                return record && record.ownerId === ownerId ? record.message : '';
+            } catch (error) {
+                removeLocalStorage(CLOUD_LAST_ERROR_KEY);
+                return '';
+            }
+        }
+
+        function rememberCloudSyncError(ownerId, message) {
+            if (!ownerId || cloudUserId !== ownerId) return;
+            const safeMessage = typeof message === 'string' ? message.trim().slice(0, 240) : '';
+            if (!safeMessage) return;
+            cloudLastErrorMessage = safeMessage;
+            writeLocalStorage(CLOUD_LAST_ERROR_KEY, JSON.stringify({
+                ownerId,
+                at: Date.now(),
+                message: safeMessage
+            }));
+        }
+
+        function forgetCloudSyncError(ownerId) {
+            if (!ownerId) return;
+            try {
+                const record = normalizeCloudLastErrorRecord(
+                    JSON.parse(readLocalStorage(CLOUD_LAST_ERROR_KEY, 'null') || 'null')
+                );
+                if (record && record.ownerId === ownerId) removeLocalStorage(CLOUD_LAST_ERROR_KEY);
+            } catch (error) {
+                removeLocalStorage(CLOUD_LAST_ERROR_KEY);
+            }
+            if (cloudUserId === ownerId) cloudLastErrorMessage = '';
+        }
+
         function formatTrashDeletedAt(timestamp) {
             const date = new Date(timestamp);
             return Number.isFinite(date.getTime())
@@ -4959,8 +5007,13 @@ async function refreshUserPlaylistLibrary() {
                 (message && cloudStateMessage !== message);
             cloudState = nextState;
             if (message) cloudStateMessage = message;
-            if (nextState === 'error') cloudLastErrorMessage = message || '云同步操作失败';
-            else if (nextState === 'synced' || nextState === 'signed-out' || nextState === 'disabled') {
+            if (nextState === 'error') {
+                cloudLastErrorMessage = message || '云同步操作失败';
+                rememberCloudSyncError(cloudUserId, cloudLastErrorMessage);
+            } else if (nextState === 'synced') {
+                if (cloudUserId) forgetCloudSyncError(cloudUserId);
+                else cloudLastErrorMessage = '';
+            } else if (nextState === 'signed-out' || nextState === 'disabled') {
                 cloudLastErrorMessage = '';
             }
             document.documentElement.dataset.cplayerCloudState = nextState;
@@ -5552,9 +5605,9 @@ async function refreshUserPlaylistLibrary() {
             const accountChanged = previousUserId !== cloudUserId;
             if (accountChanged) {
                 cloudConflicts.clear();
-                cloudLastErrorMessage = '';
             }
             cloudLastSuccessfulAt = cloudUserId ? readCloudLastSuccessfulAt(cloudUserId) : 0;
+            cloudLastErrorMessage = cloudUserId ? readCloudLastError(cloudUserId) : '';
             if (accountChanged) setCloudPendingCount(0);
             if (event === 'PASSWORD_RECOVERY') {
                 cloudRecoveryMode = true;
@@ -5767,6 +5820,7 @@ async function refreshUserPlaylistLibrary() {
                 try {
                     await detachCloudOwner(ownerId);
                     forgetCloudSyncSuccess(ownerId);
+                    forgetCloudSyncError(ownerId);
                     removeLocalStorage(CLOUD_DETACH_PENDING_KEY);
                 } catch (error) {
                     detachError = error;

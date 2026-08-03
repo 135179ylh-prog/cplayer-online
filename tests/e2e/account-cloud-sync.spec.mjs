@@ -711,6 +711,16 @@ test('sync error keeps pending data visible and succeeds through retry', async (
         .toBe('1');
     expect((await readCloudStorage(page)).outbox).toHaveLength(1);
 
+    await page.reload();
+    await waitForAppReady(page);
+    await expect.poll(() => page.evaluate(() => document.documentElement.dataset.cplayerCloudState))
+        .toBe('error');
+    await openSettings(page);
+    await expect(page.locator('#cloudStatusBadge')).toHaveText('同步出错');
+    await expect(page.locator('#cloudLastError')).toBeVisible();
+    await expect(page.locator('#cloudLastError')).toContainText('最近错误');
+    await expect(page.locator('#cloudAccountSyncBtnLabel')).toHaveText('重试同步');
+
     mock.playlistListUnavailable = false;
     await page.locator('#cloudAccountSyncBtn').click();
     await expect.poll(() => page.evaluate(() => document.documentElement.dataset.cplayerCloudState))
@@ -720,6 +730,28 @@ test('sync error keeps pending data visible and succeeds through retry', async (
     await expect(page.locator('#cloudPendingCount')).toHaveText('0');
     expect((await readCloudStorage(page)).outbox).toEqual([]);
     expect(mock.rows.some((row) => row.name === '等待重试')).toBe(true);
+});
+
+test('foreign account sync error is not shown to the current account', async ({ page }) => {
+    await setCloudConfig(page);
+    await installCloudMock(page);
+    await page.addInitScript(() => {
+        localStorage.setItem('cp_cloud_last_error', JSON.stringify({
+            ownerId: 'foreign-owner',
+            at: Date.now(),
+            message: '其他账号的同步错误'
+        }));
+    });
+    await page.goto('/index.html');
+    await waitForAppReady(page);
+    await submitSignIn(page);
+
+    await expect(page.locator('#cloudLastError')).toBeHidden();
+    const stored = await page.evaluate(() => JSON.parse(localStorage.getItem('cp_cloud_last_error')));
+    expect(stored).toMatchObject({
+        ownerId: 'foreign-owner',
+        message: '其他账号的同步错误'
+    });
 });
 
 test('trash restore works offline and permanent delete converges to a content-free marker', async ({ page, context }) => {
