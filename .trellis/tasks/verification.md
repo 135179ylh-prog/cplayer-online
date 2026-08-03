@@ -45,6 +45,13 @@
 - 静态门禁：`verify_features.py`、主脚本/SW 语法、Python 编译与 `git diff --check` 通过；详细证据在 `07-19-stability-hardening/verification.md`。
 - 线上 `v31`：提交 `fdee705` 已推送；GitHub Pages 运行 `29683524137` 成功，线上 `playlist.js` 返回 200，真实搜索“周杰伦”返回 30 条结果和完整操作按钮；截图与详细记录在 `07-19-stability-hardening/verification.md`。
 
+## 2026-08-04 待同步项目可恢复化
+
+- 提交 `450b302`：待同步队列回归测试改为等待真实 IndexedDB 记录，避免远端机器因写入时序导致假失败。
+- 定向账号云同步回归：桌面/手机 36/36 通过；完整 `npm run verify`：45/45 单元测试、230/242 浏览器场景通过，12 项按配置跳过，依赖漏洞 0，Pages 构建 27 文件/18,704,421 字节。
+- GitHub Actions #88（Run ID `30855719667`）quality 9m 0s、deploy 10s 均成功。
+- 线上验收：标题 `CPlayer 5`；`cplayerReady=true`；缓存 `cplayer5-v78-sync-retry-queue`；线上 HTML/JS 包含 `cloudPendingQueue`。
+
 ## 2026-07-24 同步状态中心（本地发布门禁）
 
 - 状态中心统一显示设置入口摘要、真实 outbox/冲突数量、最近成功、错误与重试；

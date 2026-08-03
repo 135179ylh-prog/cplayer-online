@@ -10,7 +10,7 @@
 | `node --check js/app.js` / `node --check sw.js` | 通过 |
 | `python tests/verify_features.py` | 通过：stability checks passed，构建标记 v33，核心资源 14 个 |
 | `npm run verify`（时序修复后） | 通过：45/45 单元测试、230/242 浏览器场景通过，12 项按配置跳过；依赖审计 0 漏洞；Pages 构建 27 文件/18,704,421 字节；质量门禁通过 |
-| GitHub Pages 线上验收 | 待本次修复推送后运行；此前工作流 #87 仅因测试时序断言失败 |
+| GitHub Pages 线上验收 | 通过：Actions #88（Run ID `30855719667`）quality/deploy 成功；线上标题 `CPlayer 5`、就绪标记 `true`、Service Worker `cplayer5-v78-sync-retry-queue` |
 
 ## 验收矩阵
 
@@ -26,3 +26,4 @@
 - `npm run verify`：10/10 质量层通过；45/45 单元测试、230/242 浏览器场景通过，12 项按视口配置跳过；依赖审计 0 漏洞；Pages 构建 27 文件/18,704,421 字节。
 - 远端 #87 失败根因已记录：创建第二个歌单后未等待 IndexedDB 持久化；测试现改为按真实记录条件轮询。
 - Service Worker 缓存版本已更新为 `cplayer5-v78-sync-retry-queue`。
+- Pages 线上验收：`document.title === "CPlayer 5"`；`document.documentElement.dataset.cplayerReady === "true"`；缓存仅见 `cplayer5-v78-sync-retry-queue`；线上 `index.html` 与 `js/app.js` 均包含 `cloudPendingQueue`。
