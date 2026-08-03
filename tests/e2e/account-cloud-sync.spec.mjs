@@ -747,8 +747,12 @@ test('pending queue lists concrete playlists and supports single then all retry'
     mock.playlistListUnavailable = true;
     await page.locator('#myNewPlaylistName').fill('单项重试歌单');
     await page.locator('#myCreatePlaylistBtn').click();
+    await expect.poll(async () => (await readUserPlaylists(page))
+        .map((item) => item.name)).toEqual(expect.arrayContaining(['单项重试歌单']));
     await page.locator('#myNewPlaylistName').fill('全部重试歌单');
     await page.locator('#myCreatePlaylistBtn').click();
+    await expect.poll(async () => (await readUserPlaylists(page))
+        .map((item) => item.name)).toEqual(expect.arrayContaining(['全部重试歌单']));
     await expect(page.locator('#myPlaylistsList')).toContainText('单项重试歌单');
     await expect(page.locator('#myPlaylistsList')).toContainText('全部重试歌单');
     await expect(page.locator('html')).toHaveAttribute('data-cplayer-cloud-pending', '2');
