@@ -16,4 +16,9 @@
 
 ## 线上验收
 
-待本轮代码提交并推送后执行：确认 GitHub Actions 成功、线上 `cplayerReady=true`，并复查动画回归相关资源未受缓存旧版本影响。
+已完成线上验收：
+
+- GitHub Actions Deploy GitHub Pages #92（提交 `fa9727f`）成功，质量作业 9 分 7 秒，部署 8 秒。
+- 线上页面 `https://135179ylh-prog.github.io/cplayer-online/` 加载完成，`document.documentElement.dataset.cplayerReady` 为 `true`。
+- 线上存储状态为 `ready`，页面由 `https://135179ylh-prog.github.io/cplayer-online/sw.js` 控制。
+- 当前缓存名为 `cplayer5-v79-search-pointer-pagination`，页面版本标记为 `v33`；本轮只改测试文件，未引入需要升级的生产缓存资源。
