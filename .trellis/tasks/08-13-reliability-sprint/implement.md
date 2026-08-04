@@ -47,6 +47,14 @@
 - 线上 `v81` 页面就绪且由 `sw.js` 的 `activated` 控制；最终缓存仅有 `cplayer5-v81-reliability-sprint`。
 - 线上缓存中的 `js/app.js` 已确认包含完整总数分页推进、旧 pager 清理，且不含尚未发布的诊断 API。
 
+### 诊断修复独立发布与线上验收（2026-08-04）
+
+- 诊断修复独立提交：`704bbe6 fix: add local playback diagnostics`。
+- Pages 工作流 `30889653432`（运行 #96）为 `completed / success`。
+- 线上 `v82` 重新加载后就绪信号为 `true`，Service Worker 为 `activated`，缓存仅有 `cplayer5-v82-reliability-sprint`。
+- 线上诊断 API 为 `function`，初始记录数为 `0`，诊断存储键为空；诊断卡片明确说明只保留页面内存记录，不保存或上传密钥、地址、歌曲信息和播放进度。
+- 线上没有诊断网络请求；本地隐私回归已确认字段白名单和清除行为。
+
 ### 当前待执行
 
-- 诊断修复仍需独立提交、推送、等待 Pages 工作流成功并完成线上验收。
+- 无；保留用户既有未提交改动，不修改歌单数据。

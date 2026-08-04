@@ -19,7 +19,7 @@
 | `npm run verify` | — | — | ✅ 10/10 通过；252 通过，12 按配置跳过 |
 | 播放提交 Pages 工作流和线上基线 | — | — | ✅ 工作流 `30886331021` 为 `Success`；页面就绪，Service Worker `activated` |
 | 搜索提交 Pages 工作流和线上验收 | — | — | ✅ 工作流 `30887891711` 为 `completed / success`；线上 `v81` 就绪、Service Worker `activated`、缓存仅保留 `v81` |
-| 诊断提交 Pages 工作流和线上验收 | — | — | 待验证 |
+| 诊断提交 Pages 工作流和线上验收 | — | — | ✅ 工作流 `30889653432` 为 `completed / success`；线上 `v82` 就绪、Service Worker `activated`、诊断 API 可用且无诊断存储键 |
 
 ## 已执行命令（2026-08-04）
 
@@ -32,11 +32,11 @@
 - `npm run verify`：首次运行因生成 CSS 新鲜度保护停止；审核生成差异后重跑，10/10 通过。完整 Pages 产物回归 252/252 通过，12 个响应式场景按项目配置跳过；依赖审计 0 vulnerabilities；仓库检查通过。
 - `Invoke-WebRequest http://127.0.0.1:3456/eval?target=2C55F8B5692BF8856201DB924DEA7FE4`：确认工作流 `30886331021` 页面正文为 `Success`；线上基线读取到 `readySignal=true`、Service Worker `activated`，诊断 API 在旧产物中为 `undefined`。
 - `Invoke-WebRequest http://127.0.0.1:3456/eval?target=EDA0CAD49B402D4B55E129748B719D0F`：确认搜索提交工作流 `30887891711` 为 `success`；线上读取到 `readySignal=true`、Service Worker `activated`，缓存仅有 `cplayer5-v81-reliability-sprint`，缓存 `app.js` 包含分页推进/旧 pager 清理契约。
+- `Invoke-WebRequest http://127.0.0.1:3456/eval?target=F5C02599F4239D1B5AD09027C1DD51CD`：确认诊断提交工作流 `30889653432` 为 `success`；线上重新加载后读取到 `readySignal=true`、Service Worker `activated`、缓存仅有 `cplayer5-v82-reliability-sprint`、诊断 API 为 `function`、初始诊断记录为空、诊断存储键为空。
 
 ## 尚待证据
 
-- Trellis 质量检查结果。
-- 独立提交、推送、GitHub Pages 成功运行和线上真实浏览器验收。
+- 无。完整质量门禁、独立提交/推送、两轮 Pages 成功运行和真实浏览器线上验收均已记录。
 
 ## 记录规则
 
