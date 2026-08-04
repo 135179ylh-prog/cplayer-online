@@ -10,4 +10,8 @@
 
 ## 线上验收
 
-待提交、推送并等待 GitHub Pages 部署后完成。
+- 提交：`7384362`，已推送到 `main`。
+- GitHub Actions：Deploy GitHub Pages #90（quality 和 deploy 均成功）。
+- 线上 `sw.js?verify=7384362` 返回 `cplayer5-v79-search-pointer-pagination`；线上页面 `cplayerReady=true`。
+- 线上真实搜索“周杰伦”显示 `已显示 30 / 共 270 首`，点击“加载更多”成功请求 `offset=30` 并显示 `已显示 60 / 共 270 首`。
+- 触摸分页的可见桌面/手机行为由本地 Playwright 2/2 定向回归和完整质量门覆盖；CDP 新建后台标签页处于 `visibilityState=hidden`，浏览器会暂停其自动分页所依赖的动画帧，未将该后台标签页的合成事件结果误当成手机可见验收。
