@@ -122,6 +122,9 @@ async function installCloudMock(page, options = {}) {
         email: options.email || TEST_EMAIL,
         signUpSession: options.signUpSession === true,
         playlistListUnavailable: options.playlistListUnavailable === true,
+        dropNextUpsertResponse: options.dropNextUpsertResponse === true,
+        upsertResponseGate: null,
+        upsertResponseStarted: false,
         history: Array.isArray(options.history) ? options.history.map((row) => ({ ...row })) : [],
         accountDeleted: false
     };
@@ -246,6 +249,17 @@ async function installCloudMock(page, options = {}) {
             );
             state.rows = state.rows.filter((item) => item.playlist_id !== row.playlist_id);
             state.rows.push(row);
+            if (state.dropNextUpsertResponse) {
+                state.dropNextUpsertResponse = false;
+                await route.abort('connectionreset');
+                return;
+            }
+            if (state.upsertResponseGate) {
+                state.upsertResponseStarted = true;
+                const gate = state.upsertResponseGate;
+                state.upsertResponseGate = null;
+                await gate;
+            }
             await fulfillJson(route, 200, [row]);
             return;
         }
@@ -738,6 +752,67 @@ test('sync error keeps pending data visible and succeeds through retry', async (
     expect(mock.rows.some((row) => row.name === '等待重试')).toBe(true);
 });
 
+test('a committed cloud write with a lost response is acknowledged by a safe retry', async ({ page }) => {
+    const local = {
+        id: 'user_pl_local',
+        name: '响应丢失后重试',
+        songs: [LOCAL_SONG],
+        timestamp: Date.now()
+    };
+    const mock = await openConfiguredApp(page, { dropNextUpsertResponse: true }, local);
+    await submitSignIn(page, 'error');
+
+    expect(mock.rows).toHaveLength(1);
+    expect(mock.rows[0].name).toBe('响应丢失后重试');
+    expect((await readCloudStorage(page)).outbox).toHaveLength(1);
+    await expect(page.locator('#cloudStatusBadge')).toHaveText('同步出错');
+
+    await page.locator('#cloudAccountSyncBtn').click();
+    await expect.poll(() => page.evaluate(() => document.documentElement.dataset.cplayerCloudState))
+        .toBe('synced');
+    await expect(page.locator('#cloudPendingCount')).toHaveText('0');
+    await expect(page.locator('#cloudConflictCount')).toHaveText('0');
+    expect((await readCloudStorage(page)).outbox).toEqual([]);
+    expect((await readCloudStorage(page)).playlist).toMatchObject({
+        name: '响应丢失后重试',
+        cloudVersion: 1,
+        cloudDirty: false
+    });
+    expect(mock.rows).toHaveLength(1);
+});
+
+test('a late sync response after sign-out cannot acknowledge the old account', async ({ page }) => {
+    const mock = await openConfiguredApp(page);
+    await submitSignIn(page);
+    await closeSettings(page);
+    await openLibrary(page);
+
+    let releaseResponse;
+    mock.upsertResponseGate = new Promise((resolve) => { releaseResponse = resolve; });
+    await page.locator('#myNewPlaylistName').fill('退出后仍待同步');
+    await page.locator('#myCreatePlaylistBtn').click();
+    await expect(page.locator('#myPlaylistsList')).toContainText('退出后仍待同步');
+    await expect.poll(() => mock.upsertResponseStarted).toBe(true);
+
+    await page.locator('#closeMyPlaylistsBtn').click();
+    await openSettings(page);
+    await page.locator('#cloudAccountSignOutBtn').click();
+    await expect.poll(() => page.evaluate(() => document.documentElement.dataset.cplayerCloudState))
+        .toBe('signed-out');
+
+    releaseResponse();
+    await expect.poll(async () => (await readCloudStorage(page)).outbox.length).toBe(1);
+    await expect.poll(() => page.evaluate(() => document.documentElement.dataset.cplayerCloudState))
+        .toBe('signed-out');
+    const storage = await readCloudStorage(page);
+    expect(storage.rows.find((row) => row.name === '退出后仍待同步')).toMatchObject({
+        name: '退出后仍待同步',
+        cloudOwnerId: TEST_USER_ID,
+        cloudVersion: 0,
+        cloudDirty: true
+    });
+});
+
 test('pending queue lists concrete playlists and supports single then all retry', async ({ page, context }) => {
     const mock = await openConfiguredApp(page);
     await submitSignIn(page);
@@ -1044,4 +1119,35 @@ test('account deletion removes cloud state and retains a device-local playlist',
     expect(storage.playlist.cloudOwnerId).toBeUndefined();
     expect(storage.playlist.cloudVersion).toBeUndefined();
     expect(storage.outbox).toEqual([]);
+});
+
+test('refresh repairs a confirmed account detach marker without deleting the local playlist', async ({ page }) => {
+    const local = {
+        id: 'user_pl_local',
+        name: '刷新后继续保留',
+        songs: [LOCAL_SONG],
+        timestamp: Date.now(),
+        cloudOwnerId: TEST_USER_ID,
+        cloudVersion: 3,
+        cloudDirty: true
+    };
+    await page.addInitScript((ownerId) => {
+        localStorage.setItem('cp_cloud_detach_pending', JSON.stringify({
+            ownerId,
+            confirmed: true
+        }));
+    }, TEST_USER_ID);
+    await openConfiguredApp(page, {}, local);
+
+    const storage = await readCloudStorage(page);
+    expect(storage.playlist).toMatchObject({
+        id: 'user_pl_local',
+        name: '刷新后继续保留',
+        songs: [LOCAL_SONG]
+    });
+    expect(storage.playlist.cloudOwnerId).toBeUndefined();
+    expect(storage.playlist.cloudVersion).toBeUndefined();
+    expect(storage.playlist.cloudDirty).toBeUndefined();
+    expect(storage.outbox).toEqual([]);
+    expect(await page.evaluate(() => localStorage.getItem('cp_cloud_detach_pending'))).toBeNull();
 });

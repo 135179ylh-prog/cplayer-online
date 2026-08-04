@@ -212,6 +212,28 @@ test('sync decisions preserve local and cloud edits instead of silent overwrite'
     ), { action: 'pull' });
 });
 
+test('sync retry acknowledges an already committed identical upsert', () => {
+    const local = {
+        id: 'user_pl_demo',
+        name: 'Demo',
+        songs: [song],
+        cloudVersion: 0,
+        cloudDirty: true
+    };
+    const outbox = {
+        operation: 'upsert',
+        playlist: { id: 'user_pl_demo', name: 'Demo', songs: [song] }
+    };
+    assert.deepEqual(decidePlaylistSync(local, remote({ version: 1 }), outbox), {
+        action: 'ack-upsert'
+    });
+    assert.deepEqual(decidePlaylistSync(
+        local,
+        remote({ version: 1, name: 'Other' }),
+        outbox
+    ), { action: 'conflict' });
+});
+
 test('remote tombstones pull clean deletes but conflict with dirty local edits', () => {
     const tombstone = remote({
         version: 3,

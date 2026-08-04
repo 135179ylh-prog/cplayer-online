@@ -459,6 +459,10 @@ export function decidePlaylistSync(localRecord, remoteRecord, outboxRecord) {
                 ? { action: 'ack-restore' }
                 : { action: 'recover-copy' };
         }
+        if (outbox && outbox.operation === 'upsert' &&
+            haveSamePlaylistContent(outbox.playlist || local, remote)) {
+            return { action: 'ack-upsert' };
+        }
         return dirty ? { action: 'conflict' } : { action: 'pull' };
     }
     return { action: 'conflict' };

@@ -2624,7 +2624,7 @@
         }
 
         async function acknowledgeCloudUpsert(ownerId, sentOutbox, remote) {
-            if (!db || !hasCloudOutboxStore() || !sentOutbox || !remote) return;
+            if (!db || !hasCloudOutboxStore() || !sentOutbox || !remote || cloudUserId !== ownerId) return;
             const tx = db.transaction(['playlists', CLOUD_OUTBOX_STORE], 'readwrite');
             const playlistStore = tx.objectStore('playlists');
             const outboxStore = tx.objectStore(CLOUD_OUTBOX_STORE);
@@ -2642,9 +2642,11 @@
             const nextOutboxStore = nextTx.objectStore(CLOUD_OUTBOX_STORE);
             const currentRequest = nextOutboxStore.get(sentOutbox.id);
             currentRequest.onsuccess = function () {
+                if (cloudUserId !== ownerId) return;
                 const latestOutbox = currentRequest.result || null;
                 const latestLocalRequest = nextPlaylistStore.get(sentOutbox.playlistId);
                 latestLocalRequest.onsuccess = function () {
+                    if (cloudUserId !== ownerId) return;
                     const latestLocal = latestLocalRequest.result || null;
                     if (!latestLocal || normalizeLocalCloudFields(latestLocal).cloudOwnerId !== ownerId) return;
                     const sameMutation = isSameCloudMutation(latestOutbox, sentOutbox);
@@ -6275,6 +6277,11 @@ async function refreshUserPlaylistLibrary() {
                         changed += 1;
                         continue;
                     }
+                    if (decision.action === 'ack-upsert') {
+                        await acknowledgeCloudUpsert(ownerId, outbox, remote);
+                        changed += 1;
+                        continue;
+                    }
                     if (decision.action === 'ack-purge') {
                         await acknowledgeCloudPurge(ownerId, outbox, remote || { version: 0 });
                         changed += 1;
@@ -6300,6 +6307,7 @@ async function refreshUserPlaylistLibrary() {
                             outbox.history || []
                         );
                         await acknowledgeCloudUpsert(ownerId, outbox, acknowledged);
+                        if (cloudUserId !== ownerId) return false;
                         changed += 1;
                         continue;
                     }
@@ -6318,6 +6326,7 @@ async function refreshUserPlaylistLibrary() {
                             outbox.history || []
                         );
                         await acknowledgeCloudDelete(ownerId, outbox, acknowledged);
+                        if (cloudUserId !== ownerId) return false;
                         changed += 1;
                         continue;
                     }
@@ -6328,6 +6337,7 @@ async function refreshUserPlaylistLibrary() {
                             decision.expectedVersion
                         );
                         await acknowledgeCloudPurge(ownerId, outbox, acknowledged);
+                        if (cloudUserId !== ownerId) return false;
                         changed += 1;
                     }
                 } catch (error) {
@@ -6351,6 +6361,8 @@ async function refreshUserPlaylistLibrary() {
                     throw error;
                 }
             }
+
+            if (cloudUserId !== ownerId) return false;
 
             for (const [playlistId, conflict] of cloudConflicts) {
                 if (conflict && conflict.ownerId === ownerId &&
