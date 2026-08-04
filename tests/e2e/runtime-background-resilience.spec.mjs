@@ -585,7 +585,13 @@ test('animation work stops while paused or hidden and visible resume starts one 
             appHasProgram: Boolean(appContext && appContext.getParameter(appContext.CURRENT_PROGRAM))
         };
     });
-    if (webglState.supported) expect(webglState.appHasProgram).toBe(true);
+    if (webglState.supported) {
+        await expect.poll(async () => page.evaluate(() => {
+            const appCanvas = document.getElementById('fluidBg');
+            const appContext = appCanvas?.getContext('webgl') || appCanvas?.getContext('experimental-webgl');
+            return Boolean(appContext && appContext.getParameter(appContext.CURRENT_PROGRAM));
+        }), { timeout: 1000 }).toBe(true);
+    }
     const hasRenderableWebgl = webglState.supported;
 
     const visiblePlayback = hasRenderableWebgl
