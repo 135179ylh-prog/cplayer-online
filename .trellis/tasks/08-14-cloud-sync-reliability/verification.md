@@ -25,7 +25,9 @@
 - 初次线上验收发现：页面可加载且 Worker 为 `activated`，但 CacheStorage 只有 `cplayer5-v82-reliability-sprint`；线上 `app.js`/`cloud-sync.js` 缺少 `817dea1` 的 `ack-upsert` 标记。这证明 workflow 成功不等于旧 Worker 已升级。
 - 先将静态回归阈值提升到 v83，`python tests/verify_features.py` 在 v82 上按预期失败；再把 `sw.js` 的 `CACHE_NAME` 提升为 `cplayer5-v83-reliability-sprint` 后，该回归通过，`npm run check:sw` 也通过。
 - v83 修复后的完整 `npm run verify`：10/10 层通过；单元 46/46，Pages 产物浏览器回归 258/258 通过、12 个按配置跳过，依赖审计 0 vulnerabilities，仓库检查通过。
-- v83 修复尚未完成新的提交、Pages workflow 和线上复验；在新部署前不宣称线上已更新。
+- Actions #100（run `30900153091`，commit `5583c2d`）：`Status: Success`，`quality` 10m、`deploy` 9s，部署地址为 `https://135179ylh-prog.github.io/cplayer-online/`。
+- v83 线上复验：页面 `ready=complete`、`document.documentElement.dataset.cplayerReady=true`；Service Worker `activated` 且 controller 为线上 `/sw.js`；CacheStorage 仅有 `cplayer5-v83-reliability-sprint`。
+- 线上最终脚本核对：`app.js` 同时包含 owner 隔离和 `decision.action === 'ack-upsert'`，`cloud-sync.js` 包含 `return { action: 'ack-upsert' }`；旧 v82 缓存已不存在。
 
 ## 待补证据
 
@@ -35,7 +37,7 @@
 - [x] 既有账号隔离回归确认前一账号错误不显示给当前账号。
 - [x] 上述新增场景桌面/手机均通过，且真实 IndexedDB 状态与 UI 一致。
 - [x] `npm run verify` 完整通过（10/10）。
-- [ ] v83 修复独立提交、Pages 成功和线上验收完成。
+- [x] v83 修复独立提交、Pages 成功和线上验收完成。
 
 ## 记录规则
 
