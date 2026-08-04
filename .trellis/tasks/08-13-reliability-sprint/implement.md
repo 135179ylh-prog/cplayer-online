@@ -40,6 +40,13 @@
 - Pages 工作流 `30886331021` 显示 `Success`；线上页面 `https://135179ylh-prog.github.io/cplayer-online/` 就绪，Service Worker 已激活。
 - 线上基线仍为 `v80`，诊断 API 尚未出现；这确认后续 `v81`/`v82` 缓存升级是必要的。
 
+### 搜索修复独立发布与线上验收（2026-08-04）
+
+- 搜索修复独立提交：`24dcf5a fix: load complete search result pages`。
+- Pages 工作流 `30887891711`（运行 #95）为 `completed / success`。
+- 线上 `v81` 页面就绪且由 `sw.js` 的 `activated` 控制；最终缓存仅有 `cplayer5-v81-reliability-sprint`。
+- 线上缓存中的 `js/app.js` 已确认包含完整总数分页推进、旧 pager 清理，且不含尚未发布的诊断 API。
+
 ### 当前待执行
 
-- 搜索和诊断修复仍需分别提交、推送、等待 Pages 工作流成功并完成线上验收。
+- 诊断修复仍需独立提交、推送、等待 Pages 工作流成功并完成线上验收。

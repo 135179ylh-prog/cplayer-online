@@ -1960,6 +1960,22 @@
                     <p class="mt-2 text-[11px] opacity-35">密钥只保存在本机浏览器；请求音乐服务时会随 URL 发送，不会写入网页代码。默认地址目前无需密钥。</p>
                 </div>
 
+                <div id="playbackDiagnosticsCard" class="p-4 rounded-2xl border border-white/10 bg-white/[0.04]">
+                    <div class="flex items-center justify-between gap-3 mb-2">
+                        <div class="flex items-center gap-2 text-sm font-semibold">
+                            <i class="fas fa-stethoscope opacity-60" aria-hidden="true"></i>
+                            本机播放诊断
+                        </div>
+                        <button id="clearPlaybackDiagnosticsBtn" type="button" disabled
+                            class="px-3 min-h-[40px] rounded-xl bg-white/10 text-xs hover:bg-white/15 disabled:opacity-30 disabled:cursor-not-allowed">
+                            清除
+                        </button>
+                    </div>
+                    <div id="playbackDiagnosticsStatus" role="status" aria-live="polite" class="text-xs opacity-50 mb-2">暂无播放故障记录</div>
+                    <div id="playbackDiagnosticsList" class="space-y-2 max-h-52 overflow-y-auto overscroll-contain" aria-label="本机播放诊断记录"></div>
+                    <p class="mt-2 text-[11px] opacity-35">只保留当前页面内存中的最近 32 条记录，刷新页面会清空；不会保存、上传密钥、地址、歌曲信息或播放进度。</p>
+                </div>
+
                 <!-- 关于折叠 -->
                 <details class="group">
                     <summary class="flex items-center gap-1.5 text-[11px] opacity-30 hover:opacity-50 cursor-pointer select-none transition-opacity px-1">

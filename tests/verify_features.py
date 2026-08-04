@@ -86,6 +86,9 @@ required_html = {
     "cloud health check freshness": 'id="cloudHealthCheckFreshness"',
     "cloud health check list": 'id="cloudHealthCheckList"',
     "cloud health report export": 'id="cloudHealthCheckExportBtn"',
+    "playback diagnostics card": 'id="playbackDiagnosticsCard"',
+    "playback diagnostics list": 'id="playbackDiagnosticsList"',
+    "playback diagnostics clear": 'id="clearPlaybackDiagnosticsBtn"',
 }
 
 required_app = {
@@ -159,6 +162,10 @@ required_app = {
     "cloud health export protection": "健康检查结果已过期，请重新检查",
     "cloud health IndexedDB probe": "async function inspectIndexedDbHealth()",
     "cloud health Service Worker probe": "async function inspectServiceWorkerHealth()",
+    "bounded playback diagnostics": "const PLAYBACK_DIAGNOSTICS_LIMIT = 32;",
+    "playback diagnostics memory API": "window.getCPlayerPlaybackDiagnostics = getCPlayerPlaybackDiagnostics;",
+    "playback diagnostics redaction": "mediaErrorCode: getPlaybackDiagnosticMediaErrorCode(),",
+    "playback diagnostics clear API": "window.clearCPlayerPlaybackDiagnostics = clearCPlayerPlaybackDiagnostics;",
 }
 
 for label, snippet in required_html.items():
@@ -517,6 +524,15 @@ require("document.documentElement.dataset.cplayerReady === 'true'" in E2E_HELPER
 require("readMainAudioProbe" in PLAYBACK_ERROR_E2E and "querySelector('audio')" not in PLAYBACK_ERROR_E2E,
         "playback failure test does not inspect the real Audio boundary")
 for snippet in [
+    "playback diagnostics stay in bounded memory",
+    "getCPlayerPlaybackDiagnostics",
+    "diagnostic-test-secret-key",
+    "diagnostic.example.invalid",
+    "diagnosticStorageKeys",
+    "clearPlaybackDiagnosticsBtn",
+]:
+    require(snippet in PLAYBACK_ERROR_E2E, f"playback diagnostics privacy contract is missing: {snippet}")
+for snippet in [
     "AxeBuilder", "element.inert", "ArrowRight", "keyboard-progress.wav", "songRequests",
     "compact landscape keeps the mobile player", "expectNoSeriousAxeViolations(page, ids.panel)",
     "mobile playlist sheet stays open", "--cp-safe-area-top", "viewport-fit=cover",
@@ -592,6 +608,10 @@ require("getSafePlaybackResumeTime" in APP, "safe playback resume boundary is no
 require("savePlaybackSession('timeupdate', false)" in APP, "playback progress is not throttled through the shared saver")
 require('id="sleepTimerSelect"' in HTML and "setupSleepTimerUI" in APP, "sleep timer controls are missing")
 require("classifyPlaybackFailure(error, navigator.onLine !== false)" in APP, "playback failure feedback is not classified")
+require("recordPlaybackDiagnostic({ attempt, error, source, category: failure.kind })" in APP,
+        "playback failures are not recorded in the local diagnostic buffer")
+require("不会保存、上传密钥、地址、歌曲信息或播放进度" in HTML,
+        "playback diagnostic privacy copy is missing")
 require("播放器不会绕过浏览器限制自动发声" in README, "resume autoplay limitation is undocumented")
 require(APP.count("renderSearchRecoveryState") >= 3, "desktop and mobile search retry states are not shared")
 require("重试搜索：" in APP and "当前已离线" in APP, "search retry accessibility or offline copy is missing")

@@ -348,6 +348,31 @@
         let playbackAttemptCounter = 0;
         let activePlaybackAttempt = null;
         let committedMedia = null;
+        const PLAYBACK_DIAGNOSTICS_LIMIT = 32;
+        const PLAYBACK_DIAGNOSTIC_SOURCES = new Set(['load', 'play', 'media', 'resume']);
+        const PLAYBACK_DIAGNOSTIC_CATEGORIES = new Set([
+            'autoplay_blocked', 'interrupted', 'offline', 'auth', 'service', 'unavailable', 'unknown'
+        ]);
+        const PLAYBACK_DIAGNOSTIC_ERROR_NAMES = new Set([
+            'AbortError', 'Error', 'MediaError', 'NotAllowedError', 'NotSupportedError',
+            'TimeoutError', 'TypeError'
+        ]);
+        const PLAYBACK_DIAGNOSTIC_LABELS = Object.freeze({
+            autoplay_blocked: '自动播放被阻止',
+            interrupted: '播放请求被中断',
+            offline: '网络断开',
+            auth: 'API 鉴权失败',
+            service: '服务或网络故障',
+            unavailable: '音源不可用',
+            unknown: '未知播放故障'
+        });
+        const PLAYBACK_DIAGNOSTIC_SOURCE_LABELS = Object.freeze({
+            load: '加载音源',
+            play: '启动播放',
+            media: '媒体元素',
+            resume: '恢复播放'
+        });
+        let playbackDiagnostics = [];
         let visualizerController = null;
         const reducedMotionQuery = typeof window.matchMedia === 'function'
             ? window.matchMedia('(prefers-reduced-motion: reduce)')
@@ -356,6 +381,102 @@
             ? window.matchMedia('(max-width: 767px), (max-width: 900px) and (max-height: 500px) and (orientation: landscape)')
             : null;
         let reducedMotionListenerBound = false;
+
+        function normalizePlaybackDiagnosticErrorName(error) {
+            const name = error && typeof error.name === 'string' ? error.name : '';
+            return PLAYBACK_DIAGNOSTIC_ERROR_NAMES.has(name) ? name : (name ? 'OtherError' : 'UnknownError');
+        }
+
+        function getPlaybackDiagnosticMediaErrorCode() {
+            const code = Number(audio && audio.error && audio.error.code);
+            return Number.isInteger(code) && code >= 1 && code <= 4 ? code : null;
+        }
+
+        function recordPlaybackDiagnostic({ attempt, error, source, category }) {
+            const safeSource = PLAYBACK_DIAGNOSTIC_SOURCES.has(source) ? source : 'load';
+            const safeCategory = PLAYBACK_DIAGNOSTIC_CATEGORIES.has(category) ? category : 'unknown';
+            const attemptIndex = attempt && Number.isInteger(attempt.index) && attempt.index >= 0
+                ? attempt.index
+                : (Number.isInteger(currentIndex) && currentIndex >= 0 ? currentIndex : null);
+            const retryCount = attempt && attempt.failedIndexes instanceof Set
+                ? attempt.failedIndexes.size
+                : 0;
+            const visibility = ['visible', 'hidden', 'prerender'].includes(document.visibilityState)
+                ? document.visibilityState
+                : 'unknown';
+            const entry = Object.freeze({
+                at: new Date().toISOString(),
+                category: safeCategory,
+                source: safeSource,
+                errorName: normalizePlaybackDiagnosticErrorName(error),
+                mediaErrorCode: getPlaybackDiagnosticMediaErrorCode(),
+                mode: PLAY_MODES.includes(playMode) ? playMode : 'unknown',
+                queueIndex: attemptIndex,
+                visibility,
+                online: navigator.onLine !== false,
+                retryCount
+            });
+            playbackDiagnostics = playbackDiagnostics.concat(entry).slice(-PLAYBACK_DIAGNOSTICS_LIMIT);
+            renderPlaybackDiagnostics();
+            return entry;
+        }
+
+        function getCPlayerPlaybackDiagnostics() {
+            return playbackDiagnostics.map(function (entry) { return Object.assign({}, entry); });
+        }
+
+        function clearCPlayerPlaybackDiagnostics() {
+            playbackDiagnostics = [];
+            renderPlaybackDiagnostics();
+        }
+
+        function renderPlaybackDiagnostics() {
+            const list = document.getElementById('playbackDiagnosticsList');
+            const status = document.getElementById('playbackDiagnosticsStatus');
+            const clearButton = document.getElementById('clearPlaybackDiagnosticsBtn');
+            if (!list) return;
+            list.replaceChildren();
+            if (status) status.textContent = playbackDiagnostics.length
+                ? '当前页面暂存最近 ' + playbackDiagnostics.length + ' 条故障记录'
+                : '暂无播放故障记录';
+            if (clearButton) clearButton.disabled = playbackDiagnostics.length === 0;
+            if (!playbackDiagnostics.length) {
+                const empty = document.createElement('div');
+                empty.className = 'text-xs opacity-45';
+                empty.textContent = '播放正常时这里不会显示内容';
+                list.appendChild(empty);
+                return;
+            }
+            playbackDiagnostics.slice().reverse().forEach(function (entry) {
+                const item = document.createElement('div');
+                item.className = 'p-3 rounded-xl bg-black/15 border border-white/5';
+                const title = document.createElement('div');
+                title.className = 'text-xs font-semibold';
+                let timeText = entry.at;
+                try { timeText = new Date(entry.at).toLocaleString('zh-CN', { hour12: false }); } catch (error) {}
+                title.textContent = timeText + ' · ' + (PLAYBACK_DIAGNOSTIC_LABELS[entry.category] || '播放故障');
+                const detail = document.createElement('div');
+                detail.className = 'mt-1 text-[11px] opacity-55 break-words';
+                const queueText = Number.isInteger(entry.queueIndex) ? '队列第 ' + (entry.queueIndex + 1) + ' 首' : '队列位置未知';
+                const mediaText = entry.mediaErrorCode ? '媒体错误码 ' + entry.mediaErrorCode : '无媒体错误码';
+                detail.textContent = [
+                    PLAYBACK_DIAGNOSTIC_SOURCE_LABELS[entry.source] || '播放流程',
+                    entry.errorName,
+                    PLAY_MODE_LABELS[entry.mode] || '播放模式未知',
+                    queueText,
+                    entry.visibility === 'hidden' ? '页面隐藏' : '页面可见',
+                    entry.online ? '在线' : '离线',
+                    mediaText,
+                    '重试 ' + entry.retryCount + ' 次'
+                ].join(' · ');
+                item.appendChild(title);
+                item.appendChild(detail);
+                list.appendChild(item);
+            });
+        }
+
+        window.getCPlayerPlaybackDiagnostics = getCPlayerPlaybackDiagnostics;
+        window.clearCPlayerPlaybackDiagnostics = clearCPlayerPlaybackDiagnostics;
 
         // ================= IndexedDB 缓存系统 =================
         const DB_NAME = 'CPlayer5DB';
@@ -984,6 +1105,18 @@
                     if (typeof resetApiSettings === 'function') resetApiSettings();
                 });
             }
+        }
+
+        function setupPlaybackDiagnosticsUI() {
+            const clearButton = document.getElementById('clearPlaybackDiagnosticsBtn');
+            if (clearButton && clearButton.dataset.bound !== '1') {
+                clearButton.dataset.bound = '1';
+                clearButton.addEventListener('click', function () {
+                    clearCPlayerPlaybackDiagnostics();
+                    if (typeof showToast === 'function') showToast('已清除本机播放诊断');
+                });
+            }
+            renderPlaybackDiagnostics();
         }
 
         function normalizeCloudVersion(value) {
@@ -4372,6 +4505,7 @@ async function refreshUserPlaylistLibrary() {
             initSettingsUI();
             setupSleepTimerUI();
             setupApiSettingsUI();
+            setupPlaybackDiagnosticsUI();
             setupCloudAccountUI();
             setupPlaylistIdLoader();
             if (typeof bindUserPlaylistUI === 'function') bindUserPlaylistUI();  // 初始化歌单ID加载按钮
@@ -6614,6 +6748,7 @@ async function refreshUserPlaylistLibrary() {
                 error: error
             });
             const failure = classifyPlaybackFailure(error, navigator.onLine !== false);
+            recordPlaybackDiagnostic({ attempt, error, source, category: failure.kind });
 
             if (failure.kind === 'auth') {
                 try { audio.pause(); } catch (pauseError) {}
@@ -6659,12 +6794,14 @@ async function refreshUserPlaylistLibrary() {
                 if (!activePlaybackAttempt || activePlaybackAttempt.token !== attempt.token) return 'stale';
                 if (isAutoplayPolicyError(error)) {
                     if (audio.paused) applyPausedPlaybackState(false);
+                    recordPlaybackDiagnostic({ attempt, error, source: 'play', category: 'autoplay_blocked' });
                     console.info('[playback] waiting for user gesture', error);
                     if (typeof showToast === 'function') showToast('浏览器阻止了自动播放，请点击播放按钮');
                     return 'blocked';
                 }
                 if (error && error.name === 'AbortError') {
                     if (audio.paused) applyPausedPlaybackState(false);
+                    recordPlaybackDiagnostic({ attempt, error, source: 'play', category: 'interrupted' });
                     console.info('[playback] play request interrupted', error);
                     return 'interrupted';
                 }
@@ -6734,9 +6871,11 @@ async function refreshUserPlaylistLibrary() {
             } catch (error) {
                 if (audio.paused) applyPausedPlaybackState(false);
                 if (isAutoplayPolicyError(error)) {
+                    recordPlaybackDiagnostic({ attempt: activePlaybackAttempt, error, source: 'resume', category: 'autoplay_blocked' });
                     if (typeof showToast === 'function') showToast('浏览器阻止了自动播放，请再次点击播放');
                     return false;
                 }
+                recordPlaybackDiagnostic({ attempt: activePlaybackAttempt, error, source: 'resume', category: 'unknown' });
                 console.error('[playback] committed media resume failed', error);
                 if (typeof showToast === 'function') showToast('无法继续播放', true);
                 return false;

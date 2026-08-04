@@ -119,3 +119,64 @@ test('API auth failure stops playback recovery instead of skipping the queue', a
     await expect(page.locator(overlayId)).toHaveClass(/opacity-0/);
     expect(errors, errors.join('\n')).toEqual([]);
 });
+
+test('playback diagnostics stay in bounded memory and omit sensitive fields', async ({ page }, testInfo) => {
+    const errors = collectUnexpectedErrors(page, ALLOWED_PLAYBACK_ERRORS);
+    await page.addInitScript(() => {
+        localStorage.setItem('cp_api_key', 'diagnostic-test-secret-key');
+        localStorage.setItem('cp_api_base', 'https://diagnostic.example.invalid/api');
+    });
+    mockSearchSuccess(page);
+    await page.route(/\/163_music\?/, async (route) => {
+        await route.fulfill({
+            status: 503,
+            contentType: 'application/json',
+            body: JSON.stringify({ code: 503, message: 'diagnostic failure' })
+        });
+    });
+
+    await page.goto('/index.html');
+    await waitForAppReady(page);
+    const search = await openSearch(page, testInfo.project.name);
+    await submitSearch(page, testInfo.project.name, search.input);
+    await expect(search.results.getByText(SEARCH_RESULT.name, { exact: true })).toBeVisible();
+    await search.results.getByRole('button', { name: '加入播放列表（不立即播放）' }).first().click();
+    await expect.poll(() => page.evaluate(() => window.playlist.length)).toBe(1);
+    await page.evaluate(() => window.playSongAtIndex(0));
+    await expect(page.locator('#copyToast span')).toContainText('没有可播放歌曲');
+
+    const report = await page.evaluate(() => ({
+        diagnostics: window.getCPlayerPlaybackDiagnostics(),
+        diagnosticStorageKeys: Object.keys(localStorage).filter((key) => /diagnostic/i.test(key)),
+        raw: JSON.stringify(window.getCPlayerPlaybackDiagnostics())
+    }));
+    expect(report.diagnostics).toHaveLength(1);
+    expect(report.diagnostics[0]).toMatchObject({
+        category: 'service',
+        source: 'load',
+        mode: expect.any(String),
+        queueIndex: 0,
+        visibility: 'visible',
+        online: true,
+        retryCount: 1,
+        mediaErrorCode: null
+    });
+    expect(Object.keys(report.diagnostics[0]).sort()).toEqual([
+        'at', 'category', 'errorName', 'mediaErrorCode', 'mode', 'online',
+        'queueIndex', 'retryCount', 'source', 'visibility'
+    ]);
+    expect(report.raw).not.toContain('diagnostic-test-secret-key');
+    expect(report.raw).not.toContain('diagnostic.example.invalid');
+    expect(report.raw).not.toMatch(/currentTime|duration|songId|mediaUrl|https?:/i);
+    expect(report.diagnosticStorageKeys).toEqual([]);
+
+    await page.locator('#settingsBtn:visible, #mobileSettingsBtn:visible').first().click();
+    await expect(page.locator('#playbackDiagnosticsCard')).toBeVisible();
+    await expect(page.locator('#playbackDiagnosticsStatus')).toContainText('最近 1 条');
+    await page.locator('#clearPlaybackDiagnosticsBtn').click();
+    await expect.poll(() => page.evaluate(() => window.getCPlayerPlaybackDiagnostics())).toEqual([]);
+    await expect(page.locator('#playbackDiagnosticsStatus')).toHaveText('暂无播放故障记录');
+
+    await page.waitForTimeout(300);
+    expect(errors, errors.join('\n')).toEqual([]);
+});
