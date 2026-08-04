@@ -69,14 +69,20 @@ export function normalizeSearchPage(payload, options = {}) {
         rawTotal = result.total ?? result.songCount ?? null;
     }
 
-    const nextOffset = offset + items.length;
     const parsedTotal = Number(rawTotal);
     const total = rawTotal !== null && rawTotal !== '' && Number.isFinite(parsedTotal) && parsedTotal >= 0
-        ? Math.max(nextOffset, Math.floor(parsedTotal))
+        ? Math.max(offset + items.length, Math.floor(parsedTotal))
         : null;
-    const hasMore = items.length > 0 && (total === null
+    // Offset pagination must advance by the requested page size when the API
+    // reports a total. A duplicate or empty page can still be followed by a
+    // later page; using only items.length would stall at the same offset.
+    const itemOffset = offset + items.length;
+    const nextOffset = total === null || itemOffset >= total
+        ? itemOffset
+        : offset + Math.max(items.length, limit);
+    const hasMore = total === null
         ? items.length >= limit
-        : nextOffset < total);
+        : nextOffset < total;
 
     return { items, total, offset, nextOffset, hasMore };
 }

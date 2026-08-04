@@ -37,6 +37,13 @@ test('search page normalization keeps the upstream cursor and total', () => {
     const legacyPage = normalizeSearchPage({ code: 200, data: [{ id: 1 }] });
     assert.equal(legacyPage.total, null);
     assert.equal(legacyPage.hasMore, false);
+
+    const emptyGapPage = normalizeSearchPage({
+        code: 200,
+        data: { songs: [], total: 65 }
+    }, { offset: 30, limit: 30 });
+    assert.equal(emptyGapPage.nextOffset, 60);
+    assert.equal(emptyGapPage.hasMore, true);
 });
 
 test('search page merge de-duplicates ids and drops invalid entries', () => {

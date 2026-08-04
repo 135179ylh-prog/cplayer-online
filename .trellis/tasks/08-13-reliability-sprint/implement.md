@@ -34,6 +34,12 @@
 - 第二次 `npm run verify`：10/10 通过；45/45 单元测试通过；Pages 产物浏览器回归 252 通过、12 个按项目配置跳过；依赖审计 0 vulnerabilities；仓库检查通过。
 - Trellis 检查已读取当前任务文档、前端质量规范和跨层/复用指南；未发现未覆盖的代码质量问题。因本轮搜索契约发生变化，已同步更新 `.trellis/spec/frontend/quality-guidelines.md`。
 
+### 首次独立发布与线上基线（2026-08-04）
+
+- 播放结束切歌独立提交：`7caf13d fix: prevent duplicate background ended transitions`。
+- Pages 工作流 `30886331021` 显示 `Success`；线上页面 `https://135179ylh-prog.github.io/cplayer-online/` 就绪，Service Worker 已激活。
+- 线上基线仍为 `v80`，诊断 API 尚未出现；这确认后续 `v81`/`v82` 缓存升级是必要的。
+
 ### 当前待执行
 
-- 播放/搜索/诊断独立提交、推送、Pages 工作流和线上验收尚未完成。
+- 搜索和诊断修复仍需分别提交、推送、等待 Pages 工作流成功并完成线上验收。

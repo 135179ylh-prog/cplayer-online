@@ -6869,10 +6869,14 @@ async function refreshUserPlaylistLibrary() {
         const SEARCH_AUTO_LOAD_THRESHOLD_PX = 240;
         const searchPagerCleanups = new WeakMap();
 
+        function cleanupSearchResultPager(container) {
+            const cleanup = searchPagerCleanups.get(container);
+            if (typeof cleanup === 'function') cleanup();
+        }
+
         function createSearchResultPager(options) {
             const container = options.container;
-            const previousCleanup = searchPagerCleanups.get(container);
-            if (typeof previousCleanup === 'function') previousCleanup();
+            cleanupSearchResultPager(container);
 
             const state = {
                 query: options.query,
@@ -6951,6 +6955,7 @@ async function refreshUserPlaylistLibrary() {
             async function loadNext() {
                 if (state.loading || !state.hasMore || !options.isCurrent()) return;
                 const previousHasMore = state.hasMore;
+                const previousOffset = state.nextOffset;
                 state.loading = true;
                 state.error = false;
                 renderControl();
@@ -6967,7 +6972,7 @@ async function refreshUserPlaylistLibrary() {
                     state.songs = merged;
                     state.nextOffset = page.nextOffset;
                     state.total = page.total;
-                    state.hasMore = page.hasMore && addedSongs.length > 0;
+                    state.hasMore = page.hasMore && page.nextOffset > previousOffset;
                     state.loading = false;
 
                     if (addedSongs.length) options.appendSongs(addedSongs);
@@ -6992,6 +6997,7 @@ async function refreshUserPlaylistLibrary() {
         async function searchSongs(query) {
             query = String(query || '').trim();
             const requestId = ++desktopSearchRequestId;
+            cleanupSearchResultPager(dom.searchResults);
             if (!query) {
                 dom.searchResults.innerHTML = '';
                 dom.searchResults.classList.add('hidden');
@@ -9289,6 +9295,7 @@ async function refreshUserPlaylistLibrary() {
             async handleSearch(query) {
                 query = String(query || '').trim();
                 const requestId = ++this.searchRequestId;
+                cleanupSearchResultPager(this.dom.searchResults);
                 if (!query) {
                     this.dom.searchResults.innerHTML = '';
                     return;
