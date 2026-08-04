@@ -31,3 +31,9 @@
 ## 外部边界
 
 本轮不调用真实 Supabase 管理接口，不推送数据库迁移，不读取或记录真实账号、API 地址、密钥或会话内容。若需要服务端幂等键，先形成单独设计和迁移说明。
+
+## 2026-08-04 Pages 缓存传播复核
+
+- Actions #99（run `30897910969`）显示 `Success`，`quality` 与 `deploy` 均成功，但线上页面的 CacheStorage 仍为 `cplayer5-v82-reliability-sprint`。
+- 线上通过同源 `fetch` 检查发现 `app.js` 与 `cloud-sync.js` 均没有 `817dea1` 新增的 `ack-upsert` 代码；线上 Worker 状态为 `activated`，说明问题发生在旧缓存传播，而不是 workflow 未执行。
+- 历史提交显示每次生产预缓存资源变化都会递增 `CACHE_NAME`。因此本轮采用单一根因修复：递增到 `cplayer5-v83-reliability-sprint`，不改 API、数据库或用户数据。

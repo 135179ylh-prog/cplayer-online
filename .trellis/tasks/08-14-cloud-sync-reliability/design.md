@@ -52,3 +52,9 @@
 - 当普通 `upsert` 的云端版本高于本机版本，但 outbox 中的待同步内容与云端内容完全一致时，决策返回 `ack-upsert`，只确认已提交的同一份内容，不把响应丢失误报为冲突。
 - `acknowledgeCloudUpsert()` 和同步循环在写回前后都确认 `cloudUserId === ownerId`。退出登录或账号变化后的迟到响应会被丢弃，旧账号 outbox 保留，不会把页面状态改回“已同步”。
 - 内容不同仍然走原有冲突流程；没有新增 Supabase 表、RPC 参数或外部迁移。
+
+## 发布传播边界（本轮新增）
+
+- `js/app.js` 与 `js/cloud-sync.js` 都属于 Service Worker 的核心预缓存资源。即使 Pages workflow 的 quality/deploy 均成功，如果 `sw.js` 的 `CACHE_NAME` 不变，已安装的旧 Worker 可能继续从旧 CacheStorage 返回旧脚本。
+- 因此生产 HTML、JavaScript 或 Service Worker 行为变化必须同时递增 `CACHE_NAME`；本轮从 `cplayer5-v82-reliability-sprint` 升至 `cplayer5-v83-reliability-sprint`，并用最终线上脚本标记和 CacheStorage 状态验收传播结果。
+- 线上验收不能只看 workflow `Success`：必须同时确认页面 ready、Worker `activated`、当前缓存名称和本轮关键代码标记。
