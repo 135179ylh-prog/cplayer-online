@@ -6910,6 +6910,9 @@ async function refreshUserPlaylistLibrary() {
                 if (event.target.closest('button, a, input, [role="button"]')) return;
                 markUserScrollIntent();
             };
+            const onPointerMove = function (event) {
+                if (event.pointerType === 'touch' || event.buttons > 0) markUserScrollIntent();
+            };
             const onKeyDown = function (event) {
                 if (event.target.closest('button, a, input, [role="button"]')) return;
                 if (['ArrowDown', 'ArrowUp', 'PageDown', 'PageUp', 'Home', 'End', ' '].includes(event.key)) {
@@ -6920,12 +6923,14 @@ async function refreshUserPlaylistLibrary() {
             container.addEventListener('wheel', markUserScrollIntent, { passive: true });
             container.addEventListener('touchmove', markUserScrollIntent, { passive: true });
             container.addEventListener('pointerdown', onPointerDown);
+            container.addEventListener('pointermove', onPointerMove, { passive: true });
             container.addEventListener('keydown', onKeyDown);
             const cleanup = function () {
                 container.removeEventListener('scroll', onScroll);
                 container.removeEventListener('wheel', markUserScrollIntent);
                 container.removeEventListener('touchmove', markUserScrollIntent);
                 container.removeEventListener('pointerdown', onPointerDown);
+                container.removeEventListener('pointermove', onPointerMove);
                 container.removeEventListener('keydown', onKeyDown);
                 if (autoLoadFrame) cancelAnimationFrame(autoLoadFrame);
                 autoLoadFrame = 0;
