@@ -453,8 +453,10 @@ base remains the value of `meta[name="cplayer-api-base-url"]`.
   or inventing separate cursors in their renderers.
 - Search result pages merge by stringified song id while preserving first-seen
   order. The upstream cursor advances by raw items consumed, not by the
-  de-duplicated visible count. A duplicate-only page stops pagination rather
-  than issuing an unbounded loop.
+  de-duplicated visible count. When the upstream reports a reliable total,
+  duplicate-only or empty pages still advance by a bounded `limit` until the
+  total is satisfied; pagination stops when the cursor cannot advance or the
+  total is reached, so this cannot become an unbounded loop.
 - The search panel shows honest `已显示 N / 共 M 首` progress and an accessible
   44px `加载更多搜索结果` button. A next-page failure keeps existing rows and
   offers retry; a response belonging to an older query cannot append to the
@@ -543,7 +545,7 @@ activePlaybackAttempt
 // pending async work; changes before the song API resolves
 
 committedMedia
-// { token, songId, source, ready }; owns the main Audio source
+// { token, songId, source, ready, endedHandled }; owns the main Audio source
 
 preloadedNextMedia
 // { ownerToken, index, songId, status, data, mediaUrl }; optional next-song handoff
@@ -579,6 +581,10 @@ Browser tests install `Audio`, Media Session, and animation probes with
 - Page and system play commands resume the committed source even when a newer
   request is pending. An `ended` event resolves its queue index from committed
   media and returns without advancing when a different attempt is pending.
+- Each committed media identity handles at most one real `ended` event. The
+  handler requires `audio.ended === true`, marks `endedHandled` before repeat or
+  next-song work, and a new committed source or successful play clears the lock.
+  A duplicate event while the next request is pending cannot skip another item.
 - After playback starts, next-song prefetch begins immediately without a fixed
   timer. The result is owned by the committed attempt token and records the
   exact queue index, string song id, normalized media URL, and full song response.
@@ -617,6 +623,8 @@ Browser tests install `Audio`, Media Session, and animation probes with
 | A is paused while B is pending, then system play fires | Resume A's committed source without cancelling B. |
 | A ends while user-selected B is pending | Stop A's visual/system state and keep waiting for B; do not request C. |
 | A ends hidden after B was prefetched | Commit/play B without a second B song-API request. |
+| The same hidden media emits `ended` twice | Advance or repeat exactly once; never skip the computed target. |
+| A ends while the next API request is delayed | Keep the one target request; a stale duplicate `ended` does not request C. |
 | Queue or shuffle target changes after prefetch | Reject the stale record and load the newly calculated target. |
 | Replacing A with B is autoplay-blocked | Audio, UI, Media Session, and visuals remain paused; a later play can retry B. |
 | New source is assigned but metadata is not ready | Clear old system position; do not persist a new resume snapshot yet. |
@@ -658,6 +666,9 @@ Browser tests install `Audio`, Media Session, and animation probes with
   and reset.
 - Playback-error browser test must inspect the captured first `Audio` instance
   and fail if no real instance exists; a missing DOM element is not evidence.
+- Ended-event browser coverage includes hidden duplicate events, delayed next
+  requests, autoplay rejection recovery, and sequence/repeat-one/repeat-all/
+  shuffle modes in both desktop and mobile projects.
 - Animation browser test instruments request/cancel/execute counts before
   navigation and proves paused, play, pause, hidden, visible, and repeated-visible
   transitions plus paused resize redraw without relying on the browser's own
@@ -684,6 +695,52 @@ if (committedMedia.ready && committedMedia.source === audio.src) {
     });
 }
 ```
+
+## Local Playback Diagnostics Contract
+
+### 1. Scope / Trigger
+
+This contract applies whenever playback failures, autoplay policy handling,
+media-element errors, or the settings-page troubleshooting UI changes.
+
+### 2. Signatures
+
+```js
+window.getCPlayerPlaybackDiagnostics()
+// -> copied array of sanitized recent records
+
+window.clearCPlayerPlaybackDiagnostics()
+// -> clears the in-memory buffer only
+```
+
+### 3. Contracts
+
+- Keep at most 32 records in a page-local memory ring buffer. Do not write the
+  buffer to localStorage, IndexedDB, cloud sync, downloads, or any network
+  endpoint.
+- Each record contains only `at`, `category`, `source`, `errorName`,
+  `mediaErrorCode`, `mode`, `queueIndex`, `visibility`, `online`, and
+  `retryCount`. Error names, sources, and categories are allowlisted.
+- Never include API key, API base URL, query text, complete media URL, song
+  identity/text/artwork, stack or raw error message, currentTime, or duration.
+- The settings UI is read-only apart from an explicit clear action. The browser
+  API returns copies so callers cannot mutate the live buffer.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required result |
+| --- | --- |
+| Playback URL/API failure | Add one sanitized local record and keep normal user recovery. |
+| Autoplay `NotAllowedError` | Record `autoplay_blocked`; do not persist the error. |
+| Media element error | Record only the bounded media error code and safe category. |
+| API key/base exists in browser storage | It never appears in the diagnostic array or UI text. |
+| Clear button is pressed | Array becomes empty and no playlist or playback data changes. |
+
+### 5. Tests Required
+
+- Desktop and mobile playback-error coverage must assert the exact safe field
+  set, bounded local behavior, absence of diagnostic storage keys, absence of
+  fake API credentials/URLs, and the settings clear action.
 
 ## PWA Update Lifecycle Contract
 

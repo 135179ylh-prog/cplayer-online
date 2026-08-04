@@ -352,6 +352,141 @@ for (const scenario of [
     });
 }
 
+test('hidden ended transition ignores a duplicate ended event after the next song commits', async ({ page }) => {
+    await installAnimationFrameProbe(page);
+    await installRuntimeProbes(page, { audio: { duration: 180 } });
+    const boundary = await installPlaybackBoundary(page, [SONG_A, SONG_B, SONG_C]);
+
+    await page.goto('/index.html');
+    await waitForAppReady(page);
+    await page.evaluate(() => window.setPlayMode('sequence', { notify: false }));
+    await addSongsToQueue(page, [SONG_A, SONG_C, SONG_B]);
+    await playSongAndWaitForCommit(page, 0, SONG_A);
+    await setTestDocumentVisibility(page, 'hidden');
+
+    await setMainAudioProbeState(page, {
+        currentTime: 180,
+        duration: 180,
+        paused: true,
+        ended: true
+    });
+    await dispatchMainAudioProbeEvent(page, 'ended');
+    await expect.poll(async () => (await readMainAudioProbe(page)).src)
+        .toContain(String(SONG_B.id));
+
+    await dispatchMainAudioProbeEvent(page, 'ended');
+    await page.waitForTimeout(150);
+
+    const audioAfterDuplicate = await readMainAudioProbe(page);
+    expect(audioAfterDuplicate.src).toContain(String(SONG_B.id));
+    expect(audioAfterDuplicate.srcAssignments.filter((source) => source.includes(String(SONG_C.id)))).toHaveLength(0);
+});
+
+test('hidden ended transition keeps one target while the next API request is delayed', async ({ page }) => {
+    await installAnimationFrameProbe(page);
+    await installRuntimeProbes(page, { audio: { duration: 180 } });
+    const boundary = await installPlaybackBoundary(page, [SONG_A, SONG_B, SONG_C], { holdSongId: SONG_B.id });
+
+    await page.goto('/index.html');
+    await waitForAppReady(page);
+    await page.evaluate(() => window.setPlayMode('sequence', { notify: false }));
+    await addSongsToQueue(page, [SONG_A, SONG_C, SONG_B]);
+    await playSongAndWaitForCommit(page, 0, SONG_A);
+    await setTestDocumentVisibility(page, 'hidden');
+
+    try {
+        await setMainAudioProbeState(page, {
+            currentTime: 180,
+            duration: 180,
+            paused: true,
+            ended: true
+        });
+        await dispatchMainAudioProbeEvent(page, 'ended');
+        await boundary.heldRequest;
+        await dispatchMainAudioProbeEvent(page, 'ended');
+        await page.waitForTimeout(150);
+
+        const pendingAudio = await readMainAudioProbe(page);
+        expect(pendingAudio.src).toContain(String(SONG_A.id));
+        expect(pendingAudio.srcAssignments.filter((source) => source.includes(String(SONG_C.id)))).toHaveLength(0);
+    } finally {
+        boundary.release();
+    }
+    await expect.poll(async () => (await readMainAudioProbe(page)).src)
+        .toContain(String(SONG_B.id));
+});
+
+test('hidden automatic next honors autoplay rejection and resumes from a user gesture', async ({ page }) => {
+    await installAnimationFrameProbe(page);
+    await installRuntimeProbes(page, { audio: { duration: 180 } });
+    await installPlaybackBoundary(page, [SONG_A, SONG_B]);
+
+    await page.goto('/index.html');
+    await waitForAppReady(page);
+    await page.evaluate(() => window.setPlayMode('sequence', { notify: false }));
+    await addSongsToQueue(page, [SONG_A, SONG_B]);
+    await playSongAndWaitForCommit(page, 0, SONG_A);
+    await setTestDocumentVisibility(page, 'hidden');
+    await rejectNextMainAudioPlay(page);
+
+    await setMainAudioProbeState(page, {
+        currentTime: 180,
+        duration: 180,
+        paused: true,
+        ended: true
+    });
+    await dispatchMainAudioProbeEvent(page, 'ended');
+
+    await expect.poll(async () => (await readMainAudioProbe(page)).src)
+        .toContain(String(SONG_B.id));
+    await expect.poll(async () => (await readMainAudioProbe(page)).paused).toBe(true);
+    expect((await readMediaSessionProbe(page)).playbackState).toBe('paused');
+
+    await invokeMediaSessionAction(page, 'play');
+    await expect.poll(async () => (await readMainAudioProbe(page)).paused).toBe(false);
+    expect((await readMediaSessionProbe(page)).playbackState).toBe('playing');
+});
+
+for (const scenario of [
+    { mode: 'sequence', currentIndex: 0, current: SONG_A, expected: SONG_B, expectedPlayCalls: null },
+    { mode: 'repeat_one', currentIndex: 0, current: SONG_A, expected: SONG_A, expectedPlayCalls: 'increase' },
+    { mode: 'repeat_all', currentIndex: 1, current: SONG_B, expected: SONG_A, expectedPlayCalls: null },
+    { mode: 'shuffle', currentIndex: 0, current: SONG_A, expected: SONG_B, expectedPlayCalls: null }
+]) {
+    test(`hidden ${scenario.mode} mode advances exactly once at media end`, async ({ page }) => {
+        await installAnimationFrameProbe(page);
+        await installRuntimeProbes(page, { audio: { duration: 180 } });
+        const boundary = await installPlaybackBoundary(page, [SONG_A, SONG_B]);
+
+        await page.goto('/index.html');
+        await waitForAppReady(page);
+        await page.evaluate(() => window.setPlayMode('sequence', { notify: false }));
+        await addSongsToQueue(page, [SONG_A, SONG_B]);
+        await page.evaluate((mode) => window.setPlayMode(mode, { notify: false }), scenario.mode);
+        await playSongAndWaitForCommit(page, scenario.currentIndex, scenario.current);
+        await setTestDocumentVisibility(page, 'hidden');
+
+        const before = await readMainAudioProbe(page);
+        await setMainAudioProbeState(page, {
+            currentTime: 180,
+            duration: 180,
+            paused: true,
+            ended: true
+        });
+        await dispatchMainAudioProbeEvent(page, 'ended');
+
+        if (scenario.expectedPlayCalls === 'increase') {
+            await expect.poll(async () => (await readMainAudioProbe(page)).playCalls)
+                .toBeGreaterThan(before.playCalls);
+            expect((await readMainAudioProbe(page)).src).toContain(String(scenario.expected.id));
+        } else {
+            await expect.poll(async () => (await readMainAudioProbe(page)).src)
+                .toContain(String(scenario.expected.id));
+        }
+        expect(await page.evaluate(() => window.playlist[window.playlist.length - 1].id)).toBe(SONG_B.id);
+    });
+}
+
 test('a stale prefetched target is discarded after the queue changes', async ({ page }) => {
     await installRuntimeProbes(page, { audio: { duration: 180 } });
     const boundary = await installPlaybackBoundary(page, [SONG_A, SONG_B, SONG_C]);

@@ -817,7 +817,8 @@
                 token: attempt.token,
                 songId: String(attempt.songId),
                 source: normalizeMediaSource(source),
-                ready: false
+                ready: false,
+                endedHandled: false
             };
             clearMediaSessionPositionState();
         }
@@ -6690,6 +6691,7 @@ async function refreshUserPlaylistLibrary() {
         function onPlayStart() {
             isPlaying = true;
             markCommittedMediaReady();
+            if (committedMedia) committedMedia.endedHandled = false;
             if (activePlaybackAttempt && isAttemptCommitted(activePlaybackAttempt) &&
                 !activePlaybackAttempt.failureHandled) activePlaybackAttempt.failedIndexes.clear();
             dom.playPauseBtn.innerHTML = '<i class="fas fa-pause text-2xl text-on-primary-color"></i>';
@@ -8533,6 +8535,8 @@ async function refreshUserPlaylistLibrary() {
                 applyPausedPlaybackState(false);
                 return;
             }
+            if (audio.ended !== true || committedMedia.endedHandled) return;
+            committedMedia.endedHandled = true;
             const endedIndex = resolvePlaylistIndexBySongId(committedMedia.songId);
             if (endedIndex < 0) {
                 applyPausedPlaybackState(false);
