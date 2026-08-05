@@ -5482,7 +5482,9 @@ async function refreshUserPlaylistLibrary() {
         let cloudHealthRevision = 0;
 
         function isCloudHealthSnapshotFresh() {
-            return !!cloudHealthSnapshot && cloudHealthSnapshot.revision === cloudHealthRevision;
+            return !!cloudHealthSnapshot &&
+                cloudHealthSnapshot.revision === cloudHealthRevision &&
+                cloudHealthSnapshot.ownerId === (cloudUserId || '');
         }
 
         function renderCloudHealthFreshness() {
@@ -5771,6 +5773,8 @@ async function refreshUserPlaylistLibrary() {
 
         async function runCloudHealthCheck() {
             if (cloudHealthCheckBusy) return;
+            const startedRevision = cloudHealthRevision;
+            const startedOwnerId = cloudUserId || '';
             const button = document.getElementById('cloudHealthCheckBtn');
             const exportButton = document.getElementById('cloudHealthCheckExportBtn');
             const status = document.getElementById('cloudHealthCheckStatus');
@@ -5795,7 +5799,8 @@ async function refreshUserPlaylistLibrary() {
                 }, { pass: 0, warn: 0, fail: 0 });
                 cloudHealthSnapshot = {
                     generatedAt: Date.now(),
-                    revision: cloudHealthRevision,
+                    revision: startedRevision,
+                    ownerId: startedOwnerId,
                     items: items,
                     summary: summary
                 };
@@ -5875,6 +5880,7 @@ async function refreshUserPlaylistLibrary() {
             const accountChanged = previousUserId !== cloudUserId;
             if (accountChanged) {
                 cloudConflicts.clear();
+                invalidateCloudHealthSnapshot('云同步账号已变化');
             }
             cloudLastSuccessfulAt = cloudUserId ? readCloudLastSuccessfulAt(cloudUserId) : 0;
             cloudLastErrorMessage = cloudUserId ? readCloudLastError(cloudUserId) : '';

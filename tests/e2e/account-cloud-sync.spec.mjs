@@ -688,6 +688,86 @@ test('health report becomes stale after a new pending edit and refreshes safely'
     }
 });
 
+test('health report becomes stale when pending state changes during the check', async ({ page, context }) => {
+    await openConfiguredApp(page);
+    await submitSignIn(page);
+
+    await page.evaluate(() => {
+        const cacheStorage = window.caches;
+        const originalKeys = cacheStorage.keys.bind(cacheStorage);
+        window.__releaseCloudHealthCacheProbe = null;
+        window.__restoreCloudHealthCacheProbe = () => { cacheStorage.keys = originalKeys; };
+        cacheStorage.keys = () => new Promise((resolve) => {
+            window.__releaseCloudHealthCacheProbe = () => originalKeys().then(resolve);
+        });
+    });
+
+    await page.locator('#cloudHealthCheckBtn').click();
+    await expect.poll(() => page.evaluate(() => typeof window.__releaseCloudHealthCacheProbe === 'function'))
+        .toBe(true);
+
+    try {
+        await context.setOffline(true);
+        await closeSettings(page);
+        await openLibrary(page);
+        await page.locator('#myNewPlaylistName').fill('检查期间新增待同步');
+        await page.locator('#myCreatePlaylistBtn').click();
+        await expect(page.locator('#myPlaylistsList')).toContainText('检查期间新增待同步');
+        await expect(page.locator('html')).toHaveAttribute('data-cplayer-cloud-pending', '1');
+        await page.locator('#closeMyPlaylistsBtn').click();
+        await expect(page.locator('#myPlaylistsModal')).toBeHidden();
+        await openSettings(page);
+        await page.evaluate(() => window.__releaseCloudHealthCacheProbe());
+        await expect(page.locator('#cloudHealthCheckStatus')).toContainText('检查完成');
+        await expect(page.locator('#cloudHealthCheckFreshness')).toBeVisible();
+        await expect(page.locator('#cloudHealthCheckFreshness')).toContainText('过期');
+        await expect(page.locator('#cloudHealthCheckExportBtn')).toBeDisabled();
+        expect((await page.evaluate(() => window.getCloudHealthReport())).stale).toBe(true);
+
+        await page.evaluate(() => window.__restoreCloudHealthCacheProbe());
+        await page.locator('#cloudHealthCheckBtn').click();
+        await expect(page.locator('#cloudHealthCheckStatus')).toContainText('检查完成');
+        await expect(page.locator('#cloudHealthCheckFreshness')).toBeHidden();
+        await expect(page.locator('#cloudHealthCheckExportBtn')).toBeEnabled();
+        const refreshed = await page.evaluate(() => window.getCloudHealthReport());
+        expect(refreshed.stale).toBe(false);
+        expect(refreshed.items.find((item) => item.id === 'cloud').detail).toContain('1 项');
+    } finally {
+        await context.setOffline(false);
+    }
+});
+
+test('health report becomes stale when the signed-in account changes during the check', async ({ page }) => {
+    await openConfiguredApp(page);
+    await submitSignIn(page);
+
+    await page.evaluate(() => {
+        const cacheStorage = window.caches;
+        const originalKeys = cacheStorage.keys.bind(cacheStorage);
+        window.__releaseCloudHealthAccountProbe = null;
+        window.__restoreCloudHealthAccountProbe = () => { cacheStorage.keys = originalKeys; };
+        cacheStorage.keys = () => new Promise((resolve) => {
+            window.__releaseCloudHealthAccountProbe = () => originalKeys().then(resolve);
+        });
+    });
+
+    await page.locator('#cloudHealthCheckBtn').click();
+    await expect.poll(() => page.evaluate(() => typeof window.__releaseCloudHealthAccountProbe === 'function'))
+        .toBe(true);
+
+    await page.locator('#cloudAccountSignOutBtn').click();
+    await expect.poll(() => page.evaluate(() => document.documentElement.dataset.cplayerCloudState))
+        .toBe('signed-out');
+    await page.evaluate(() => window.__releaseCloudHealthAccountProbe());
+    await expect(page.locator('#cloudHealthCheckStatus')).toContainText('检查完成');
+    await expect(page.locator('#cloudHealthCheckFreshness')).toBeVisible();
+    await expect(page.locator('#cloudHealthCheckFreshness')).toContainText('过期');
+    await expect(page.locator('#cloudHealthCheckExportBtn')).toBeDisabled();
+    expect((await page.evaluate(() => window.getCloudHealthReport())).stale).toBe(true);
+
+    await page.evaluate(() => window.__restoreCloudHealthAccountProbe());
+});
+
 test('signed-in session restores after reload and local sign-out clears it', async ({ page }) => {
     await openConfiguredApp(page);
     await submitSignIn(page);

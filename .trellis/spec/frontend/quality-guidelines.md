@@ -1597,6 +1597,7 @@ artifact and cannot hide a server secret in shipped JavaScript.
 | Offline restore or purge exists | Keep one durable owner outbox row and report the real pending count until confirmed. |
 | Health check runs after a new outbox row is written | Database and cloud items show the same pending count and the summary reports `需留意`. |
 | A new local/cloud state appears after a health check | The old report remains visible but says it is stale and its export action is disabled until re-check. |
+| A local/cloud state or account changes while a health check is running | Save the check-start revision and owner identity; the completed report stays stale and cannot be exported. |
 
 ### 5. Tests Required
 
@@ -1618,6 +1619,9 @@ artifact and cannot hide a server secret in shipped JavaScript.
 - Browser coverage must run a health check, create a new pending state, prove the
   stale notice and export protection in desktop/mobile, then re-check and prove
   the notice clears.
+- Browser coverage must also hold the health check at an asynchronous probe,
+  change pending/account state before releasing it, and prove the resulting
+  report remains stale without exporting the internal owner identity.
 - SQL/static checks must assert RLS, owner policies, restricted RPC grants,
   pinned vendor dependency, DB v6, additive history schema/RLS/RPC grants, a
   non-empty HTTPS production URL with a
