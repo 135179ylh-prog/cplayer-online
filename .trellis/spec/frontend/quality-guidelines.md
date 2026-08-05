@@ -1631,3 +1631,37 @@ artifact and cannot hide a server secret in shipped JavaScript.
 Once any user has opened DB v6, rollback targets that open v5 are unsafe. Run
 the command npm run check:rollback -- <ref> and retain DB version 6 in any
 forward revert.
+
+## Pages Release Traceability Contract
+
+### Scope
+
+This contract applies whenever a Pages runtime file, Service Worker, or Pages
+workflow changes. A successful GitHub Actions deployment alone does not prove
+that an existing browser Service Worker has switched to the new runtime.
+
+### Contracts
+
+- `scripts/pages-contract.mjs` is the single source for the core offline assets.
+  The build hashes the actual bytes and requires `sw.js` to carry the same
+  `PRECACHE_REVISION`; a stale hash fails before the artifact is uploaded.
+- `scripts/build-pages-artifact.mjs` writes public `build-meta.json` with only
+  schema, commit, cache name, pre-cache revision, asset paths, and build time.
+  It must never include API keys, API base URLs, user playlists, queue data, or
+  playback progress.
+- `build-meta.json`, the HTML `cplayer-build-meta` marker, the Service Worker
+  cache name, and the active Pages artifact must be checked together during
+  online acceptance.
+- A production change that reaches the Service Worker requires a new cache name
+  and a matching pre-cache hash. Numeric minimum-version assertions are not a
+  substitute for the byte-level contract.
+
+### Tests Required
+
+- Unit/preflight: compare the source `CORE_ASSETS`, `sw.js`, and the computed
+  hash; verify unsafe output paths cannot delete external data.
+- Browser artifact: read `build-meta.json`, compare its commit/cache/hash with
+  `sw.js` and the HTML marker, then reload the verified artifact offline.
+- Final release: record the exact commit, workflow result, active Worker, and
+  CacheStorage names through direct CDP; do not claim propagation from the
+  workflow status alone.

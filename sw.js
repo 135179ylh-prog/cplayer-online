@@ -1,4 +1,5 @@
-const CACHE_NAME = 'cplayer5-v83-reliability-sprint';
+const CACHE_NAME = 'cplayer5-v84-reliability-sprint';
+const PRECACHE_REVISION = 'sha256:bffd2fac8da5ea5832143d59437699824689342e7d9ada18c19f59df1a86de6f';
 const COVER_CACHE_LIMIT = 160;
 const DYNAMIC_API_PATH_SEGMENTS = new Set([
   '163_search',

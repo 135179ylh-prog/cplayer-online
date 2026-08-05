@@ -36,6 +36,7 @@
 - `playlist.js` 是可选的本地歌单入口。默认文件为空，需要时可用导出的同名文件替换。
 
 页面左下角显示当前构建版本；Service Worker 的缓存修订号和歌单备份版本只用于内部兼容，不等同于产品版本。若更新后仍显示旧构建，请刷新页面或完全关闭后重新打开 PWA。
+每次 Pages 产物还会公开生成 `build-meta.json`，只包含本次 commit、缓存名和预缓存资源哈希；它用于核对线上页面是否真的对应刚推送的提交，不包含 API 密钥、API 地址、歌单或播放数据。
 
 ## 本地验证
 
@@ -68,7 +69,7 @@ npm run verify
 npm run build:pages
 ```
 
-命令会重新生成 `output/pages`，并输出文件数和总字节数。推送 `main` 会
+命令会重新生成 `output/pages`，并输出文件数和总字节数，同时校验 `sw.js` 的预缓存资源哈希。推送 `main` 会
 影响线上 GitHub Pages，必须先得到明确确认；远端 quality job 会重新运行
 `npm run verify`，并把通过浏览器回归的同一目录交给 deploy job。
 

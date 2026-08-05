@@ -20,6 +20,12 @@ import {
     readCurrentDatabaseVersion,
     readTargetDatabaseVersion
 } from '../scripts/check-rollback-target.mjs';
+import {
+    CORE_ASSETS,
+    assertServiceWorkerContract,
+    computePrecacheRevision,
+    extractServiceWorkerContract
+} from '../scripts/pages-contract.mjs';
 
 function runGit(cwd, args, options = {}) {
     const result = spawnSync('git', args, {
@@ -64,6 +70,18 @@ test('Pages builder rejects a linked output root before deleting external data',
     } finally {
         await rm(sandbox, { recursive: true, force: true });
     }
+});
+
+test('Pages pre-cache contract matches sw.js and hashes its actual runtime assets', async () => {
+    const projectRoot = resolve('.');
+    const swSource = await readFile(resolve(projectRoot, 'sw.js'), 'utf8');
+    const revision = await computePrecacheRevision(projectRoot);
+    const contract = extractServiceWorkerContract(swSource);
+
+    assert.equal(contract.coreAssets.length, CORE_ASSETS.length);
+    assert.deepEqual(contract.coreAssets, CORE_ASSETS);
+    assert.equal(contract.precacheRevision, revision);
+    assertServiceWorkerContract(swSource, revision);
 });
 
 test('rollback version extraction supports current and legacy database declarations', () => {

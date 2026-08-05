@@ -25,6 +25,7 @@ README = (ROOT / "README.md").read_text(encoding="utf-8")
 PLAYWRIGHT = (ROOT / "playwright.config.mjs").read_text(encoding="utf-8")
 QUALITY_GATE = (ROOT / "scripts" / "run-quality-gate.mjs").read_text(encoding="utf-8")
 PAGES_BUILDER = (ROOT / "scripts" / "build-pages-artifact.mjs").read_text(encoding="utf-8")
+PAGES_CONTRACT = (ROOT / "scripts" / "pages-contract.mjs").read_text(encoding="utf-8")
 REPOSITORY_CHECK = (ROOT / "scripts" / "check-repository-state.mjs").read_text(encoding="utf-8")
 ROLLBACK_CHECK = (ROOT / "scripts" / "check-rollback-target.mjs").read_text(encoding="utf-8")
 SEARCH_E2E = (ROOT / "tests" / "e2e" / "search-recovery.spec.mjs").read_text(encoding="utf-8")
@@ -204,9 +205,12 @@ require((ROOT / "js" / "vendor" / "supabase.js").stat().st_size > 100_000, "vend
 require((ROOT / "tests" / "core-utils.test.mjs").is_file(), "core utility tests are missing")
 require("user-scalable=no" not in HTML and "maximum-scale" not in HTML, "viewport still blocks browser zoom")
 
-cache_version_match = re.search(r"const CACHE_NAME = 'cplayer5-v(\d+)-reliability-sprint';", SW)
-require(cache_version_match is not None, "service worker cache version is missing or stale")
-require(int(cache_version_match.group(1)) >= 83, "service worker cache version is not updated")
+cache_version_match = re.search(r"const CACHE_NAME = 'cplayer5-v\d+-reliability-sprint';", SW)
+require(cache_version_match is not None, "service worker cache version is missing or malformed")
+precache_revision_match = re.search(r"const PRECACHE_REVISION = '(sha256:[0-9a-f]{64})';", SW)
+require(precache_revision_match is not None, "service worker pre-cache revision is missing")
+require("computePrecacheRevision" in PAGES_CONTRACT and "assertServiceWorkerContract" in PAGES_CONTRACT,
+        "pre-cache revision is not automatically checked against runtime assets")
 require("'./js/app.js'" in SW, "production app module is not precached")
 require("./js/core-utils.js" in SW, "core utility module is not precached")
 for cloud_asset in ("./js/cloud-config.js", "./js/cloud-sync.js", "./js/vendor/supabase.js"):
@@ -298,7 +302,15 @@ require("npm ci" in WORKFLOW and "playwright install --with-deps chromium" in WO
 require("npm run verify" in WORKFLOW, "CI does not run the unified quality gate")
 quality_job = WORKFLOW[WORKFLOW.index("  quality:"):WORKFLOW.index("  deploy:")]
 deploy_job = WORKFLOW[WORKFLOW.index("  deploy:"):]
-require("actions/upload-pages-artifact@v3" in quality_job, "quality job does not upload its verified Pages artifact")
+for action, version in {
+    "actions/checkout": "v7",
+    "actions/setup-node": "v7",
+    "actions/configure-pages": "v6",
+    "actions/upload-pages-artifact": "v5",
+    "actions/deploy-pages": "v5",
+}.items():
+    require(f"{action}@{version}" in WORKFLOW, f"workflow does not use the Node 24-compatible {action}@{version}")
+require("actions/upload-pages-artifact@v5" in quality_job, "quality job does not upload its verified Pages artifact")
 require("actions/upload-pages-artifact" not in deploy_job, "deploy job rebuilds or uploads a second artifact")
 require("actions/checkout" not in deploy_job and "Prepare Pages artifact" not in deploy_job, "deploy job still reconstructs the site")
 require("cp index.html" not in WORKFLOW and "$RUNNER_TEMP/cplayer-pages" not in WORKFLOW, "workflow still owns a duplicate shell allowlist")
@@ -309,6 +321,9 @@ require("assertSafeOutputDirectory" in PAGES_BUILDER and "output', 'pages'" in P
         "Pages builder does not guard its repository-owned output directory")
 require("PAGE_FILES" in PAGES_BUILDER and "PAGE_DIRECTORIES" in PAGES_BUILDER,
         "Pages artifact allowlist has no single owner")
+require("build-meta.json" in PAGES_BUILDER and "GITHUB_SHA" in PAGES_BUILDER and "rev-parse" in PAGES_BUILDER,
+        "Pages artifact does not publish a commit-traceable build metadata file")
+require('meta name="cplayer-build-meta"' in HTML, "main page does not advertise its public build metadata")
 require(not (ROOT / "_headers").exists(), "unsupported Pages _headers file is still present")
 
 required_ignore_rules = [

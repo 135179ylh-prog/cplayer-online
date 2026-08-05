@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { readdirSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { test, expect } from '@playwright/test';
@@ -19,6 +20,7 @@ function measureArtifactBytes(directory) {
 const PUBLIC_PATHS = [
     '/index.html',
     '/manifest.json',
+    '/build-meta.json',
     '/playlist.js',
     '/playlist-downloader.html',
     '/sw.js',
@@ -137,6 +139,31 @@ test('verified Pages artifact exposes only the deployable runtime and reloads of
     } finally {
         await context.setOffline(false);
     }
+});
+
+test('Pages artifact exposes a commit-bound build metadata contract', async ({ page, request }) => {
+    const metadataResponse = await request.get('/build-meta.json');
+    expect(metadataResponse.status()).toBe(200);
+    const metadata = await metadataResponse.json();
+    expect(metadata.schema).toBe(1);
+    expect(metadata.commit).toMatch(/^[0-9a-f]{40}$/);
+    expect(metadata.cacheName).toMatch(/^cplayer5-v\d+-reliability-sprint$/);
+    expect(metadata.precacheRevision).toMatch(/^sha256:[0-9a-f]{64}$/);
+    expect(Array.isArray(metadata.precacheAssets)).toBe(true);
+    expect(metadata.precacheAssets.length).toBeGreaterThanOrEqual(10);
+
+    const expectedCommit = process.env.GITHUB_SHA || execFileSync('git', ['rev-parse', 'HEAD'], {
+        encoding: 'utf8'
+    }).trim();
+    expect(metadata.commit).toBe(expectedCommit.toLowerCase());
+
+    const workerSource = await (await request.get('/sw.js')).text();
+    expect(workerSource).toContain(`const CACHE_NAME = '${metadata.cacheName}'`);
+    expect(workerSource).toContain(`const PRECACHE_REVISION = '${metadata.precacheRevision}'`);
+    await page.goto('/index.html');
+    await waitForAppReady(page);
+    const buildMetaUrl = await page.locator('meta[name="cplayer-build-meta"]').getAttribute('content');
+    expect(buildMetaUrl).toBe('./build-meta.json');
 });
 
 test('Pages artifact loads every Noto weight online and offline', async ({ context, page, request }) => {
