@@ -30,6 +30,14 @@
 - 首次推送到 GitHub Actions（run `31004488540`）在预缓存契约测试失败：Windows 工作树的 CRLF 哈希为 `bffd…`，Linux runner 的 LF 哈希为 `e556…`。已确认不是 Node action 警告；修复为契约哈希和最终 Pages 文本资源统一 LF，并新增构建产物哈希回归。
 - Claude 只读分析命令运行 124 秒超时且未写入文件；不影响本地测试和主线实现，后续改用更短的独立审阅入口。
 
+## 2026-08-05 可靠性复盘
+
+- 首次新的 `npm run verify` 在移动 Chromium 的动画回归中出现 1 次失败：全局待处理帧为 2，而失败快照显示持续循环回调只有 1 个。
+- 通过 20 次隔离重复和临时调用栈诊断确认第 2 帧来自 `MobileUIManager.updateInfo` 的一次性淡入回调（`js/app.js:9675`），不是 `FluidBackground` 重复启动循环。
+- 修复仅调整 `tests/e2e/runtime-background-resilience.spec.mjs` 的断言：保留循环回调唯一、`pending=1`、`maxPending=1` 约束，允许独立一次性 UI 帧存在；生产播放代码未改动。
+- 修复后同一移动场景 20/20 通过；随后完整 `npm run verify` 10/10 质量层通过，浏览器 260/260 通过、12 项按设计跳过。
+- 期间一次 npm registry TLS 断开和一次 Windows `copyfile` 瞬时错误均通过安全重试恢复；离线审计及带重试在线审计均为 0 vulnerabilities，未改变依赖或发布代码。
+
 ## 待确认问题
 
 1. GitHub 官方 Pages action 当前推荐版本及其 Node runtime。

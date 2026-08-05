@@ -2,7 +2,7 @@
 
 ## 状态
 
-尚未完成，待实现后逐项记录命令、通过数量、提交、Pages workflow 和线上 CDP 证据。
+代码与本地质量门禁已完成；待本阶段独立提交、推送、Pages workflow 和最终线上 CDP 证据。
 
 ## 保护性基线
 
@@ -25,14 +25,12 @@
 - Pages #103（run `31004488540`，commit `5c83b0b`）确认 action 版本已通过，但 quality 在预缓存契约第 33 项失败：Linux runner 计算 `sha256:e556302291b997f8858d131714af13958626eb0922e3052f5b2ca1d5cb0458ed`，仓库 Worker 仍为 Windows CRLF 结果 `sha256:bffd…`。已加入跨平台 LF 规范化和构建产物哈希测试，待独立修复提交后重跑。
 - 跨平台修复后的定向回归：`node --test tests/release-preflight.test.mjs` 17/17、`python tests/verify_features.py` 通过、`npm run build:pages` 通过；Pages 产物 28 文件、18,709,153 字节，预缓存哈希统一为 `sha256:e556302291b997f8858d131714af13958626eb0922e3052f5b2ca1d5cb0458ed`。
 - 修复后的完整 `npm run verify`：10/10 质量层通过；47/47 单元测试、260/260 浏览器场景通过、12 项按项目设计跳过，依赖审计 0 vulnerabilities；浏览器回归耗时 8.1 分钟，仓库检查通过。此结果尚在本地修复工作树，待独立提交、推送和新的 Pages run。
+- 新增测试可靠性修复：移动动画回归允许 `MobileUIManager.updateInfo` 的一次性淡入帧与唯一的 FluidBackground 循环同窗存在，但仍严格检查持续循环回调唯一、`pending=1`、`maxPending=1`；隔离移动场景 20/20 通过。
+- 最新 `npm run verify`：10/10 质量层通过；47/47 单元测试、260/260 浏览器场景通过、12 项按项目设计跳过，依赖审计 0 vulnerabilities；Pages 产物 28 文件、18,709,153 字节，仓库检查通过。
+- 本地产物元数据（当前代码提交 `a282fb80f7207d1e16e4a390a05c71fc9339176d`）：缓存名 `cplayer5-v84-reliability-sprint`，预缓存哈希 `sha256:e556302291b997f8858d131714af13958626eb0922e3052f5b2ca1d5cb0458ed`，14 个核心资源均来自同一份 LF 规范化输入。
 
-待补充：
+仍待补充：
 
-- 发布前置检查与 Pages 产物元数据；
-- Service Worker 资源契约和旧 Worker 升级；
-- 桌面/移动播放结束、模式、隐藏、延迟、自动播放失败；
-- 搜索去重、空页、失败重试、旧请求和触摸滚动；
-- 诊断脱敏；
-- 完整 `npm run verify`；
-- Claude 只读审阅；
-- 独立提交、推送、Pages 成功和线上 CDP 验收。
+- 本阶段独立提交哈希；
+- 新提交触发的 Pages quality/deploy run 及成功 job；
+- 最终直接 CDP 线上页面、Service Worker 和缓存验收。
