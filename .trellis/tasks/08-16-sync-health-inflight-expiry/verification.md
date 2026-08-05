@@ -2,7 +2,7 @@
 
 ## 状态
 
-代码修复和本地质量门禁已完成；独立提交、Pages 部署和线上 CDP 验收待完成。
+本任务已完成：代码修复、独立提交、Pages 部署和线上直接 CDP 验收均通过。
 
 ## 保护性基线
 
@@ -21,8 +21,11 @@
 | `npm run build:pages` | 通过：28 个文件、18,709,467 字节；缓存 `cplayer5-v85-reliability-sprint`；预缓存哈希 `sha256:91f5909507c18acc62f7b5fd96eae0cfd6adcbf472d23b30cb85dfb99313077a` |
 | 敏感字段与只读存储检查 | 通过：既有健康报告只读/脱敏回归保持通过；新快照内部 ownerId 未进入 sanitizer、导出或存储 |
 | `npm run verify` | 通过：10/10 层；47/47 单元；浏览器 264/276 通过、12 项按设计跳过；0 vulnerabilities；仓库检查通过 |
-| Pages quality/deploy | 待运行 |
-| 直接 CDP 线上验收 | 待运行 |
+| 独立修复提交 | 通过：`17cfd9e232dd2ef6fc30600b6229516fa97146a7`，提交只含本阶段 11 个文件；用户原有 5 项仍未暂存 |
+| Pages quality/deploy | 通过：run `31035293322`；quality `92405741803`、deploy `92408501434` 均为 success |
+| 直接 CDP 线上验收 | 通过：页面 ready/controller/Worker active 均为 true/activated；`build-meta.json` commit 为 `17cfd9e232dd2ef6fc30600b6229516fa97146a7`；缓存仅有 `cplayer5-v85-reliability-sprint`，14/14 核心资源存在，预缓存哈希为 `sha256:91f5909507c18acc62f7b5fd96eae0cfd6adcbf472d23b30cb85dfb99313077a` |
+
+线上验收还确认 `sw.js` 的缓存名和预缓存哈希与公开 build-meta 一致，线上 `app.js` 包含开始 revision/账号身份保护；临时 CDP Chrome、端口和临时目录已清理，用户现有标签页未操作。
 
 ## 故障记录
 

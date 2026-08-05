@@ -6,8 +6,8 @@
 4. [x] 修复开始 revision/账号身份捕获和账号切换失效逻辑。
 5. [x] 更新静态契约与本任务 Trellis 文档，确认报告不含账号身份或敏感字段。
 6. [ ] 运行定向桌面/手机测试、单元/静态门禁和完整 `npm run verify`。
-7. [ ] 只暂存本阶段文件，独立提交并推送 `main`；等待 Pages quality/deploy 成功。
-8. [ ] 使用独立直接 CDP 线上验收页面标识、Service Worker 和缓存；记录最终证据。
+7. [x] 只暂存本阶段文件，独立提交并推送 `main`；等待 Pages quality/deploy 成功。
+8. [x] 使用独立直接 CDP 线上验收页面标识、Service Worker 和缓存；记录最终证据。
 
 ## 安全约束
 
