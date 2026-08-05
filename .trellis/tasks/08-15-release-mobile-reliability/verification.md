@@ -20,7 +20,8 @@
 - 覆盖的搜索边界包括完整分页、重复结果、空分页、下一页失败保留结果并重试、旧请求污染隔离、触摸指针滚动自动加载和失败重试。
 - 完整 `PW_PORT=48789 npm run verify`：10/10 质量层通过；47/47 单元测试、260/260 浏览器场景通过、12 项按项目设计跳过，依赖审计 0 vulnerabilities，Pages 产物 28 文件/18,716,162 字节，仓库检查通过。
 - 全量浏览器回归包含桌面、Pixel 5 移动、355px 窄屏、440px 阔折叠、844px 横屏和 740px 紧凑横屏；发布元数据测试确认 `build-meta.json` 的 commit、缓存名和预缓存哈希与 `sw.js`/页面契约一致。
-- 质量门禁之外的独立 Claude 只读分析尝试运行 124 秒后超时，未写入工作树；本地静态、单元和浏览器证据完整，因此未把该超时误报为产品失败。
+- 质量门禁之外的独立 Claude 只读分析和审阅均因上游 API 重试超时，分别留下 `research/claude-analysis.md` 与 `research/claude-review.md`，未修改产品代码，也没有给出“通过”结论；本地静态、单元和浏览器证据完整，因此未把外部审阅超时报成产品失败。
+- Pages #102（run `30999443927`，commit `05b47a4`）失败，quality job 的唯一实际阻塞是 `actions/setup-python@v5` 的 Node.js 20 deprecation warning；deploy 未启动。已核实官方 `setup-python@v7.0.0`/`node24` 并修正 workflow，等待下一次独立 Pages run。
 
 待补充：
 

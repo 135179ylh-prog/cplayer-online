@@ -13,11 +13,14 @@
 
 - `https://github.com/actions/checkout/releases`：最新主版本为 `v7.0.1`，主分支 `action.yml` 使用 `node24`。
 - `https://github.com/actions/setup-node/releases`：最新主版本为 `v7.0.0`，主分支 `action.yml` 使用 `node24`。
+- `https://github.com/actions/setup-python/releases`：最新主版本为 `v7.0.0`；v6.0.0 的发布说明已升级到 Node 24，主分支 `action.yml` 使用 `node24`。
 - `https://github.com/actions/configure-pages/releases`：`v6.0.0` 的发布说明明确为 upgrade to node 24。
 - `https://github.com/actions/upload-pages-artifact/releases`：最新主版本为 `v5.0.0`，内部固定 `actions/upload-artifact@v7`。
 - `https://github.com/actions/deploy-pages/releases`：最新主版本为 `v5.0.0`，发布说明明确更新到 Node.js 24；GitHub.com 的 README 仍以 v4 为通用示例，但 v5 是当前发布版本。
 
-因此 workflow 从 v4/v5/v3/v4 组合升级到 checkout v7、setup-node v7、configure-pages v6、upload-pages-artifact v5、deploy-pages v5；项目构建本身仍支持 Node.js 22+。
+因此 workflow 从旧组合升级到 checkout v7、setup-node v7、setup-python v7、configure-pages v6、upload-pages-artifact v5、deploy-pages v5；项目构建本身仍支持 Node.js 22+。
+
+第一次 Pages #102 验收暴露了遗漏：`setup-python@v5` 仍触发 GitHub 的 Node.js 20 弃用警告并使 quality job 失败。已按官方 release/action.yml 核查改为 `setup-python@v7`，不能把“其他 action 已升级”误当成整个 workflow 已完成。
 
 ## 本阶段实现发现
 

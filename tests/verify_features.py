@@ -305,6 +305,7 @@ deploy_job = WORKFLOW[WORKFLOW.index("  deploy:"):]
 for action, version in {
     "actions/checkout": "v7",
     "actions/setup-node": "v7",
+    "actions/setup-python": "v7",
     "actions/configure-pages": "v6",
     "actions/upload-pages-artifact": "v5",
     "actions/deploy-pages": "v5",
