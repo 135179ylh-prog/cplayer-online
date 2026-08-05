@@ -82,6 +82,9 @@ test('Pages pre-cache contract matches sw.js and hashes its actual runtime asset
     assert.deepEqual(contract.coreAssets, CORE_ASSETS);
     assert.equal(contract.precacheRevision, revision);
     assertServiceWorkerContract(swSource, revision);
+
+    const artifact = await buildPagesArtifact({ projectRoot });
+    assert.equal(await computePrecacheRevision(artifact.outputDirectory), revision);
 });
 
 test('rollback version extraction supports current and legacy database declarations', () => {

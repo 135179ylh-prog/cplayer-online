@@ -24,10 +24,18 @@ export const CORE_ASSETS = Object.freeze([
 export const CACHE_NAME_PATTERN = /^cplayer5-v\d+-reliability-sprint$/;
 export const PRECACHE_REVISION_PATTERN = /^sha256:[0-9a-f]{64}$/;
 
+export function normalizePrecacheAssetContent(asset, content) {
+    if (asset.endsWith('.png')) return content;
+    return Buffer.from(content.toString('utf8').replace(/\r\n/g, '\n'), 'utf8');
+}
+
 export async function computePrecacheRevision(projectRoot) {
     const hash = createHash('sha256');
     for (const asset of [...CORE_ASSETS].sort()) {
-        const content = await readFile(resolve(projectRoot, asset));
+        const content = normalizePrecacheAssetContent(
+            asset,
+            await readFile(resolve(projectRoot, asset))
+        );
         hash.update(asset, 'utf8');
         hash.update('\0', 'utf8');
         hash.update(content);

@@ -6,7 +6,8 @@ import { fileURLToPath } from 'node:url';
 import {
     CORE_ASSETS,
     assertServiceWorkerContract,
-    computePrecacheRevision
+    computePrecacheRevision,
+    normalizePrecacheAssetContent
 } from './pages-contract.mjs';
 
 export const PAGE_FILES = Object.freeze([
@@ -131,6 +132,16 @@ export async function buildPagesArtifact(options = {}) {
         await cp(resolve(projectRoot, source), resolve(outputDirectory, source), {
             recursive: true
         });
+    }
+
+    // Keep the bytes used by the pre-cache contract stable across Windows CRLF
+    // worktrees and Linux CI checkouts. The deployed artifact is the source of
+    // truth for the revision, so normalize the same text assets after copying.
+    for (const asset of CORE_ASSETS) {
+        const target = resolve(outputDirectory, asset);
+        const original = await readFile(target);
+        const normalized = normalizePrecacheAssetContent(asset, original);
+        if (!original.equals(normalized)) await writeFile(target, normalized);
     }
 
     const buildMetadata = {

@@ -27,6 +27,7 @@
 - 之前质量门禁只检查缓存名数字至少为 v83，不能证明预缓存资源没有变化。现在 `scripts/pages-contract.mjs` 计算 14 个实际核心文件的 SHA-256，并要求 `sw.js` 内的 `PRECACHE_REVISION` 完全匹配；Pages 构建失败时不会上传不一致产物。
 - Pages 构建新增公开 `build-meta.json`，由 `GITHUB_SHA` 或 Git HEAD 写入 commit，线上可直接读取，不需要把 API 配置或用户数据放入元数据。
 - 移动播放和歌手搜索的现有回归已经覆盖本阶段验收边界；本轮没有重复改写已稳定的播放状态机，而是把它们绑定到同一份 Pages 产物进行回归。
+- 首次推送到 GitHub Actions（run `31004488540`）在预缓存契约测试失败：Windows 工作树的 CRLF 哈希为 `bffd…`，Linux runner 的 LF 哈希为 `e556…`。已确认不是 Node action 警告；修复为契约哈希和最终 Pages 文本资源统一 LF，并新增构建产物哈希回归。
 - Claude 只读分析命令运行 124 秒超时且未写入文件；不影响本地测试和主线实现，后续改用更短的独立审阅入口。
 
 ## 待确认问题

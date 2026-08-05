@@ -2,7 +2,7 @@
 
 ## 发布链路
 
-`build-pages-artifact.mjs` 在复制 Pages 文件时生成 `build-meta.json`，内容只包含公开的 commit、构建时间、产物文件摘要和 schema 版本，不包含运行时配置、API key、API 地址或用户数据。构建脚本同时生成由实际预缓存文件推导的资源清单，供 Service Worker 和测试复用。
+`build-pages-artifact.mjs` 在复制 Pages 文件时生成 `build-meta.json`，内容只包含公开的 commit、构建时间、产物文件摘要和 schema 版本，不包含运行时配置、API key、API 地址或用户数据。构建脚本同时生成由实际预缓存文件推导的资源清单，供 Service Worker 和测试复用。预缓存的文本资源在上传前统一为 LF，避免 Windows 工作树的 CRLF 让本地和 Linux runner 得出不同的发布哈希。
 
 workflow 在质量门禁中构建并校验产物；上传的正是已验证的 `output/pages`。线上验收读取 `build-meta.json`、HTML 标识和 Worker 缓存名，确认它们属于同一提交。
 
