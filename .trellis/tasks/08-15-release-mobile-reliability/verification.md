@@ -2,7 +2,7 @@
 
 ## 状态
 
-代码与本地质量门禁已完成；待本阶段独立提交、推送、Pages workflow 和最终线上 CDP 证据。
+本阶段已完成：独立提交、推送、Pages workflow 和最终线上 CDP 证据均已通过。
 
 ## 保护性基线
 
@@ -24,13 +24,12 @@
 - Pages #102（run `30999443927`，commit `05b47a4`）失败，quality job 的唯一实际阻塞是 `actions/setup-python@v5` 的 Node.js 20 deprecation warning；deploy 未启动。已核实官方 `setup-python@v7.0.0`/`node24` 并修正 workflow，等待下一次独立 Pages run。
 - Pages #103（run `31004488540`，commit `5c83b0b`）确认 action 版本已通过，但 quality 在预缓存契约第 33 项失败：Linux runner 计算 `sha256:e556302291b997f8858d131714af13958626eb0922e3052f5b2ca1d5cb0458ed`，仓库 Worker 仍为 Windows CRLF 结果 `sha256:bffd…`。已加入跨平台 LF 规范化和构建产物哈希测试，待独立修复提交后重跑。
 - 跨平台修复后的定向回归：`node --test tests/release-preflight.test.mjs` 17/17、`python tests/verify_features.py` 通过、`npm run build:pages` 通过；Pages 产物 28 文件、18,709,153 字节，预缓存哈希统一为 `sha256:e556302291b997f8858d131714af13958626eb0922e3052f5b2ca1d5cb0458ed`。
-- 修复后的完整 `npm run verify`：10/10 质量层通过；47/47 单元测试、260/260 浏览器场景通过、12 项按项目设计跳过，依赖审计 0 vulnerabilities；浏览器回归耗时 8.1 分钟，仓库检查通过。此结果尚在本地修复工作树，待独立提交、推送和新的 Pages run。
+- 跨平台修复后的完整 `npm run verify`：10/10 质量层通过；47/47 单元测试、260/260 浏览器场景通过、12 项按项目设计跳过，依赖审计 0 vulnerabilities；浏览器回归耗时约 8.1 分钟，仓库检查通过。
 - 新增测试可靠性修复：移动动画回归允许 `MobileUIManager.updateInfo` 的一次性淡入帧与唯一的 FluidBackground 循环同窗存在，但仍严格检查持续循环回调唯一、`pending=1`、`maxPending=1`；隔离移动场景 20/20 通过。
 - 最新 `npm run verify`：10/10 质量层通过；47/47 单元测试、260/260 浏览器场景通过、12 项按项目设计跳过，依赖审计 0 vulnerabilities；Pages 产物 28 文件、18,709,153 字节，仓库检查通过。
 - 本地产物元数据（当前代码提交 `a282fb80f7207d1e16e4a390a05c71fc9339176d`）：缓存名 `cplayer5-v84-reliability-sprint`，预缓存哈希 `sha256:e556302291b997f8858d131714af13958626eb0922e3052f5b2ca1d5cb0458ed`，14 个核心资源均来自同一份 LF 规范化输入。
+- 独立修复提交：`ccde42aa095668c30a60b47afe3427daa433a07b`（`fix: harden mobile animation regression timing`），已推送到 `main`；提交只包含本阶段 5 个文件，用户原有 5 个未提交文件仍保持未暂存。
+- Pages #105：run `31011040865` 成功；quality job `92322980387` 和 deploy job `92325883256` 均为 `success`，run 对应提交 `ccde42aa095668c30a60b47afe3427daa433a07b`。
+- 最终直接 CDP 线上验收：`build-meta.json`/`sw.js` 均返回 200，公开 commit 为 `ccde42aa095668c30a60b47afe3427daa433a07b`；页面 `cplayerReady=true`，Service Worker controller 已接管且 `active.state=activated`；CacheStorage 只有 `cplayer5-v84-reliability-sprint`，包含 14 个核心资源，预缓存哈希为 `sha256:e556302291b997f8858d131714af13958626eb0922e3052f5b2ca1d5cb0458ed`。
 
-仍待补充：
-
-- 本阶段独立提交哈希；
-- 新提交触发的 Pages quality/deploy run 及成功 job；
-- 最终直接 CDP 线上页面、Service Worker 和缓存验收。
+最终结果：代码可靠性回归、诊断脱敏、发布产物追踪、Pages 部署和直接 CDP 线上验收均有记录。
