@@ -518,6 +518,41 @@ test('a stale prefetched target is discarded after the queue changes', async ({ 
     )).toHaveLength(1);
 });
 
+test('a hidden auto-advance updates the visible now-playing UI after the page returns', async ({ page }, testInfo) => {
+    await installAnimationFrameProbe(page);
+    await installRuntimeProbes(page, { audio: { duration: 180 } });
+    const boundary = await installPlaybackBoundary(page, [SONG_A, SONG_B]);
+
+    await page.goto('/index.html');
+    await waitForAppReady(page);
+    await page.evaluate(() => window.setPlayMode('sequence', { notify: false }));
+    await addSongsToQueue(page, [SONG_A, SONG_B]);
+    await playSongAndWaitForCommit(page, 0, SONG_A);
+    await expect(page.locator('#songTitle')).toHaveText(SONG_A.name);
+
+    await setTestDocumentVisibility(page, 'hidden');
+    await setMainAudioProbeState(page, {
+        currentTime: 180,
+        duration: 180,
+        paused: true,
+        ended: true
+    });
+    await dispatchMainAudioProbeEvent(page, 'ended');
+    await expect.poll(async () => (await readMainAudioProbe(page)).src).toContain(String(SONG_B.id));
+    await setTestDocumentVisibility(page, 'visible');
+
+    // The advance happened while hidden, so both layouts must show the song the
+    // media element actually committed rather than the previous title.
+    await expect(page.locator('#songTitle')).toHaveText(SONG_B.name);
+    await expect(page.locator('#songIdTag')).toHaveText(`ID: ${SONG_B.id}`);
+    if (testInfo.project.name === 'mobile-chromium') {
+        await expect(page.locator('#mobileTitle')).toHaveText(SONG_B.name);
+        await expect(page.locator('#mobileArtist')).toHaveText(SONG_B.artist);
+    }
+    expect((await readMediaSessionProbe(page)).metadata?.title).toBe(SONG_B.name);
+    expect(boundary.requestedSongIds.filter((songId) => songId === String(SONG_B.id))).toHaveLength(1);
+});
+
 test('autoplay rejection after a source switch synchronizes paused state and can recover', async ({ page }) => {
     await installRuntimeProbes(page, { audio: { duration: 180 } });
     await installPlaybackBoundary(page, [SONG_A, SONG_B]);

@@ -61,6 +61,22 @@ npm run verify
 另做一份文件清单。任意一步失败都会停止并指出失败环节。浏览器失败时的
 截图和跟踪记录位于 `output/playwright/`；两个 `output/` 子目录都不会提交。
 
+门禁是分层执行的，每一层单独记录状态和日志：
+
+```powershell
+npm run verify:list      # 列出十层的顺序和名称
+npm run verify:status    # 查看上一次运行到哪一层
+npm run verify:resume    # 跳过已通过的层，从未完成的层继续
+```
+
+每层的完整输出写在 `output/quality-gate/<序号>-<层名>.log`，运行状态写在
+`output/quality-gate/state.json`。浏览器回归通常需要 8 分钟以上，如果外层工具
+在这期间超时，`npm run verify:status` 会把这一层标为 `interrupted` 而不是
+`failed`，因为进程是被外部结束的，不是测试真的失败了；`npm run verify:resume`
+会从这一层继续，不会重跑已经通过的层，也不会减少任何测试。只想单独跑某几层
+时用 `node scripts/run-quality-gate.mjs --only=test-e2e`，只有完整
+`npm run verify` 十层全绿才算通过发布门禁。
+
 ## 发布与回退
 
 只想查看最终静态站点包含哪些文件时，在项目目录运行：
@@ -72,6 +88,21 @@ npm run build:pages
 命令会重新生成 `output/pages`，并输出文件数和总字节数，同时校验 `sw.js` 的预缓存资源哈希。推送 `main` 会
 影响线上 GitHub Pages，必须先得到明确确认；远端 quality job 会重新运行
 `npm run verify`，并把通过浏览器回归的同一目录交给 deploy job。
+
+Pages 部署成功之后，用下面的命令核对线上站点是否真的是刚推送的那个版本：
+
+```powershell
+npm run check:release -- --commit=<刚推送的完整 commit>
+```
+
+它会拉取线上 `build-meta.json`、`sw.js` 和 `index.html`，核对 commit、缓存名、
+预缓存哈希和构建标记，并按线上实际下发的字节重新计算一次预缓存哈希；然后启动
+一个临时的无头 Chrome，用直接 CDP 读取页面就绪标记、Service Worker 接管状态、
+CacheStorage 名称和已缓存的核心资源数量。临时浏览器用独立的临时配置目录，结束时
+会关掉浏览器并删除该目录，不会连接你正在用的浏览器或扩展。核对结果写在
+`output/pages-release-check.json`，只包含公开的发布信息，不含密钥、账号或歌单。
+加 `--no-browser` 可以只做 HTTP 契约核对；工作流显示成功不等于浏览器已经切到新版本，
+所以发布验收要看这条命令的结果。
 
 当前浏览器数据库已经是 DB v6。不能直接把线上代码退回只会打开 DB v5
 的旧提交，否则已有队列、歌单、回收站、历史版本和云同步待办记录会暂时无法读取。准备回退前先检查目标提交：

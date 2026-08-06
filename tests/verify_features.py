@@ -44,6 +44,7 @@ E2E_HELPERS = (ROOT / "tests" / "e2e" / "helpers.mjs").read_text(encoding="utf-8
 RESPONSIVE_E2E = (ROOT / "tests" / "e2e" / "responsive-accessibility.spec.mjs").read_text(encoding="utf-8")
 RELEASE_ARTIFACT_E2E = (ROOT / "tests" / "e2e" / "release-artifact.spec.mjs").read_text(encoding="utf-8")
 RELEASE_PREFLIGHT_TEST = (ROOT / "tests" / "release-preflight.test.mjs").read_text(encoding="utf-8")
+RELEASE_CHECK = (ROOT / "scripts" / "check-pages-release.mjs").read_text(encoding="utf-8")
 TEST_SERVER = (ROOT / "tests" / "e2e" / "server.mjs").read_text(encoding="utf-8")
 OLD_SW_FIXTURE = (ROOT / "tests" / "e2e" / "fixtures" / "sw-old.js").read_text(encoding="utf-8")
 CORE_UTILS = (ROOT / "js" / "core-utils.js").read_text(encoding="utf-8")
@@ -349,6 +350,10 @@ require(
     and "不能直接把线上代码退回只会打开 DB v5" in README,
     "README does not document the safe DB v6 rollback guard",
 )
+require("npm run verify:status" in README and "npm run verify:resume" in README,
+        "README does not document how to resume an interrupted quality gate")
+require("npm run check:release" in README and "output/quality-gate/" in README,
+        "README does not document the online release check or its per-layer logs")
 
 api_endpoints = set(re.findall(r"ChKSzAPI\.buildUrl\('(/163_[a-z]+)'", APP))
 require(api_endpoints == {"/163_search", "/163_music", "/163_lyric", "/163_playlist"}, "not every ChKSz endpoint uses the central URL builder")
@@ -521,6 +526,14 @@ for snippet in [
 ]:
     require(snippet in HEALTH_CHECK_E2E, f"sync health browser contract is missing: {snippet}")
 for snippet in [
+    "导出的健康报告文件与内存报告一致且不含敏感字段",
+    "waitForEvent('download')",
+    "suggestedFilename()",
+    "health-export-secret-key",
+    "expect(written).toEqual(memoryReport)",
+]:
+    require(snippet in HEALTH_CHECK_E2E, f"sync health export redaction contract is missing: {snippet}")
+for snippet in [
     "health report becomes stale after a new pending edit",
     "cloudHealthCheckFreshness",
     "toBeDisabled",
@@ -577,6 +590,55 @@ for gate_step in ["build:css", "build:cloud-vendor", "test:unit", "check:module"
     require(gate_step in QUALITY_GATE, f"quality gate is missing step: {gate_step}")
 require("PW_WEB_ROOT" in QUALITY_GATE and "output', 'pages'" in QUALITY_GATE,
         "quality gate does not run browser regression from the Pages artifact")
+gate_step_ids = re.findall(r"\{ id: '([a-z0-9-]+)'", QUALITY_GATE)
+require(gate_step_ids == [
+    "build-css", "build-cloud-vendor", "test-unit", "check-module", "check-sw",
+    "check-features", "audit", "build-pages", "test-e2e", "check-repo",
+], "quality gate layers changed unexpectedly; the gate must keep all ten steps in order")
+for snippet in [
+    "expireInterruptedSteps", "formatStateReport", "selectSteps", "parseGateArgs",
+    "prepareRunState", "resolveNpmCommand", "status: 'interrupted'",
+    "'--resume'", "'--status'", "'--list'",
+    "output/quality-gate", "createWriteStream", "isProcessAlive",
+]:
+    require(snippet in QUALITY_GATE, f"resumable quality gate boundary is missing: {snippet}")
+for command, expected in {
+    "verify:list": "node scripts/run-quality-gate.mjs --list",
+    "verify:status": "node scripts/run-quality-gate.mjs --status",
+    "verify:resume": "node scripts/run-quality-gate.mjs --resume",
+    "check:release": "node scripts/check-pages-release.mjs",
+}.items():
+    require(PACKAGE.get("scripts", {}).get(command) == expected,
+            f"package script {command} must be {expected}")
+for snippet in [
+    "assertDeployedMetadata", "assertDeployedWorker", "assertRuntimeEvidence",
+    "computePrecacheRevisionFrom", "isRuntimeEvidenceComplete", "findChromeExecutable",
+    "Target.createTarget", "Target.attachToTarget", "Runtime.evaluate",
+    "DevToolsActivePort", "--remote-debugging-port=0", "--user-data-dir=",
+    "--headless=new", "--disable-extensions", "cplayer-release-cdp-",
+    "cplayerReady", "activeWorkerState", "cacheKeys", "cachedCoreAssets",
+    "buildMetaMarker", "135179ylh-prog.github.io/cplayer-online/",
+]:
+    require(snippet in RELEASE_CHECK, f"online release check boundary is missing: {snippet}")
+require("rm(profileDirectory, { recursive: true, force: true, maxRetries: 5 })" in RELEASE_CHECK,
+        "online release check does not remove its temporary browser profile")
+require("chrome.kill()" in RELEASE_CHECK and "SIGKILL" in RELEASE_CHECK,
+        "online release check does not stop its temporary browser")
+require("cp_api_key" not in RELEASE_CHECK and "publishableKey" not in RELEASE_CHECK,
+        "online release check reads credentials it must never touch")
+require("computePrecacheRevisionFrom" in PAGES_CONTRACT,
+        "pre-cache revision cannot be recomputed from a deployed origin")
+for snippet in [
+    "quality gate exposes every layer as a selectable, resumable step",
+    "an outer timeout is reported as interrupted rather than a test failure",
+    "a full run starts from a clean state while resume and subsets keep history",
+    "quality gate layers run npm without shell escaping",
+    "online release check rejects a deployment that does not match the release contract",
+    "online release check compares the deployed Worker with the published metadata",
+    "online release check requires real runtime propagation, not a successful workflow",
+    "pre-cache revision can be recomputed from an arbitrary asset source",
+]:
+    require(snippet in RELEASE_PREFLIGHT_TEST, f"release automation regression is missing: {snippet}")
 for snippet in [
     "runGit(['diff', '--check']", "runGit(['diff', '--cached', '--check']",
     "--name-only", "--diff-filter=ACMRT", "ls-files", "--others", "encoding: null",
@@ -633,6 +695,13 @@ require("recordPlaybackDiagnostic({ attempt, error, source, category: failure.ki
 require("不会保存、上传密钥、地址、歌曲信息或播放进度" in HTML,
         "playback diagnostic privacy copy is missing")
 require("播放器不会绕过浏览器限制自动发声" in README, "resume autoplay limitation is undocumented")
+for snippet in [
+    "a late first page from an old query cannot replace the new query results",
+    "expect(requests.filter((offset) => offset === 0)).toHaveLength(1)",
+]:
+    require(snippet in SEARCH_E2E, f"search staleness and retry cursor contract is missing: {snippet}")
+require("a hidden auto-advance updates the visible now-playing UI after the page returns" in RUNTIME_RESILIENCE_E2E,
+        "hidden auto-advance does not prove the visible now-playing UI recovers")
 require(APP.count("renderSearchRecoveryState") >= 3, "desktop and mobile search retry states are not shared")
 require("重试搜索：" in APP and "当前已离线" in APP, "search retry accessibility or offline copy is missing")
 for snippet in ["normalizeSearchPage", "mergeUniqueSearchSongs", "createSearchResultPager", "加载更多搜索结果"]:

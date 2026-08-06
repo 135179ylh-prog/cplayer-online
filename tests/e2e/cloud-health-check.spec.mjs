@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises';
 import { test, expect } from '@playwright/test';
 import { openSettings, waitForAppReady } from './helpers.mjs';
 
@@ -58,6 +59,50 @@ test('本机同步健康检查只读、可导出脱敏报告', async ({ page }) 
     expect(after).toEqual(before);
     await expect(page.locator('#cloudHealthCheckExportBtn')).toBeVisible();
     await expect(page.locator('#cloudHealthCheckBtn')).toBeEnabled();
+});
+
+test('导出的健康报告文件与内存报告一致且不含敏感字段', async ({ page }) => {
+    await page.addInitScript(() => {
+        window.CPLAYER_CLOUD_CONFIG = { url: '', publishableKey: '' };
+    });
+    await page.goto('/index.html');
+    await waitForAppReady(page);
+    await openSettings(page);
+
+    // A local API key and a queue must exist before the export so the download
+    // is proven redacted against real local data, not against an empty profile.
+    await page.evaluate(() => {
+        localStorage.setItem('cp_api_key', 'health-export-secret-key');
+        localStorage.setItem('cp_api_base', 'https://health-export.example.invalid/api');
+        localStorage.setItem('current_queue', JSON.stringify([{ id: 424242, name: '导出队列歌曲' }]));
+        localStorage.setItem('cp_recent_history', JSON.stringify([{ id: 424243, name: '导出历史歌曲' }]));
+    });
+    await page.locator('#cloudHealthCheckBtn').click();
+    await expect(page.locator('#cloudHealthCheckStatus')).toContainText('检查完成');
+
+    const memoryReport = await page.evaluate(() => window.getCloudHealthReport());
+    const downloadPromise = page.waitForEvent('download');
+    await page.locator('#cloudHealthCheckExportBtn').click();
+    const download = await downloadPromise;
+    expect(download.suggestedFilename()).toMatch(/^cplayer-sync-health-\d{4}-\d{2}-\d{2}\.json$/);
+    const written = JSON.parse(await readFile(await download.path(), 'utf8'));
+
+    expect(written).toEqual(memoryReport);
+    expect(written.format).toBe('cplayer-sync-health-report');
+    expect(written.stale).toBe(false);
+    expect(Object.keys(written).sort()).toEqual(['format', 'generatedAt', 'items', 'stale', 'summary', 'version']);
+    for (const item of written.items) {
+        expect(Object.keys(item).sort().filter((key) => key !== 'lastError'))
+            .toEqual(['detail', 'id', 'recommendation', 'status', 'title']);
+    }
+    const serialized = JSON.stringify(written);
+    for (const forbidden of [
+        'health-export-secret-key', 'health-export.example.invalid', 'apikey', 'apiBase',
+        'publishableKey', 'cloudOwnerId', 'ownerId', 'userId', 'email', 'revision',
+        '导出队列歌曲', '导出历史歌曲', 'current_queue', 'cp_recent_history', 'playback'
+    ]) {
+        expect(serialized.toLowerCase()).not.toContain(forbidden.toLowerCase());
+    }
 });
 
 test('健康检查使用最新 outbox 数量并把待办标为需留意', async ({ page }) => {

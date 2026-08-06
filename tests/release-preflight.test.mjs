@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
@@ -24,8 +25,28 @@ import {
     CORE_ASSETS,
     assertServiceWorkerContract,
     computePrecacheRevision,
+    computePrecacheRevisionFrom,
     extractServiceWorkerContract
 } from '../scripts/pages-contract.mjs';
+import {
+    STEPS,
+    expireInterruptedSteps,
+    formatStateReport,
+    parseGateArgs,
+    prepareRunState,
+    resolveNpmCommand,
+    selectSteps
+} from '../scripts/run-quality-gate.mjs';
+import {
+    BUILD_META_MARKER,
+    DEFAULT_PAGES_URL,
+    assertDeployedMetadata,
+    assertDeployedWorker,
+    assertRuntimeEvidence,
+    findChromeExecutable,
+    isRuntimeEvidenceComplete,
+    parseReleaseArgs
+} from '../scripts/check-pages-release.mjs';
 
 function runGit(cwd, args, options = {}) {
     const result = spawnSync('git', args, {
@@ -85,6 +106,242 @@ test('Pages pre-cache contract matches sw.js and hashes its actual runtime asset
 
     const artifact = await buildPagesArtifact({ projectRoot });
     assert.equal(await computePrecacheRevision(artifact.outputDirectory), revision);
+});
+
+test('quality gate exposes every layer as a selectable, resumable step', () => {
+    const expectedIds = [
+        'build-css', 'build-cloud-vendor', 'test-unit', 'check-module', 'check-sw',
+        'check-features', 'audit', 'build-pages', 'test-e2e', 'check-repo'
+    ];
+    assert.deepEqual(STEPS.map((step) => step.id), expectedIds);
+    assert.equal(STEPS.filter((step) => step.pagesRoot).map((step) => step.id).join(','), 'test-e2e');
+    assert.deepEqual(STEPS.filter((step) => step.guard).map((step) => step.guard), ['css', 'cloud-vendor']);
+
+    assert.deepEqual(parseGateArgs([]), { mode: 'run', only: [], from: '', resume: false, unknown: [] });
+    assert.equal(parseGateArgs(['--list']).mode, 'list');
+    assert.equal(parseGateArgs(['--status']).mode, 'status');
+    assert.equal(parseGateArgs(['--resume']).resume, true);
+    assert.deepEqual(parseGateArgs(['--only=check-sw,test-unit']).only, ['check-sw', 'test-unit']);
+    assert.deepEqual(parseGateArgs(['--bogus']).unknown, ['--bogus']);
+
+    assert.deepEqual(selectSteps(STEPS, parseGateArgs([])).map((step) => step.id), expectedIds);
+    assert.deepEqual(
+        selectSteps(STEPS, parseGateArgs(['--only=test-e2e,check-repo'])).map((step) => step.id),
+        ['test-e2e', 'check-repo']
+    );
+    assert.deepEqual(
+        selectSteps(STEPS, parseGateArgs(['--from=build-pages'])).map((step) => step.id),
+        ['build-pages', 'test-e2e', 'check-repo']
+    );
+    assert.throws(() => selectSteps(STEPS, parseGateArgs(['--only=nope'])), /Unknown quality gate step/);
+    assert.throws(() => selectSteps(STEPS, parseGateArgs(['--from=nope'])), /Unknown quality gate step/);
+});
+
+test('an outer timeout is reported as interrupted rather than a test failure', () => {
+    const state = {
+        schema: 1,
+        steps: {
+            'test-unit': { status: 'passed', exitCode: 0, durationMs: 1500 },
+            'test-e2e': { status: 'running', pid: 424242, exitCode: null }
+        }
+    };
+    assert.equal(expireInterruptedSteps(state, () => false), 1);
+    assert.equal(state.steps['test-e2e'].status, 'interrupted');
+    assert.equal(state.steps['test-unit'].status, 'passed');
+    assert.ok(state.steps['test-e2e'].finishedAt);
+
+    const liveState = { schema: 1, steps: { 'test-e2e': { status: 'running', pid: process.pid } } };
+    assert.equal(expireInterruptedSteps(liveState, () => true), 0);
+    assert.equal(liveState.steps['test-e2e'].status, 'running');
+
+    const report = formatStateReport(state);
+    assert.match(report, /03\/10 test-unit\s+passed 1\.5s exit=0/);
+    assert.match(report, /09\/10 test-e2e\s+interrupted/);
+    assert.match(report, /01\/10 build-css\s+not run/);
+});
+
+test('a full run starts from a clean state while resume and subsets keep history', () => {
+    const previous = {
+        schema: 1,
+        startedAt: '2026-08-05T00:00:00.000Z',
+        steps: { 'test-unit': { status: 'passed', exitCode: 0 } }
+    };
+    const fullRun = prepareRunState(previous, parseGateArgs([]), [...STEPS]);
+    assert.deepEqual(fullRun.steps, {});
+    assert.notEqual(fullRun.startedAt, previous.startedAt);
+
+    assert.equal(prepareRunState(previous, parseGateArgs(['--resume']), [...STEPS]), previous);
+    assert.equal(
+        prepareRunState(previous, parseGateArgs(['--only=test-unit']), selectSteps(STEPS, parseGateArgs(['--only=test-unit']))),
+        previous
+    );
+});
+
+test('quality gate layers run npm without shell escaping', () => {
+    const fromEnv = resolveNpmCommand({ npm_execpath: '/npm/bin/npm-cli.js' }, '/usr/bin/node');
+    assert.deepEqual(fromEnv, { command: '/usr/bin/node', prefixArgs: ['/npm/bin/npm-cli.js'], shell: false });
+
+    const discovered = resolveNpmCommand({}, process.execPath);
+    assert.equal(discovered.shell, false);
+    assert.equal(discovered.command, process.execPath);
+    assert.match(discovered.prefixArgs[0], /npm-cli\.js$/);
+    assert.equal(existsSync(discovered.prefixArgs[0]), true);
+});
+
+function deployedMetadata(overrides = {}) {
+    return {
+        schema: 1,
+        commit: 'a'.repeat(40),
+        cacheName: 'cplayer5-v85-reliability-sprint',
+        precacheRevision: `sha256:${'b'.repeat(64)}`,
+        precacheAssets: [...CORE_ASSETS],
+        generatedAt: '2026-08-06T00:00:00.000Z',
+        ...overrides
+    };
+}
+
+test('online release check rejects a deployment that does not match the release contract', () => {
+    assert.deepEqual(assertDeployedMetadata(deployedMetadata()), []);
+    assert.deepEqual(
+        assertDeployedMetadata(deployedMetadata(), { expectedCommit: 'a'.repeat(40) }),
+        []
+    );
+    assert.match(
+        assertDeployedMetadata(deployedMetadata(), { expectedCommit: 'c'.repeat(40) }).join('\n'),
+        /is not the expected/
+    );
+    assert.match(assertDeployedMetadata(deployedMetadata({ schema: 2 })).join('\n'), /schema is not 1/);
+    assert.match(assertDeployedMetadata(deployedMetadata({ commit: 'abc' })).join('\n'), /not a full commit id/);
+    assert.match(assertDeployedMetadata(deployedMetadata({ cacheName: 'cplayer5-v85' })).join('\n'), /cache name is invalid/);
+    assert.match(assertDeployedMetadata(deployedMetadata({ precacheRevision: 'sha256:short' })).join('\n'), /revision is invalid/);
+    assert.match(
+        assertDeployedMetadata(deployedMetadata({ precacheAssets: CORE_ASSETS.slice(1) })).join('\n'),
+        /pre-cache assets do not match/
+    );
+    assert.equal(assertDeployedMetadata(null).length >= 4, true);
+});
+
+test('online release check compares the deployed Worker with the published metadata', () => {
+    const metadata = deployedMetadata();
+    const source = [
+        `const CACHE_NAME = '${metadata.cacheName}';`,
+        `const PRECACHE_REVISION = '${metadata.precacheRevision}';`,
+        `const CORE_ASSETS = [\n${CORE_ASSETS.map((asset) => `  '${asset}'`).join(',\n')}\n];`
+    ].join('\n');
+    assert.deepEqual(assertDeployedWorker(source, metadata), []);
+    assert.match(
+        assertDeployedWorker(source, deployedMetadata({ cacheName: 'cplayer5-v84-reliability-sprint' })).join('\n'),
+        /cache name .* != build-meta/
+    );
+    assert.match(
+        assertDeployedWorker(source, deployedMetadata({ precacheRevision: `sha256:${'c'.repeat(64)}` })).join('\n'),
+        /pre-cache revision .* != build-meta/
+    );
+    assert.match(
+        assertDeployedWorker(source.replace(`  '${CORE_ASSETS[0]}',\n`, ''), metadata).join('\n'),
+        /CORE_ASSETS does not match/
+    );
+});
+
+function runtimeEvidence(overrides = {}) {
+    const metadata = deployedMetadata();
+    return {
+        cplayerReady: 'true',
+        readyState: 'complete',
+        buildMetaMarker: true,
+        buildBadge: 'v85',
+        controllerScriptUrl: 'https://example.invalid/cplayer-online/sw.js',
+        activeWorkerState: 'activated',
+        cacheKeys: [metadata.cacheName],
+        cachedCoreAssets: CORE_ASSETS.map((asset) => `/cplayer-online/${asset.replace('./', '')}`),
+        ...overrides
+    };
+}
+
+test('online release check requires real runtime propagation, not a successful workflow', () => {
+    const metadata = deployedMetadata();
+    assert.deepEqual(assertRuntimeEvidence(runtimeEvidence(), metadata), []);
+    assert.equal(isRuntimeEvidenceComplete(runtimeEvidence()), true);
+
+    assert.match(assertRuntimeEvidence(runtimeEvidence({ cplayerReady: '' }), metadata).join('\n'), /did not report cplayerReady/);
+    assert.match(assertRuntimeEvidence(runtimeEvidence({ buildMetaMarker: false }), metadata).join('\n'), /missing the cplayer-build-meta marker/);
+    assert.match(
+        assertRuntimeEvidence(runtimeEvidence({ controllerScriptUrl: '' }), metadata).join('\n'),
+        /not controlled by the deployed Worker/
+    );
+    assert.match(
+        assertRuntimeEvidence(runtimeEvidence({ activeWorkerState: 'installing' }), metadata).join('\n'),
+        /not activated/
+    );
+    // The propagation bug this guards: a successful deployment while the client
+    // still holds the previous release's cache.
+    assert.match(
+        assertRuntimeEvidence(runtimeEvidence({ cacheKeys: ['cplayer5-v84-reliability-sprint'] }), metadata).join('\n'),
+        /CacheStorage holds .* instead of only cplayer5-v85-reliability-sprint/
+    );
+    assert.match(
+        assertRuntimeEvidence(runtimeEvidence({ cachedCoreAssets: [] }), metadata).join('\n'),
+        /cached core assets are incomplete/
+    );
+    for (const incomplete of [
+        { cplayerReady: '' },
+        { controllerScriptUrl: '' },
+        { activeWorkerState: 'installing' },
+        { cachedCoreAssets: CORE_ASSETS.slice(1).map((asset) => `/${asset.replace('./', '')}`) }
+    ]) {
+        assert.equal(isRuntimeEvidenceComplete(runtimeEvidence(incomplete)), false);
+    }
+    assert.equal(isRuntimeEvidenceComplete(null), false);
+});
+
+test('online release check owns its public target, options, and browser discovery', () => {
+    assert.equal(DEFAULT_PAGES_URL, 'https://135179ylh-prog.github.io/cplayer-online/');
+    assert.equal(BUILD_META_MARKER, 'name="cplayer-build-meta" content="./build-meta.json"');
+    assert.equal(
+        readFileSync(resolve('index.html'), 'utf8').includes(BUILD_META_MARKER),
+        true
+    );
+
+    assert.deepEqual(parseReleaseArgs([]), {
+        url: DEFAULT_PAGES_URL,
+        expectedCommit: '',
+        reportPath: '',
+        skipBrowser: false,
+        unknown: []
+    });
+    const parsed = parseReleaseArgs([
+        '--url=https://example.invalid/app/',
+        '--commit=ABCDEF1234567890ABCDEF1234567890ABCDEF12',
+        '--report=output/custom.json',
+        '--no-browser'
+    ]);
+    assert.equal(parsed.url, 'https://example.invalid/app/');
+    assert.equal(parsed.expectedCommit, 'abcdef1234567890abcdef1234567890abcdef12');
+    assert.equal(parsed.reportPath, 'output/custom.json');
+    assert.equal(parsed.skipBrowser, true);
+    assert.deepEqual(parseReleaseArgs(['--nope']).unknown, ['--nope']);
+
+    assert.equal(
+        findChromeExecutable({ CPLAYER_CHROME_PATH: 'C:/custom/chrome.exe' }, 'win32'),
+        'C:/custom/chrome.exe'
+    );
+    assert.throws(
+        () => findChromeExecutable({}, 'unsupported-platform'),
+        /Chrome was not found/
+    );
+});
+
+test('pre-cache revision can be recomputed from an arbitrary asset source', async () => {
+    const projectRoot = resolve('.');
+    const local = await computePrecacheRevision(projectRoot);
+    const served = await computePrecacheRevisionFrom((asset) => readFile(resolve(projectRoot, asset)));
+    assert.equal(served, local);
+
+    const tampered = await computePrecacheRevisionFrom(async (asset) => {
+        const bytes = await readFile(resolve(projectRoot, asset));
+        return asset === './manifest.json' ? Buffer.concat([bytes, Buffer.from(' ')]) : bytes;
+    });
+    assert.notEqual(tampered, local);
 });
 
 test('rollback version extraction supports current and legacy database declarations', () => {

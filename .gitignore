@@ -8,6 +8,8 @@ __pycache__/
 .playwright-cli/
 output/playwright/
 /output/pages/
+/output/quality-gate/
+/output/pages-release-check.json
 /output/*.png
 _check.js
 

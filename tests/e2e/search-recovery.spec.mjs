@@ -214,9 +214,11 @@ test('touch-style pointer drag from a result button auto-loads the next page', a
 
 test('a failed next page keeps current songs and can retry', async ({ page }, testInfo) => {
     let nextPageAvailable = false;
+    const requests = [];
     await page.route(/\/163_search\?/, async (route) => {
         const url = new URL(route.request().url());
         const offset = Number(url.searchParams.get('offset'));
+        requests.push(offset);
         if (offset > 0 && !nextPageAvailable) {
             await route.fulfill({
                 status: 503,
@@ -248,6 +250,70 @@ test('a failed next page keeps current songs and can retry', async ({ page }, te
     await search.results.getByRole('button', { name: '加载更多搜索结果' }).click();
     await expect(search.results.getByRole('button', { name: /添加并播放「分页歌曲/ })).toHaveCount(35);
     await expect(search.results.getByText('已显示 35 / 共 35 首')).toBeVisible();
+    // The retry must re-request the failed cursor: never replay page one and
+    // never skip past the page that failed. The transport retries a 5xx once,
+    // so the failed cursor legitimately appears more than once.
+    expect(requests[0]).toBe(0);
+    expect(requests.slice(1)).not.toHaveLength(0);
+    expect(new Set(requests.slice(1))).toEqual(new Set([30]));
+    expect(requests.filter((offset) => offset === 0)).toHaveLength(1);
+});
+
+test('a late first page from an old query cannot replace the new query results', async ({ page }, testInfo) => {
+    let releaseOldFirstPage;
+    let markOldFirstPageStarted;
+    const oldFirstPageRelease = new Promise((resolve) => { releaseOldFirstPage = resolve; });
+    const oldFirstPageStarted = new Promise((resolve) => { markOldFirstPageStarted = resolve; });
+    await page.route(/\/163_search\?/, async (route) => {
+        const url = new URL(route.request().url());
+        const query = url.searchParams.get('keyword');
+        if (query === '慢歌手') {
+            markOldFirstPageStarted();
+            await oldFirstPageRelease;
+            await route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({
+                    code: 200,
+                    data: {
+                        songs: Array.from({ length: 30 }, (_, index) => searchResult(index + 1)),
+                        total: 60
+                    }
+                })
+            });
+            return;
+        }
+        await route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({
+                code: 200,
+                data: { songs: [{ ...searchResult(98), name: '快歌手结果' }], total: 1 }
+            })
+        });
+    });
+
+    await page.goto('/index.html');
+    const search = await openSearch(page, testInfo.project.name);
+    await submitQuery(page, testInfo.project.name, search, '慢歌手');
+    await oldFirstPageStarted;
+
+    await submitQuery(page, testInfo.project.name, search, '快歌手');
+    await expect(search.results.getByText('快歌手结果')).toBeVisible();
+    const oldResponse = page.waitForResponse((response) => {
+        const url = new URL(response.url());
+        return url.pathname.endsWith('/163_search') && url.searchParams.get('keyword') === '慢歌手';
+    });
+    releaseOldFirstPage();
+    await oldResponse;
+    await page.evaluate(() => new Promise((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(resolve));
+    }));
+
+    await expect(search.results.getByText('快歌手结果')).toBeVisible();
+    await expect(search.results.getByRole('button', { name: /添加并播放「分页歌曲/ })).toHaveCount(0);
+    await expect(search.results.getByText('已显示 1 / 共 1 首')).toBeVisible();
+    await expect(search.results.getByRole('button', { name: '加载更多搜索结果' })).toHaveCount(0);
 });
 
 test('a late page from an old query cannot enter the new query results', async ({ page }, testInfo) => {

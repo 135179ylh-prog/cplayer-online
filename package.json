@@ -17,7 +17,11 @@
     "check:features": "python tests/verify_features.py",
     "check:repo": "node scripts/check-repository-state.mjs",
     "check:rollback": "node scripts/check-rollback-target.mjs",
-    "verify": "node scripts/run-quality-gate.mjs"
+    "check:release": "node scripts/check-pages-release.mjs",
+    "verify": "node scripts/run-quality-gate.mjs",
+    "verify:list": "node scripts/run-quality-gate.mjs --list",
+    "verify:status": "node scripts/run-quality-gate.mjs --status",
+    "verify:resume": "node scripts/run-quality-gate.mjs --resume"
   },
   "devDependencies": {
     "@axe-core/playwright": "4.10.2",

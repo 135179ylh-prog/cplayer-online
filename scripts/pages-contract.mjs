@@ -29,19 +29,22 @@ export function normalizePrecacheAssetContent(asset, content) {
     return Buffer.from(content.toString('utf8').replace(/\r\n/g, '\n'), 'utf8');
 }
 
-export async function computePrecacheRevision(projectRoot) {
+// The revision only depends on the asset paths and their normalized bytes, so
+// the same value can be recomputed from a local tree or from a deployed origin.
+export async function computePrecacheRevisionFrom(loadAsset) {
     const hash = createHash('sha256');
     for (const asset of [...CORE_ASSETS].sort()) {
-        const content = normalizePrecacheAssetContent(
-            asset,
-            await readFile(resolve(projectRoot, asset))
-        );
+        const content = normalizePrecacheAssetContent(asset, await loadAsset(asset));
         hash.update(asset, 'utf8');
         hash.update('\0', 'utf8');
         hash.update(content);
         hash.update('\0', 'utf8');
     }
     return `sha256:${hash.digest('hex')}`;
+}
+
+export async function computePrecacheRevision(projectRoot) {
+    return computePrecacheRevisionFrom((asset) => readFile(resolve(projectRoot, asset)));
 }
 
 export function extractServiceWorkerContract(source) {

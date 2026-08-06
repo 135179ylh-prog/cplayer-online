@@ -1669,3 +1669,35 @@ that an existing browser Service Worker has switched to the new runtime.
 - Final release: record the exact commit, workflow result, active Worker, and
   CacheStorage names through direct CDP; do not claim propagation from the
   workflow status alone.
+
+### Repeatable Release Acceptance
+
+- `npm run check:release -- --commit=<sha>` is the single owner of online
+  acceptance. It fetches the deployed `build-meta.json`, `sw.js`, and
+  `index.html`, recomputes the pre-cache hash from the bytes the origin actually
+  serves, then collects direct-CDP runtime evidence: the app-ready marker, the
+  controller script URL, the active Worker state, CacheStorage names, and the
+  cached core-asset count. A successful workflow is never accepted as proof.
+- The check launches its own temporary headless Chrome with a throwaway profile
+  directory and `--disable-extensions`, and removes both on exit. It must not
+  attach to the user's browser, reuse the user's profile, or open a user tab.
+- Its report at `output/pages-release-check.json` holds only public release
+  facts. It must never contain an API key, API base URL, token, account
+  identity, playlist content, or playback progress.
+- The quality gate runs as ten named layers with per-layer logs under
+  `output/quality-gate/` and resumable state in `state.json`. A layer whose
+  owning process disappeared is recorded as `interrupted`, not `failed`, so an
+  outer timeout during the multi-minute browser layer is never reported as a
+  test failure. Resuming skips only layers already recorded as passed; the
+  release gate still requires all ten to pass.
+
+### Regression Coverage This Contract Depends On
+
+- Search must prove a stale first page of an old query cannot replace the new
+  query's results, and that a retry re-requests the failed cursor without
+  replaying page one or skipping the missing page.
+- A hidden auto-advance must prove the visible now-playing UI, the song id
+  marker, and the mobile layout show the song the media element committed.
+- The sync health report must be proven redacted on the actual download path,
+  by comparing the written file with the in-memory report, not only by
+  inspecting the in-memory object.
