@@ -30,10 +30,14 @@ import {
 } from '../scripts/pages-contract.mjs';
 import {
     STEPS,
+    TEST_SERVER_PROBE_PATH,
     expireInterruptedSteps,
     formatStateReport,
+    isPagesArtifactCurrent,
+    isProjectTestServerResponse,
     parseGateArgs,
     prepareRunState,
+    reclaimStaleTestServerPort,
     resolveNpmCommand,
     selectSteps,
     summarizeRunOutcome
@@ -176,6 +180,78 @@ test('a full run starts from a clean state while resume and subsets keep history
         prepareRunState(previous, parseGateArgs(['--only=test-unit']), selectSteps(STEPS, parseGateArgs(['--only=test-unit']))),
         previous
     );
+});
+
+test('a stale test server is identified before its port is reclaimed', async () => {
+    // Only this project's test server answers the probe path this way. Anything
+    // else on the port belongs to the user and must never be killed.
+    assert.equal(isProjectTestServerResponse(200, JSON.stringify({
+        code: 200, endpoint: '163_search', sequence: 1
+    })), true);
+    assert.equal(isProjectTestServerResponse(200, JSON.stringify({
+        code: 200, endpoint: '163_music', sequence: 1
+    })), false);
+    assert.equal(isProjectTestServerResponse(200, JSON.stringify({ code: 200 })), false);
+    assert.equal(isProjectTestServerResponse(200, '<html>dev server</html>'), false);
+    assert.equal(isProjectTestServerResponse(404, JSON.stringify({
+        code: 200, endpoint: '163_search', sequence: 1
+    })), false);
+    assert.equal(TEST_SERVER_PROBE_PATH, '/__test__/163_search');
+
+    const killed = [];
+    const reclaimed = await reclaimStaleTestServerPort(4173, {
+        identify: async () => true,
+        listPids: () => [4242, 4243],
+        kill: (pid) => killed.push(pid)
+    });
+    assert.deepEqual(reclaimed, { reclaimed: true, pids: [4242, 4243] });
+    assert.deepEqual(killed, [4242, 4243]);
+
+    // An unidentified listener must not even be enumerated, let alone killed.
+    let listed = false;
+    const foreign = await reclaimStaleTestServerPort(4173, {
+        identify: async () => false,
+        listPids: () => { listed = true; return [9999]; },
+        kill: () => assert.fail('a foreign listener must never be killed')
+    });
+    assert.deepEqual(foreign, { reclaimed: false, pids: [] });
+    assert.equal(listed, false);
+
+    // A process that exits between enumeration and kill is not an error.
+    const raced = await reclaimStaleTestServerPort(4173, {
+        identify: async () => true,
+        listPids: () => [5555],
+        kill: () => { throw Object.assign(new Error('no such process'), { code: 'ESRCH' }); }
+    });
+    assert.deepEqual(raced, { reclaimed: false, pids: [] });
+});
+
+test('only the browser layer owns the test server port', () => {
+    const owners = STEPS.filter((step) => step.ownsTestServer).map((step) => step.id);
+    assert.deepEqual(owners, ['test-e2e']);
+});
+
+test('a resumed browser layer never runs against a stale Pages artifact', () => {
+    const head = 'a'.repeat(40);
+    assert.equal(isPagesArtifactCurrent(head, head), true);
+    assert.equal(isPagesArtifactCurrent('b'.repeat(40), head), false);
+    assert.equal(isPagesArtifactCurrent('', head), false);
+    // Without git metadata there is nothing to compare, so an existing artifact
+    // must not be discarded.
+    assert.equal(isPagesArtifactCurrent(head, ''), true);
+
+    const producers = STEPS.filter((step) => step.producesPagesArtifact).map((step) => step.id);
+    const consumers = STEPS.filter((step) => step.needsPagesArtifact).map((step) => step.id);
+    assert.deepEqual(producers, ['build-pages']);
+    assert.deepEqual(consumers, ['test-e2e']);
+
+    // Reviving the build layer must restore canonical order so the build always
+    // precedes the layer that consumes its artifact.
+    const buildStep = STEPS.find((step) => step.producesPagesArtifact);
+    const remaining = STEPS.filter((step) => ['test-e2e', 'check-repo'].includes(step.id));
+    const revived = new Set([...remaining, buildStep]);
+    const ordered = STEPS.filter((step) => revived.has(step)).map((step) => step.id);
+    assert.deepEqual(ordered, ['build-pages', 'test-e2e', 'check-repo']);
 });
 
 test('only a full run may claim the gate passed', () => {

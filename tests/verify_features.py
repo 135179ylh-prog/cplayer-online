@@ -598,6 +598,9 @@ require(gate_step_ids == [
 for snippet in [
     "expireInterruptedSteps", "formatStateReport", "selectSteps", "parseGateArgs",
     "prepareRunState", "resolveNpmCommand", "summarizeRunOutcome", "status: 'interrupted'",
+    "reclaimStaleTestServerPort", "isProjectTestServerResponse", "TEST_SERVER_PROBE_PATH",
+    "ownsTestServer", "Get-NetTCPConnection", "'-sTCP:LISTEN'",
+    "isPagesArtifactCurrent", "producesPagesArtifact", "needsPagesArtifact",
     "'--resume'", "'--status'", "'--list'",
     "output/quality-gate", "createWriteStream", "isProcessAlive",
 ]:
@@ -635,6 +638,9 @@ for snippet in [
     "quality gate layers run npm without shell escaping",
     "npm discovery handles both install layouts without matching a sibling tree",
     "only a full run may claim the gate passed",
+    "a stale test server is identified before its port is reclaimed",
+    "only the browser layer owns the test server port",
+    "a resumed browser layer never runs against a stale Pages artifact",
     "online release check rejects a deployment that does not match the release contract",
     "online release check compares the deployed Worker with the published metadata",
     "online release check requires real runtime propagation, not a successful workflow",

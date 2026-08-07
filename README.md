@@ -77,6 +77,15 @@ npm run verify:resume    # 跳过已通过的层，从未完成的层继续
 时用 `node scripts/run-quality-gate.mjs --only=test-e2e`，只有完整
 `npm run verify` 十层全绿才算通过发布门禁。
 
+被强行结束的运行可能留下两处残留，`verify:resume` 会自动处理，不需要手工干预：
+
+- 上一次的测试服务器可能还占着 4173 端口，导致 Playwright 报
+  `already used`。门禁会先探测该端口，只有确认它是本项目的测试服务器（用
+  `/__test__/163_search` 的响应正向识别）才回收；端口上是你自己的其他服务时
+  绝不会被动。
+- `output/pages` 产物可能早于当前提交。继续跑浏览器层前会比对产物里的 commit
+  与 `HEAD`，不一致就先重建产物，避免发布元数据契约因为产物过期而被误判失败。
+
 ## 发布与回退
 
 只想查看最终静态站点包含哪些文件时，在项目目录运行：

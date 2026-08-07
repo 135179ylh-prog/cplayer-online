@@ -26,6 +26,9 @@
 16. [x] Pages run `31147072084`（`9a1ea5f`）quality/deploy 均 success。
 17. [x] `npm run check:release -- --commit=9a1ea5f…` 线上验收 5/5 通过。
 18. [x] 更新 `verification.md`，确认临时 Chrome、端口和临时目录均已清理。
+19. [x] 加固：resume 前自动回收本项目遗留的测试服务器端口（正向识别，不动用户服务）。
+20. [x] 加固：resume 检测 `output/pages` 产物过期时自动重建，保持规范层顺序。
+21. [x] 加固后完整 `npm run verify` 十层通过；README 与验收契约同步。
 
 ## 安全约束
 

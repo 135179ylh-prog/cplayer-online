@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync, createWriteStream } from 'node:fs';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -37,8 +37,8 @@ export const STEPS = Object.freeze([
     { id: 'check-sw', label: 'Service Worker syntax', args: ['run', 'check:sw'] },
     { id: 'check-features', label: 'Static feature contracts', args: ['run', 'check:features'] },
     { id: 'audit', label: 'Dependency audit', args: ['audit', '--audit-level=high'] },
-    { id: 'build-pages', label: 'Build GitHub Pages artifact', args: ['run', 'build:pages'] },
-    { id: 'test-e2e', label: 'Browser regression from Pages artifact', args: ['run', 'test:e2e'], pagesRoot: true },
+    { id: 'build-pages', label: 'Build GitHub Pages artifact', args: ['run', 'build:pages'], producesPagesArtifact: true },
+    { id: 'test-e2e', label: 'Browser regression from Pages artifact', args: ['run', 'test:e2e'], pagesRoot: true, ownsTestServer: true, needsPagesArtifact: true },
     { id: 'check-repo', label: 'Repository whitespace and untracked text', args: ['run', 'check:repo'] }
 ]);
 
@@ -177,6 +177,111 @@ export function resolveNpmCommand(env = process.env, execPath = process.execPath
     return { command: 'npm', prefixArgs: [], shell: process.platform === 'win32' };
 }
 
+// A gate killed from the outside can leave its test server holding the port.
+// Playwright then refuses to start with "already used" and the browser layer is
+// recorded as failed, which is the same misjudgement the state file prevents.
+// The port is only reclaimed after the listener identifies itself as this
+// project's test server, so an unrelated local service is never touched.
+export const TEST_SERVER_PROBE_PATH = '/__test__/163_search';
+
+export function isProjectTestServerResponse(status, body) {
+    if (status !== 200) return false;
+    try {
+        const payload = JSON.parse(body);
+        return payload?.code === 200
+            && payload?.endpoint === '163_search'
+            && Number.isInteger(payload?.sequence);
+    } catch (error) {
+        return false;
+    }
+}
+
+async function identifyStaleTestServer(port) {
+    try {
+        const response = await fetch(`http://127.0.0.1:${port}${TEST_SERVER_PROBE_PATH}`, {
+            cache: 'no-store',
+            signal: AbortSignal.timeout(2_000)
+        });
+        return isProjectTestServerResponse(response.status, await response.text());
+    } catch (error) {
+        // Nothing listening, or something that is not an HTTP server at all.
+        return false;
+    }
+}
+
+function listListenerPids(port) {
+    const command = process.platform === 'win32'
+        ? { file: 'powershell.exe', args: [
+            '-NoProfile', '-NonInteractive', '-Command',
+            `(Get-NetTCPConnection -LocalPort ${port} -State Listen -ErrorAction SilentlyContinue).OwningProcess`
+        ] }
+        : { file: 'lsof', args: ['-ti', `tcp:${port}`, '-sTCP:LISTEN'] };
+    const result = spawnSync(command.file, command.args, { encoding: 'utf8' });
+    if (result.status !== 0 && !result.stdout) return [];
+    return [...new Set(String(result.stdout || '')
+        .split(/\s+/)
+        .map((value) => Number(value.trim()))
+        .filter((pid) => Number.isInteger(pid) && pid > 0 && pid !== process.pid))];
+}
+
+export async function reclaimStaleTestServerPort(port, options = {}) {
+    const identify = options.identify || identifyStaleTestServer;
+    const listPids = options.listPids || listListenerPids;
+    const kill = options.kill || ((pid) => { process.kill(pid, 'SIGKILL'); });
+
+    if (!await identify(port)) return { reclaimed: false, pids: [] };
+    const pids = listPids(port);
+    const killed = [];
+    for (const pid of pids) {
+        try {
+            kill(pid);
+            killed.push(pid);
+        } catch (error) {
+            // Losing a race with a process that already exited is fine.
+        }
+    }
+    return { reclaimed: killed.length > 0, pids: killed };
+}
+
+async function prepareBrowserLayer() {
+    const port = Number(process.env.PW_PORT || 4173);
+    const result = await reclaimStaleTestServerPort(port);
+    if (result.reclaimed) {
+        process.stdout.write(
+            `Reclaimed port ${port} from a stale test server left by an interrupted run `
+            + `(pid ${result.pids.join(', ')}).\n`
+        );
+        // Give the OS a moment to release the socket before Playwright binds it.
+        await new Promise((resolveWait) => setTimeout(resolveWait, 500));
+    }
+}
+
+// The browser layer runs against output/pages. When a resumed run skips the
+// build layer, that artifact can predate the current commit and the release
+// metadata test fails for a stale reason rather than a real defect. Compare the
+// artifact's own commit with HEAD and rebuild when they disagree.
+export function isPagesArtifactCurrent(artifactCommit, headCommit) {
+    if (!artifactCommit) return false;
+    if (!headCommit) return true;
+    return artifactCommit === headCommit;
+}
+
+function readPagesArtifactCommit() {
+    const metadataPath = resolve(root, 'output', 'pages', 'build-meta.json');
+    if (!existsSync(metadataPath)) return '';
+    try {
+        return String(JSON.parse(readFileSync(metadataPath, 'utf8')).commit || '');
+    } catch (error) {
+        return '';
+    }
+}
+
+function readHeadCommit() {
+    const result = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' });
+    const commit = String(result.stdout || '').trim().toLowerCase();
+    return /^[0-9a-f]{40}$/.test(commit) ? commit : '';
+}
+
 function runStep(step, position, total, logPath) {
     process.stdout.write(`\n=== ${position}/${total} ${step.label} (${step.id}) ===\n`);
     const env = step.pagesRoot
@@ -263,6 +368,24 @@ async function main(argv) {
         if (done.length) {
             process.stdout.write(`Resuming: ${done.length} step(s) already passed, ${selected.length} remaining.\n`);
         }
+
+        // Re-add the build layer when a remaining layer consumes the artifact and
+        // the artifact on disk no longer matches the commit under test.
+        const needsArtifact = selected.some((step) => step.needsPagesArtifact);
+        const buildStep = STEPS.find((step) => step.producesPagesArtifact);
+        const rebuilding = needsArtifact
+            && buildStep
+            && !selected.includes(buildStep)
+            && !isPagesArtifactCurrent(readPagesArtifactCommit(), readHeadCommit());
+        if (rebuilding) {
+            // Keep the canonical layer order so the build always precedes its consumer.
+            const revived = new Set([...selected, buildStep]);
+            selected = STEPS.filter((step) => revived.has(step));
+            process.stdout.write(
+                'The Pages artifact predates the current commit; rebuilding it before the browser layer '
+                + 'so the release metadata contract is not failed for a stale reason.\n'
+            );
+        }
         if (!selected.length) {
             process.stdout.write(`${formatStateReport(runState)}\n\n${summarizeRunOutcome(runState, options)}\n`);
             return;
@@ -296,6 +419,8 @@ async function main(argv) {
             log: `output/quality-gate/${String(absoluteIndex).padStart(2, '0')}-${step.id}.log`
         };
         saveState(runState);
+
+        if (step.ownsTestServer) await prepareBrowserLayer();
 
         const startedAtMs = Date.now();
         let result = await runStep(step, position, selected.length, logPath);

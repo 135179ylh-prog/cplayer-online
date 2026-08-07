@@ -130,6 +130,38 @@ Pages 运行时资源；线上 commit 已推进，说明部署确实是新提交
 4173 端口无孤儿测试服务器；未连接浏览器扩展，未操作用户任何标签页。
 `output/pages-release-check.json` 只含 10 个公开字段，敏感字段扫描为 none。
 
+## 后续加固：中断残留自动清理（提交 `8b81a4f` 之前）
+
+上一轮留下的人工步骤已消除。被强行结束的门禁会留下两处残留，都会让下一次
+resume 在浏览器层报失败，而实际上没有任何测试失败——与本轮要消除的误判同源，
+只是入口不同：
+
+1. **端口残留**：上一次的测试服务器仍占用 4173，Playwright 报 `already used`。
+   门禁现在在浏览器层启动前探测该端口，并且**只有正向识别为本项目测试服务器**
+   （`/__test__/163_search` 返回 `code=200`/`endpoint=163_search`/整数 `sequence`）
+   才回收。端口上是用户自己的服务时绝不触碰。
+2. **产物过期**：resume 跳过已通过的 `build-pages`，却重跑依赖它的浏览器层，
+   于是 `output/pages` 可能早于当前提交。现在比对产物内 commit 与 `HEAD`，
+   不一致就把 `build-pages` 按规范顺序重新插回（仍排在 `test-e2e` 之前）。
+
+两项都用真实场景验证，不是模拟：
+
+- 端口：先用一个**无关的**本地 HTTP 服务占用同端口，确认 `reclaimed: false`
+  且完全没被杀；再启动真实的孤儿测试服务器，确认被识别、被回收、pid 与
+  spawn 的一致、端口随后释放。随后在真实 resume 中观察到
+  `Reclaimed port 4173 from a stale test server left by an interrupted run`，
+  268 项测试正常跑起来，不再有 `already used`。
+- 产物：把产物 commit 改成旧值 `c52dcb9` 并把浏览器层置为 `interrupted`，
+  resume 输出"The Pages artifact predates the current commit; rebuilding it…"，
+  并以 `1/3 build-pages` 开始，最终十层全绿；修复前同样场景会误报
+  `release-artifact.spec.mjs:144` 的 2 项失败（期望 `a6c847d`、实际 `c52dcb9`）。
+
+发现这 2 项误报的过程本身也是一次真实验证：它证明 `release-artifact` 的
+commit 契约确实能抓住"产物与当前提交不一致"，失败原因是我制造的时序，不是产品缺陷。
+
+加固后完整 `npm run verify`：10/10 层通过；单元 61/61（`release-preflight` 31 项）；
+浏览器 270 通过、12 项按设计跳过；0 vulnerabilities；浏览器层 632.1s。
+
 ## 记录规则
 
 只记录命令、视口、通过/失败数量和脱敏的公开发布证据；不记录 API 凭据、token、

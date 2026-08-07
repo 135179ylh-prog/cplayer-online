@@ -1689,7 +1689,15 @@ that an existing browser Service Worker has switched to the new runtime.
   owning process disappeared is recorded as `interrupted`, not `failed`, so an
   outer timeout during the multi-minute browser layer is never reported as a
   test failure. Resuming skips only layers already recorded as passed; the
-  release gate still requires all ten to pass.
+  release gate still requires all ten to pass. A subset run must never claim a
+  full pass from state history alone.
+- Resuming must also clear the two residues an interrupted run leaves behind,
+  because both otherwise surface as a browser-layer failure that no test caused:
+  a test server still holding the port, and a `output/pages` artifact older than
+  the commit under test. The port is reclaimed only after the listener is
+  positively identified as this project's test server, so an unrelated local
+  service is never killed. The artifact is rebuilt when its recorded commit does
+  not match `HEAD`, and the rebuild keeps canonical layer order.
 
 ### Regression Coverage This Contract Depends On
 
