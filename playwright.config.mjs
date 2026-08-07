@@ -8,9 +8,15 @@ export default defineConfig({
     testDir: './tests/e2e',
     fullyParallel: false,
     forbidOnly: Boolean(process.env.CI),
+    // No retries on purpose: a retry can hide a real defect by letting a genuinely
+    // broken test pass on a second attempt. The per-test budget is generous instead.
+    // The suite runs single-worker and serial, so the heaviest cold-start specs
+    // (configure cloud, seed IndexedDB, sign in, then navigate) drift well past a
+    // 30s budget late in a 12-minute run even though they need under 12s in
+    // isolation. That drift produced timeout failures that no assertion caused.
     retries: 0,
     workers: 1,
-    timeout: 30_000,
+    timeout: 90_000,
     expect: { timeout: 7_500 },
     reporter: [
         ['list'],

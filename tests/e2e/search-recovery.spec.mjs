@@ -259,6 +259,191 @@ test('a failed next page keeps current songs and can retry', async ({ page }, te
     expect(requests.filter((offset) => offset === 0)).toHaveLength(1);
 });
 
+test('the paging cursor never rewinds and never fetches a page twice', async ({ page }, testInfo) => {
+    // The in-flight guard makes truly concurrent same-query paging unreachable
+    // through the UI, so this locks the guard itself: while a page is loading the
+    // control is disabled and scroll cannot start a second request for the same
+    // cursor. That is what keeps the cursor monotonic and rows unduplicated.
+    const requests = [];
+    let releaseSecondPage;
+    let markSecondPageStarted;
+    const secondPageRelease = new Promise((resolve) => { releaseSecondPage = resolve; });
+    const secondPageStarted = new Promise((resolve) => { markSecondPageStarted = resolve; });
+
+    await page.route(/\/163_search\?/, async (route) => {
+        const url = new URL(route.request().url());
+        const offset = Number(url.searchParams.get('offset'));
+        requests.push(offset);
+        if (offset === 30) {
+            markSecondPageStarted();
+            await secondPageRelease;
+        }
+        await route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({
+                code: 200,
+                data: {
+                    songs: Array.from({ length: 30 }, (_, index) => searchResult(offset + index + 1)),
+                    total: 95
+                }
+            })
+        });
+    });
+
+    await page.goto('/index.html');
+    const search = await openSearch(page, testInfo.project.name);
+    await submitSearch(page, testInfo.project.name, search.input);
+    await expect(search.results.getByRole('button', { name: /添加并播放「分页歌曲/ })).toHaveCount(30);
+
+    await search.results.getByRole('button', { name: '加载更多搜索结果' }).click();
+    await secondPageStarted;
+
+    // Mid-flight the control must be disabled, and neither a scroll nor a direct
+    // activation of the control's own handler may start a second request for the
+    // cursor that is already in flight. Dispatching click straight at the element
+    // bypasses the disabled-button affordance and reaches the load handler, so the
+    // in-flight guard itself is what has to hold here.
+    const loadMore = search.results.getByRole('button', { name: '加载更多搜索结果' });
+    await expect(loadMore).toBeDisabled();
+    await expect(loadMore).toHaveText('加载中…');
+    await search.results.evaluate((container) => {
+        container.dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: 2000 }));
+        container.scrollTop = container.scrollHeight;
+        container.dispatchEvent(new Event('scroll'));
+        const control = container.querySelector('button[aria-label="加载更多搜索结果"]');
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+            control?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        }
+    });
+    await page.waitForTimeout(300);
+    expect(requests).toEqual([0, 30]);
+
+    const secondResponse = page.waitForResponse((response) => {
+        const url = new URL(response.url());
+        return url.pathname.endsWith('/163_search') && url.searchParams.get('offset') === '30';
+    });
+    releaseSecondPage();
+    await secondResponse;
+
+    await expect(search.results.getByRole('button', { name: /添加并播放「分页歌曲/ })).toHaveCount(60);
+    await expect(search.results.getByText('已显示 60 / 共 95 首')).toBeVisible();
+
+    // No offset may be requested twice, and no row may be rendered twice.
+    expect(requests).toEqual([...new Set(requests)]);
+    const labels = await search.results
+        .getByRole('button', { name: /添加并播放「分页歌曲/ })
+        .evaluateAll((nodes) => nodes.map((node) => node.getAttribute('aria-label')));
+    expect(new Set(labels).size).toBe(labels.length);
+});
+
+test('going offline mid-paging keeps loaded songs and recovers after reconnect', async ({ page }, testInfo) => {
+    const requests = [];
+    // context.setOffline cannot reach a route that is fulfilled before the network
+    // layer, so the offline window is modelled by failing the request the way a
+    // browser does when the connection is gone, plus navigator.onLine === false.
+    let offline = false;
+    await page.route(/\/163_search\?/, async (route) => {
+        const url = new URL(route.request().url());
+        const offset = Number(url.searchParams.get('offset'));
+        requests.push(offset);
+        if (offline) {
+            await route.abort('internetdisconnected');
+            return;
+        }
+        await route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({
+                code: 200,
+                data: {
+                    songs: Array.from({ length: 30 }, (_, index) => searchResult(offset + index + 1)),
+                    total: 65
+                }
+            })
+        });
+    });
+
+    await page.goto('/index.html');
+    const search = await openSearch(page, testInfo.project.name);
+    await submitSearch(page, testInfo.project.name, search.input);
+    await expect(search.results.getByRole('button', { name: /添加并播放「分页歌曲/ })).toHaveCount(30);
+
+    // A dropped connection must never discard the page the user already has.
+    offline = true;
+    await page.evaluate(() => {
+        Object.defineProperty(navigator, 'onLine', { configurable: true, get: () => false });
+        window.dispatchEvent(new Event('offline'));
+    });
+    try {
+        await search.results.getByRole('button', { name: '加载更多搜索结果' }).click();
+        await expect(search.results.getByText('加载失败，已保留当前结果')).toBeVisible();
+        await expect(search.results.getByRole('button', { name: /添加并播放「分页歌曲/ })).toHaveCount(30);
+        await expect(search.results.getByText('已显示 30 / 共 65 首')).toBeVisible();
+        await expect(search.results.getByRole('button', { name: '加载更多搜索结果' })).toHaveText('重试加载');
+    } finally {
+        offline = false;
+        await page.evaluate(() => {
+            Object.defineProperty(navigator, 'onLine', { configurable: true, get: () => true });
+            window.dispatchEvent(new Event('online'));
+        });
+    }
+
+    // Reconnecting must resume at the failed cursor, not restart from page one.
+    const beforeRetry = [...requests];
+    await search.results.getByRole('button', { name: '加载更多搜索结果' }).click();
+    await expect(search.results.getByRole('button', { name: /添加并播放「分页歌曲/ })).toHaveCount(60);
+    await expect(search.results.getByText('已显示 60 / 共 65 首')).toBeVisible();
+
+    expect(beforeRetry[0]).toBe(0);
+    expect(requests.filter((offset) => offset === 0)).toHaveLength(1);
+    expect(new Set(requests.slice(1))).toEqual(new Set([30]));
+});
+
+test('a search page that times out preserves results and retries the same cursor', async ({ page }, testInfo) => {
+    const requests = [];
+    let failNextPage = true;
+    await page.route(/\/163_search\?/, async (route) => {
+        const url = new URL(route.request().url());
+        const offset = Number(url.searchParams.get('offset'));
+        requests.push(offset);
+        if (offset > 0 && failNextPage) {
+            // A stalled connection surfaces as a fetch-level failure, which is a
+            // different path from the HTTP 5xx the neighbouring test covers.
+            await route.abort('timedout');
+            return;
+        }
+        await route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({
+                code: 200,
+                data: {
+                    songs: Array.from({ length: 30 }, (_, index) => searchResult(offset + index + 1)),
+                    total: 65
+                }
+            })
+        });
+    });
+
+    await page.goto('/index.html');
+    const search = await openSearch(page, testInfo.project.name);
+    await submitSearch(page, testInfo.project.name, search.input);
+    await expect(search.results.getByRole('button', { name: /添加并播放「分页歌曲/ })).toHaveCount(30);
+
+    await search.results.getByRole('button', { name: '加载更多搜索结果' }).click();
+    await expect(search.results.getByText('加载失败，已保留当前结果')).toBeVisible();
+    await expect(search.results.getByRole('button', { name: /添加并播放「分页歌曲/ })).toHaveCount(30);
+
+    failNextPage = false;
+    await search.results.getByRole('button', { name: '加载更多搜索结果' }).click();
+    await expect(search.results.getByRole('button', { name: /添加并播放「分页歌曲/ })).toHaveCount(60);
+    await expect(search.results.getByText('已显示 60 / 共 65 首')).toBeVisible();
+
+    expect(requests.filter((offset) => offset === 0)).toHaveLength(1);
+    expect(new Set(requests.slice(1))).toEqual(new Set([30]));
+});
+
 test('a late first page from an old query cannot replace the new query results', async ({ page }, testInfo) => {
     let releaseOldFirstPage;
     let markOldFirstPageStarted;

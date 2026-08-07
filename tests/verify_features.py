@@ -470,6 +470,10 @@ require("viewport: { width: 844, height: 390 }" in PLAYWRIGHT, "wide landscape q
 require("viewport: { width: 740, height: 360 }" in PLAYWRIGHT, "compact landscape quality viewport is missing")
 require(PLAYWRIGHT.count("testMatch: /responsive-accessibility") == 4, "specialized responsive projects must run only the accessibility spec")
 require("workers: 1" in PLAYWRIGHT and "serviceWorkers: 'allow'" in PLAYWRIGHT, "PWA browser tests are not isolated deterministically")
+require("retries: 0" in PLAYWRIGHT,
+        "browser retries must stay at zero so a real defect cannot pass on a second attempt")
+require("timeout: 90_000" in PLAYWRIGHT,
+        "per-test budget must absorb cold-start drift in a long serial run instead of using retries")
 require("output/playwright/" in PLAYWRIGHT, "browser artifacts are not kept under output/playwright")
 require("node tests/e2e/server.mjs" in PLAYWRIGHT and "reuseExistingServer: false" in PLAYWRIGHT, "Playwright does not own the deterministic test server")
 require("PW_WEB_ROOT" in PLAYWRIGHT and "PW_WEB_ROOT" in TEST_SERVER and "webRoot" in TEST_SERVER,
@@ -706,6 +710,11 @@ require("播放器不会绕过浏览器限制自动发声" in README, "resume au
 for snippet in [
     "a late first page from an old query cannot replace the new query results",
     "expect(requests.filter((offset) => offset === 0)).toHaveLength(1)",
+    "the paging cursor never rewinds and never fetches a page twice",
+    "going offline mid-paging keeps loaded songs and recovers after reconnect",
+    "a search page that times out preserves results and retries the same cursor",
+    "internetdisconnected",
+    "'timedout'",
 ]:
     require(snippet in SEARCH_E2E, f"search staleness and retry cursor contract is missing: {snippet}")
 require("a hidden auto-advance updates the visible now-playing UI after the page returns" in RUNTIME_RESILIENCE_E2E,
