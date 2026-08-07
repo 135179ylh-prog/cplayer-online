@@ -20,11 +20,12 @@
 10. [x] `tests/verify_features.py` 锁住新层、新命令、新回归和 README 说明。
 11. [x] README 记录分层门禁和线上核对流程。
 12. [x] `.trellis/spec/frontend/quality-guidelines.md` 固化可重复验收契约。
-13. [ ] 完整 `npm run verify` 十层通过。
-14. [ ] 独立提交并推送到 `main`（只含本阶段文件）。
-15. [ ] 等待 Pages quality/deploy 均 success。
-16. [ ] `npm run check:release -- --commit=<新 commit>` 线上验收并记录证据。
-17. [ ] 更新 `verification.md`，确认临时 Chrome/端口/临时目录已清理。
+13. [x] 完整 `npm run verify` 十层通过。
+14. [x] 独立提交并推送到 `main`（只含本阶段文件）。
+15. [x] Pages #1（`c52dcb9`）因跨平台缺陷失败；修复 npm/Chrome 平台探测并消除子集假绿。
+16. [x] Pages run `31147072084`（`9a1ea5f`）quality/deploy 均 success。
+17. [x] `npm run check:release -- --commit=9a1ea5f…` 线上验收 5/5 通过。
+18. [x] 更新 `verification.md`，确认临时 Chrome、端口和临时目录均已清理。
 
 ## 安全约束
 
