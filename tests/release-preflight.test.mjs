@@ -35,7 +35,8 @@ import {
     parseGateArgs,
     prepareRunState,
     resolveNpmCommand,
-    selectSteps
+    selectSteps,
+    summarizeRunOutcome
 } from '../scripts/run-quality-gate.mjs';
 import {
     BUILD_META_MARKER,
@@ -177,15 +178,64 @@ test('a full run starts from a clean state while resume and subsets keep history
     );
 });
 
+test('only a full run may claim the gate passed', () => {
+    const allPassed = { schema: 1, steps: {} };
+    for (const step of STEPS) allPassed.steps[step.id] = { status: 'passed', exitCode: 0 };
+
+    assert.equal(summarizeRunOutcome(allPassed, parseGateArgs([])), 'Quality gate passed.');
+    assert.equal(summarizeRunOutcome(allPassed, parseGateArgs(['--resume'])), 'Quality gate passed.');
+
+    // A subset run must not inherit a full pass from earlier state history.
+    for (const subset of [['--only=test-unit'], ['--from=check-repo']]) {
+        const summary = summarizeRunOutcome(allPassed, parseGateArgs(subset));
+        assert.match(summary, /covered only a subset/);
+        assert.doesNotMatch(summary, /^Quality gate passed\.$/);
+    }
+
+    const partial = { schema: 1, steps: { 'test-unit': { status: 'passed' } } };
+    assert.match(summarizeRunOutcome(partial, parseGateArgs([])), /Run npm run verify for the full gate/);
+});
+
 test('quality gate layers run npm without shell escaping', () => {
     const fromEnv = resolveNpmCommand({ npm_execpath: '/npm/bin/npm-cli.js' }, '/usr/bin/node');
     assert.deepEqual(fromEnv, { command: '/usr/bin/node', prefixArgs: ['/npm/bin/npm-cli.js'], shell: false });
 
+    // This runner always has a bundled npm, on the Windows layout beside the
+    // binary or the POSIX layout under lib/. Either must resolve without a shell.
     const discovered = resolveNpmCommand({}, process.execPath);
     assert.equal(discovered.shell, false);
     assert.equal(discovered.command, process.execPath);
     assert.match(discovered.prefixArgs[0], /npm-cli\.js$/);
     assert.equal(existsSync(discovered.prefixArgs[0]), true);
+});
+
+test('npm discovery handles both install layouts without matching a sibling tree', async () => {
+    const sandbox = await mkdtemp(resolve(tmpdir(), 'cplayer-npm-layout-'));
+    try {
+        for (const directory of [
+            'posix/bin', 'posix/lib/node_modules/npm/bin',
+            'win/node_modules/npm/bin', 'bare/bin'
+        ]) {
+            await mkdir(resolve(sandbox, directory), { recursive: true });
+        }
+        await writeFile(resolve(sandbox, 'posix/lib/node_modules/npm/bin/npm-cli.js'), '', 'utf8');
+        await writeFile(resolve(sandbox, 'win/node_modules/npm/bin/npm-cli.js'), '', 'utf8');
+
+        const posix = resolveNpmCommand({}, resolve(sandbox, 'posix/bin/node'));
+        assert.equal(posix.shell, false);
+        assert.equal(posix.prefixArgs[0], resolve(sandbox, 'posix/lib/node_modules/npm/bin/npm-cli.js'));
+
+        const windows = resolveNpmCommand({}, resolve(sandbox, 'win/node.exe'));
+        assert.equal(windows.shell, false);
+        assert.equal(windows.prefixArgs[0], resolve(sandbox, 'win/node_modules/npm/bin/npm-cli.js'));
+
+        // A binary with no bundled npm must fall back instead of borrowing the
+        // npm that belongs to an unrelated sibling install.
+        const bare = resolveNpmCommand({}, resolve(sandbox, 'bare/bin/node'));
+        assert.deepEqual(bare, { command: 'npm', prefixArgs: [], shell: process.platform === 'win32' });
+    } finally {
+        await rm(sandbox, { recursive: true, force: true });
+    }
 });
 
 function deployedMetadata(overrides = {}) {
@@ -321,12 +371,22 @@ test('online release check owns its public target, options, and browser discover
     assert.equal(parsed.skipBrowser, true);
     assert.deepEqual(parseReleaseArgs(['--nope']).unknown, ['--nope']);
 
+    // An explicit override wins on every platform, and an unknown platform must
+    // fail loudly instead of silently probing another platform's paths.
     assert.equal(
         findChromeExecutable({ CPLAYER_CHROME_PATH: 'C:/custom/chrome.exe' }, 'win32'),
         'C:/custom/chrome.exe'
     );
+    assert.equal(
+        findChromeExecutable({ CPLAYER_CHROME_PATH: '/opt/chrome' }, 'unsupported-platform'),
+        '/opt/chrome'
+    );
     assert.throws(
         () => findChromeExecutable({}, 'unsupported-platform'),
+        /unsupported platform unsupported-platform/
+    );
+    assert.throws(
+        () => findChromeExecutable({ ProgramFiles: '/nonexistent-cplayer-probe' }, 'win32'),
         /Chrome was not found/
     );
 });

@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync, createWriteStream } from 'node:fs';
 import { spawn } from 'node:child_process';
-import { resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = resolve(import.meta.dirname, '..');
@@ -131,6 +131,21 @@ function saveState(state) {
     writeFileSync(statePath, `${JSON.stringify(state, null, 2)}\n`, 'utf8');
 }
 
+// Only a run that actually executed or resumed into every layer may claim the
+// gate passed. A subset run must never report a full pass from state history.
+export function summarizeRunOutcome(state, options, steps = STEPS) {
+    const allPassed = steps.every((step) => state.steps?.[step.id]?.status === 'passed');
+    if (!allPassed) {
+        return 'Selected quality gate steps passed. Run npm run verify for the full gate.';
+    }
+    const isSubset = options.only.length > 0 || Boolean(options.from);
+    if (isSubset) {
+        return 'Selected quality gate steps passed. Every layer is recorded as passed, '
+            + 'but this run covered only a subset; run npm run verify for the full gate.';
+    }
+    return 'Quality gate passed.';
+}
+
 export function formatStateReport(state, steps = STEPS) {
     const lines = [];
     for (const [index, step] of steps.entries()) {
@@ -149,10 +164,16 @@ export function formatStateReport(state, steps = STEPS) {
 
 // Prefer running npm's own CLI through this Node binary. Spawning `npm` with a
 // shell on Windows would need shell escaping (DEP0190) and would depend on PATH.
+// Windows keeps npm beside the node binary; POSIX installs keep it under lib/.
 export function resolveNpmCommand(env = process.env, execPath = process.execPath) {
     if (env.npm_execpath) return { command: execPath, prefixArgs: [env.npm_execpath], shell: false };
-    const bundled = resolve(execPath, '..', 'node_modules', 'npm', 'bin', 'npm-cli.js');
-    if (existsSync(bundled)) return { command: execPath, prefixArgs: [bundled], shell: false };
+    const binDirectory = dirname(execPath);
+    const candidates = [
+        resolve(binDirectory, 'node_modules', 'npm', 'bin', 'npm-cli.js'),
+        resolve(binDirectory, '..', 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js')
+    ];
+    const bundled = candidates.find((candidate) => existsSync(candidate));
+    if (bundled) return { command: execPath, prefixArgs: [bundled], shell: false };
     return { command: 'npm', prefixArgs: [], shell: process.platform === 'win32' };
 }
 
@@ -243,7 +264,7 @@ async function main(argv) {
             process.stdout.write(`Resuming: ${done.length} step(s) already passed, ${selected.length} remaining.\n`);
         }
         if (!selected.length) {
-            process.stdout.write(`${formatStateReport(runState)}\n\nQuality gate already complete for every selected step.\n`);
+            process.stdout.write(`${formatStateReport(runState)}\n\n${summarizeRunOutcome(runState, options)}\n`);
             return;
         }
     }
@@ -300,10 +321,7 @@ async function main(argv) {
     }
 
     process.stdout.write(`\n${formatStateReport(runState)}\n`);
-    const allPassed = STEPS.every((step) => runState.steps[step.id]?.status === 'passed');
-    process.stdout.write(allPassed
-        ? '\nQuality gate passed.\n'
-        : '\nSelected quality gate steps passed. Run npm run verify for the full gate.\n');
+    process.stdout.write(`\n${summarizeRunOutcome(runState, options)}\n`);
 }
 
 const invokedPath = process.argv[1] ? resolve(process.argv[1]) : '';

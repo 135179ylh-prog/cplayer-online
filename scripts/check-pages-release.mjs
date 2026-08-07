@@ -101,18 +101,23 @@ async function fetchFresh(url, bust) {
     return response;
 }
 
+const CHROME_CANDIDATES = Object.freeze({
+    win32: (env) => [
+        `${env['ProgramFiles'] || 'C:/Program Files'}/Google/Chrome/Application/chrome.exe`,
+        `${env['ProgramFiles(x86)'] || 'C:/Program Files (x86)'}/Google/Chrome/Application/chrome.exe`,
+        `${env.LOCALAPPDATA || ''}/Google/Chrome/Application/chrome.exe`
+    ],
+    darwin: () => ['/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'],
+    linux: () => ['/usr/bin/google-chrome', '/usr/bin/chromium', '/usr/bin/chromium-browser']
+});
+
 export function findChromeExecutable(env = process.env, platform = process.platform) {
     if (env.CPLAYER_CHROME_PATH) return env.CPLAYER_CHROME_PATH;
-    const candidates = platform === 'win32'
-        ? [
-            `${env['ProgramFiles'] || 'C:/Program Files'}/Google/Chrome/Application/chrome.exe`,
-            `${env['ProgramFiles(x86)'] || 'C:/Program Files (x86)'}/Google/Chrome/Application/chrome.exe`,
-            `${env.LOCALAPPDATA || ''}/Google/Chrome/Application/chrome.exe`
-        ]
-        : platform === 'darwin'
-            ? ['/Applications/Google Chrome.app/Contents/MacOS/Google Chrome']
-            : ['/usr/bin/google-chrome', '/usr/bin/chromium', '/usr/bin/chromium-browser'];
-    const found = candidates.find((candidate) => candidate && existsSync(candidate));
+    const buildCandidates = CHROME_CANDIDATES[platform];
+    if (!buildCandidates) {
+        throw new Error(`Chrome was not found: unsupported platform ${platform}. Set CPLAYER_CHROME_PATH.`);
+    }
+    const found = buildCandidates(env).find((candidate) => candidate && existsSync(candidate));
     if (!found) {
         throw new Error('Chrome was not found. Set CPLAYER_CHROME_PATH to the browser executable.');
     }

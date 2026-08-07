@@ -597,7 +597,7 @@ require(gate_step_ids == [
 ], "quality gate layers changed unexpectedly; the gate must keep all ten steps in order")
 for snippet in [
     "expireInterruptedSteps", "formatStateReport", "selectSteps", "parseGateArgs",
-    "prepareRunState", "resolveNpmCommand", "status: 'interrupted'",
+    "prepareRunState", "resolveNpmCommand", "summarizeRunOutcome", "status: 'interrupted'",
     "'--resume'", "'--status'", "'--list'",
     "output/quality-gate", "createWriteStream", "isProcessAlive",
 ]:
@@ -633,6 +633,8 @@ for snippet in [
     "an outer timeout is reported as interrupted rather than a test failure",
     "a full run starts from a clean state while resume and subsets keep history",
     "quality gate layers run npm without shell escaping",
+    "npm discovery handles both install layouts without matching a sibling tree",
+    "only a full run may claim the gate passed",
     "online release check rejects a deployment that does not match the release contract",
     "online release check compares the deployed Worker with the published metadata",
     "online release check requires real runtime propagation, not a successful workflow",
