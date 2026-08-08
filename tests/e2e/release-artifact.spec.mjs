@@ -27,6 +27,7 @@ const PUBLIC_PATHS = [
     '/css/tailwind.css',
     '/js/app.js',
     '/js/core-utils.js',
+    '/js/fluid-background.js',
     '/js/cloud-config.js',
     '/js/cloud-sync.js',
     '/js/vendor/supabase.js',

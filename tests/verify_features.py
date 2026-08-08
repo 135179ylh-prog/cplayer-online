@@ -49,6 +49,7 @@ RELEASE_CHECK = (ROOT / "scripts" / "check-pages-release.mjs").read_text(encodin
 TEST_SERVER = (ROOT / "tests" / "e2e" / "server.mjs").read_text(encoding="utf-8")
 OLD_SW_FIXTURE = (ROOT / "tests" / "e2e" / "fixtures" / "sw-old.js").read_text(encoding="utf-8")
 CORE_UTILS = (ROOT / "js" / "core-utils.js").read_text(encoding="utf-8")
+FLUID_BACKGROUND = (ROOT / "js" / "fluid-background.js").read_text(encoding="utf-8")
 
 
 def require(condition: bool, message: str) -> None:
@@ -119,7 +120,6 @@ required_app = {
     "bounded media session seek": "function seekMainAudio(target, options)",
     "explicit app readiness": "document.documentElement.dataset.cplayerReady = 'true';",
     "visual lifecycle owner": "function syncVisualLifecycle()",
-    "paused WebGL resize redraw": "if (document.visibilityState === 'visible' && !this.shouldAnimate()) this.render();",
     "offline feedback": "window.addEventListener('offline'",
     "safe search title": "titleDiv.textContent = song.name ||",
     "mobile instance export": "window.mobileUI = mobileUI;",
@@ -205,6 +205,8 @@ require(APP.count("localStorage.") == 3, "production localStorage access bypasse
 require((ROOT / "playlist.js").is_file(), "optional playlist.js hook is missing")
 require((ROOT / "js" / "app.js").is_file(), "production app module is missing")
 require((ROOT / "js" / "core-utils.js").is_file(), "core utility module is missing")
+require((ROOT / "js" / "fluid-background.js").is_file(), "fluid background module is missing")
+require("./js/fluid-background.js" in SW, "fluid background module is not precached")
 require((ROOT / "js" / "cloud-sync.js").is_file(), "cloud sync module is missing")
 require((ROOT / "js" / "cloud-config.js").is_file(), "public cloud config is missing")
 require((ROOT / "js" / "vendor" / "supabase.js").stat().st_size > 100_000, "vendored Supabase browser bundle is missing")
@@ -361,7 +363,7 @@ require(api_endpoints == {"/163_search", "/163_music", "/163_lyric", "/163_playl
 require("search.set('apikey', key)" in APP, "API key is not appended through URLSearchParams")
 require("writeLocalStorage('cp_api_key', key)" in APP, "API key is not persisted from runtime input")
 require("removeLocalStorage('cp_api_key')" in APP, "API key reset is missing")
-production_source = "\n".join((HTML, APP, DOWNLOADER, SW, CORE_UTILS))
+production_source = "\n".join((HTML, APP, DOWNLOADER, SW, CORE_UTILS, FLUID_BACKGROUND))
 require(not re.search(r"apikey\s*=\s*['\"][^'\"]{8,}['\"]", production_source, flags=re.IGNORECASE), "a literal API key appears to be hard-coded")
 require("serviceWorkers: 'block'" in API_CONFIG_E2E and "randomUUID" in API_CONFIG_E2E, "API config browser test is not deterministic or uses a fixed key")
 require("searchParams.has('apikey')" in API_CONFIG_E2E, "browser test does not prove key-free compatibility")
@@ -584,6 +586,21 @@ for snippet in [
     require(snippet in RUNTIME_RESILIENCE_E2E, f"reduced-motion browser contract is missing: {snippet}")
 require("viewport-fit=cover" in HTML and "--cp-safe-area-top" in HTML and "#mobileBottomControls" in HTML,
         "mobile safe-area selectors or viewport ownership are incomplete")
+require("if (document.visibilityState === 'visible' && !this.shouldAnimate()) this.render();" in FLUID_BACKGROUND,
+        "paused WebGL resize redraw is missing from the fluid background module")
+require("export class FluidBackground" in FLUID_BACKGROUND
+        and "from './fluid-background.js';" in APP
+        and "class FluidBackground" not in APP,
+        "FluidBackground must live in its own module and be imported by the app module")
+require("new FluidBackground('fluidBg', { isPlaying, prefersReducedMotion })" in APP,
+        "the fluid background must receive its player bindings by injection")
+for forbidden in ["playlist", "currentIndex", "cloudSession", "queueSaveTimer", "showToast"]:
+    require(forbidden not in FLUID_BACKGROUND,
+            f"extracted fluid background module must not reach into app state: {forbidden}")
+# Browser APIs (window.addEventListener, window.innerWidth) are fine; publishing
+# onto window would mean the module grew its own global surface.
+require(re.search(r"window\.[A-Za-z_$][A-Za-z0-9_$]*\s*=", FLUID_BACKGROUND) is None,
+        "extracted fluid background module must not publish globals")
 require("prefers-reduced-motion: reduce" in HTML and "prefersReducedMotion()" in APP,
         "reduced-motion CSS/runtime ownership is incomplete")
 require("mobileLayoutQuery" in APP and "this.isMobile = isMobileLayoutViewport()" in APP

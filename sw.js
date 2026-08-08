@@ -1,5 +1,5 @@
-const CACHE_NAME = 'cplayer5-v85-reliability-sprint';
-const PRECACHE_REVISION = 'sha256:91f5909507c18acc62f7b5fd96eae0cfd6adcbf472d23b30cb85dfb99313077a';
+const CACHE_NAME = 'cplayer5-v86-reliability-sprint';
+const PRECACHE_REVISION = 'sha256:2cd1c72ccd6391fe1f57698a93818516bc44ecaca171924d640689763bc7dce5';
 const COVER_CACHE_LIMIT = 160;
 const DYNAMIC_API_PATH_SEGMENTS = new Set([
   '163_search',
@@ -27,6 +27,7 @@ const CORE_ASSETS = [
   './js/vendor/supabase.js',
   './js/app.js',
   './js/core-utils.js',
+  './js/fluid-background.js',
   './img/icon.svg',
   './img/icon.png',
   './manifest.json'

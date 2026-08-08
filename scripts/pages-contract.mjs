@@ -16,6 +16,7 @@ export const CORE_ASSETS = Object.freeze([
     './js/vendor/supabase.js',
     './js/app.js',
     './js/core-utils.js',
+    './js/fluid-background.js',
     './img/icon.svg',
     './img/icon.png',
     './manifest.json'
