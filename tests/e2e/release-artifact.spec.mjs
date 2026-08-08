@@ -31,6 +31,7 @@ const PUBLIC_PATHS = [
     '/js/lyrics-canvas.js',
     '/js/mobile-ui.js',
     '/js/search-view.js',
+    '/js/playlist-view.js',
     '/js/cloud-config.js',
     '/js/cloud-sync.js',
     '/js/vendor/supabase.js',

@@ -53,6 +53,7 @@ FLUID_BACKGROUND = (ROOT / "js" / "fluid-background.js").read_text(encoding="utf
 LYRICS_CANVAS = (ROOT / "js" / "lyrics-canvas.js").read_text(encoding="utf-8")
 MOBILE_UI = (ROOT / "js" / "mobile-ui.js").read_text(encoding="utf-8")
 SEARCH_VIEW = (ROOT / "js" / "search-view.js").read_text(encoding="utf-8")
+PLAYLIST_VIEW = (ROOT / "js" / "playlist-view.js").read_text(encoding="utf-8")
 
 
 def require(condition: bool, message: str) -> None:
@@ -232,6 +233,33 @@ require(re.search(r"window\.[A-Za-z_$][A-Za-z0-9_$]*\s*=", SEARCH_VIEW) is None,
 for forbidden in ["cloudSession", "queueSaveTimer", "currentIndex"]:
     require(forbidden not in SEARCH_VIEW,
             f"extracted search view module must not reach into app state: {forbidden}")
+
+require((ROOT / "js" / "playlist-view.js").is_file(), "playlist view module is missing")
+require("./js/playlist-view.js" in SW, "playlist view module is not precached")
+require("from './playlist-view.js';" in APP, "app module does not import the playlist view")
+require("export function configurePlaylistView" in PLAYLIST_VIEW and "configurePlaylistView({" in APP,
+        "the playlist view must be configured with its dependencies at startup")
+for exported in ["export function renderAllPlaylistItems", "export function highlightCurrentSong",
+                 "export function setupVirtualScroll"]:
+    require(exported in PLAYLIST_VIEW, f"playlist view must export its entry point: {exported}")
+# The virtual-scroll bindings are module-private; nothing outside referenced them.
+for private_name in ["VS_ITEM_H", "VS_BUFFER", "vsDisplayOrder", "vsRenderedRange", "vsScrollRAF", "vsNodeMap"]:
+    require(private_name in PLAYLIST_VIEW and private_name not in APP,
+            f"virtual scroll binding must stay private to the playlist view: {private_name}")
+# This module both reads and WRITES currentIndex, so it needs a setter as well as
+# a getter. A getter alone cannot be an assignment target, and the first version
+# of this extraction produced `deps.getCurrentIndex() = value`, which is invalid.
+require("setCurrentIndex: (value) => { currentIndex = value; }" in APP,
+        "the playlist view needs a currentIndex setter, not only a getter")
+require("deps.setCurrentIndex(" in PLAYLIST_VIEW,
+        "playlist view must write currentIndex through the injected setter")
+require(re.search(r"deps\.get[A-Za-z]+\(\)\s*=[^=]", PLAYLIST_VIEW) is None,
+        "playlist view must not assign to a getter call")
+require("window.playSongAtIndex = " in PLAYLIST_VIEW and "window.playSongAtIndex = " not in APP,
+        "playSongAtIndex must be published by the playlist view module")
+for forbidden in ["cloudSession", "queueSaveTimer", "parsedLyrics ="]:
+    require(forbidden not in PLAYLIST_VIEW,
+            f"extracted playlist view module must not reach into app state: {forbidden}")
 require("mob-search-img-${song.id}" not in APP, "external song id is still interpolated into mobile HTML")
 require(APP.count("const RECENT_HISTORY_KEY = 'cp_recent_history';") == 1, "recent history key is duplicated")
 require(APP.count("localStorage.") == 3, "production localStorage access bypasses the safe storage boundary")
@@ -445,7 +473,7 @@ require(api_endpoints == {"/163_search", "/163_music", "/163_lyric", "/163_playl
 require("search.set('apikey', key)" in APP, "API key is not appended through URLSearchParams")
 require("writeLocalStorage('cp_api_key', key)" in APP, "API key is not persisted from runtime input")
 require("removeLocalStorage('cp_api_key')" in APP, "API key reset is missing")
-production_source = "\n".join((HTML, APP, DOWNLOADER, SW, CORE_UTILS, FLUID_BACKGROUND, LYRICS_CANVAS, MOBILE_UI, SEARCH_VIEW))
+production_source = "\n".join((HTML, APP, DOWNLOADER, SW, CORE_UTILS, FLUID_BACKGROUND, LYRICS_CANVAS, MOBILE_UI, SEARCH_VIEW, PLAYLIST_VIEW))
 require(not re.search(r"apikey\s*=\s*['\"][^'\"]{8,}['\"]", production_source, flags=re.IGNORECASE), "a literal API key appears to be hard-coded")
 require("serviceWorkers: 'block'" in API_CONFIG_E2E and "randomUUID" in API_CONFIG_E2E, "API config browser test is not deterministic or uses a fixed key")
 require("searchParams.has('apikey')" in API_CONFIG_E2E, "browser test does not prove key-free compatibility")

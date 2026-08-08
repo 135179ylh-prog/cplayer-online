@@ -8,6 +8,7 @@ module.exports = {
     './js/app.js',
     './js/mobile-ui.js',
     './js/search-view.js',
+    './js/playlist-view.js',
   ],
   theme: {
     extend: {},

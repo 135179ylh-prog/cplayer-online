@@ -66,6 +66,33 @@ setter 改值 owner 也立刻可见，**无副本、无过期值**。这是拆�
 已写复现用例（驱动真实的设置界面歌单 ID 输入框）、修复、变异验证，并加契约
 要求每处清空点都在几行内同步。独立提交 `04cae18`。
 
+## 七点五、第 5、6 步的教训
+
+### 用主题分组代替逐个挑大块
+
+最大 25 个顶层声明只占 35%，长尾才是主体。改为按命名前缀把 528 个声明分到 14 个
+主题，再看每个主题内部有多少「大间隔」。零间隔=完全连续=可整块搬移。
+
+实测四个零间隔主题：`search` 399 行、`virtual-scroll` 187 行、`welcome` 87 行、
+`sleep-timer` 77 行。第 5、6 步就是搬走前两个。
+
+### getter 不能作为赋值目标
+
+第 6 步我把 `currentIndex` 全部替换成 `deps.getCurrentIndex()`，结果产生了
+`deps.getCurrentIndex() = actualIndex;` —— 语法非法。
+
+根因：我测量依赖时只看了「读」，漏了「写」。这个块有 2 处写入 `currentIndex`。
+修法是额外注入 setter。已加契约禁止 `deps.getXxx() = ...` 形式。
+
+注意 `node --check` **没有**抓到这个错误，因为它按脚本解析；acorn 按模块解析才报出
+`Assigning to rvalue`。所以模块语法检查不能只靠 `node --check`。
+
+### 契约可能完全缺失
+
+第 6 步搬完后契约全部通过 —— 但这是坏消息：说明虚拟滚动和 `window.playSongAtIndex`
+这类核心代码原本零静态守护。已补 13 条契约，含 6 个私有变量必须留在模块内、
+`playSongAtIndex` 必须由新模块发布。
+
 ## 八、保留的既存缺陷（未修）
 
 `mobile-ui.js` 里移动端进度条点击调用 `updateProgress()`，但 `app.js` 从未定义
