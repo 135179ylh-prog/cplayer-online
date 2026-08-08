@@ -33,6 +33,7 @@ const PUBLIC_PATHS = [
     '/js/search-view.js',
     '/js/playlist-view.js',
     '/js/sleep-timer.js',
+    '/js/cloud-state.js',
     '/js/cloud-config.js',
     '/js/cloud-sync.js',
     '/js/vendor/supabase.js',

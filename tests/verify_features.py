@@ -55,6 +55,7 @@ MOBILE_UI = (ROOT / "js" / "mobile-ui.js").read_text(encoding="utf-8")
 SEARCH_VIEW = (ROOT / "js" / "search-view.js").read_text(encoding="utf-8")
 PLAYLIST_VIEW = (ROOT / "js" / "playlist-view.js").read_text(encoding="utf-8")
 SLEEP_TIMER = (ROOT / "js" / "sleep-timer.js").read_text(encoding="utf-8")
+CLOUD_STATE = (ROOT / "js" / "cloud-state.js").read_text(encoding="utf-8")
 
 
 def require(condition: bool, message: str) -> None:
@@ -159,9 +160,8 @@ required_app = {
     "recovery package no outbox": "const stores = ['playlists'];",
     "cloud health snapshot": "async function runCloudHealthCheck()",
     "cloud health report sanitizer": "function sanitizeCloudHealthReport(snapshot)",
-    "cloud health revision": "let cloudHealthRevision = 0;",
-    "cloud health start revision": "const startedRevision = cloudHealthRevision;",
-    "cloud health start owner": "const startedOwnerId = cloudUserId || '';",
+    "cloud health start revision": "const startedRevision = cloudState.cloudHealthRevision;",
+    "cloud health start owner": "const startedOwnerId = cloudState.cloudUserId || '';",
     "cloud health snapshot keeps start revision": "revision: startedRevision,",
     "cloud health freshness guard": "function isCloudHealthSnapshotFresh()",
     "cloud health stale invalidation": "function invalidateCloudHealthSnapshot(reason)",
@@ -485,7 +485,7 @@ require(api_endpoints == {"/163_search", "/163_music", "/163_lyric", "/163_playl
 require("search.set('apikey', key)" in APP, "API key is not appended through URLSearchParams")
 require("writeLocalStorage('cp_api_key', key)" in APP, "API key is not persisted from runtime input")
 require("removeLocalStorage('cp_api_key')" in APP, "API key reset is missing")
-production_source = "\n".join((HTML, APP, DOWNLOADER, SW, CORE_UTILS, FLUID_BACKGROUND, LYRICS_CANVAS, MOBILE_UI, SEARCH_VIEW, PLAYLIST_VIEW, SLEEP_TIMER))
+production_source = "\n".join((HTML, APP, DOWNLOADER, SW, CORE_UTILS, FLUID_BACKGROUND, LYRICS_CANVAS, MOBILE_UI, SEARCH_VIEW, PLAYLIST_VIEW, SLEEP_TIMER, CLOUD_STATE))
 require(not re.search(r"apikey\s*=\s*['\"][^'\"]{8,}['\"]", production_source, flags=re.IGNORECASE), "a literal API key appears to be hard-coded")
 require("serviceWorkers: 'block'" in API_CONFIG_E2E and "randomUUID" in API_CONFIG_E2E, "API config browser test is not deterministic or uses a fixed key")
 require("searchParams.has('apikey')" in API_CONFIG_E2E, "browser test does not prove key-free compatibility")
@@ -884,6 +884,27 @@ require(re.search(r"window\.[A-Za-z_$][A-Za-z0-9_$]*\s*=", SLEEP_TIMER) is None,
         "extracted sleep timer module must not publish globals")
 require(re.search(r"deps\.get[A-Za-z]+\(\)\s*=[^=]", SLEEP_TIMER) is None,
         "sleep timer must not assign to a getter call")
+
+require((ROOT / "js" / "cloud-state.js").is_file(), "cloud state module is missing")
+require("./js/cloud-state.js" in SW, "cloud state module is not precached")
+require("from './cloud-state.js';" in APP, "app module does not import the cloud state")
+require("export const cloudState = {" in CLOUD_STATE,
+        "cloud state must be one shared object so every reader sees the same identity")
+# All cloud mutable state lives in that object; a bare declaration left behind in
+# app.js would mean two copies of the same value.
+for name in ["cloudService", "cloudSession", "cloudUserId", "cloudState", "cloudPendingCount",
+             "cloudLastSuccessfulAt", "cloudLastErrorMessage", "cloudHealthRevision",
+             "cloudHealthSnapshot", "cloudSyncInFlight", "cloudPendingItems"]:
+    require(f"{name}:" in CLOUD_STATE,
+            f"cloud state object must hold {name}")
+    require(re.search(rf"^ {{8}}let {name}\b", APP, flags=re.MULTILINE) is None,
+            f"cloud state must not also be declared in js/app.js: {name}")
+# The rewrite once replaced DOM id strings as well, which silently broke the
+# status panel. Element ids must never carry the object prefix.
+require("getElementById('cloudState." not in APP and 'getElementById("cloudState.' not in APP,
+        "a DOM id must not be prefixed with the cloud state object")
+require(re.search(r"window\.[A-Za-z_$][A-Za-z0-9_$]*\s*=", CLOUD_STATE) is None,
+        "cloud state module must not publish globals")
 require("classifyPlaybackFailure(error, navigator.onLine !== false)" in APP, "playback failure feedback is not classified")
 require("recordPlaybackDiagnostic({ attempt, error, source, category: failure.kind })" in APP,
         "playback failures are not recorded in the local diagnostic buffer")
