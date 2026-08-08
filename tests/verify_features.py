@@ -40,6 +40,7 @@ SW_KEY_CACHE_E2E = (ROOT / "tests" / "e2e" / "service-worker-key-cache.spec.mjs"
 STORAGE_RESILIENCE_E2E = (ROOT / "tests" / "e2e" / "storage-resilience.spec.mjs").read_text(encoding="utf-8")
 RUNTIME_RESILIENCE_E2E = (ROOT / "tests" / "e2e" / "runtime-background-resilience.spec.mjs").read_text(encoding="utf-8")
 PLAYBACK_ERROR_E2E = (ROOT / "tests" / "e2e" / "playback-error.spec.mjs").read_text(encoding="utf-8")
+QUEUE_FAILURE_E2E = (ROOT / "tests" / "e2e" / "queue-failure-paths.spec.mjs").read_text(encoding="utf-8")
 E2E_HELPERS = (ROOT / "tests" / "e2e" / "helpers.mjs").read_text(encoding="utf-8")
 RESPONSIVE_E2E = (ROOT / "tests" / "e2e" / "responsive-accessibility.spec.mjs").read_text(encoding="utf-8")
 RELEASE_ARTIFACT_E2E = (ROOT / "tests" / "e2e" / "release-artifact.spec.mjs").read_text(encoding="utf-8")
@@ -717,6 +718,18 @@ for snippet in [
     "'timedout'",
 ]:
     require(snippet in SEARCH_E2E, f"search staleness and retry cursor contract is missing: {snippet}")
+
+for snippet in [
+    "a failing song is skipped and playback lands on the next queue entry",
+    "an all-failing queue stops after trying each entry exactly once",
+    "removing the playing song advances to the replacement at that index",
+    "removing the playing song at the end of the queue clamps the pointer",
+    "removing a song before the playing one keeps the same track playing",
+    "正在尝试下一首",
+    "没有可播放歌曲",
+    "readPersistedIndex",
+]:
+    require(snippet in QUEUE_FAILURE_E2E, f"queue failure-path contract is missing: {snippet}")
 require("a hidden auto-advance updates the visible now-playing UI after the page returns" in RUNTIME_RESILIENCE_E2E,
         "hidden auto-advance does not prove the visible now-playing UI recovers")
 require(APP.count("renderSearchRecoveryState") >= 3, "desktop and mobile search retry states are not shared")
