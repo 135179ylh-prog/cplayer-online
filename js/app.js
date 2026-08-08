@@ -7898,6 +7898,9 @@ async function refreshUserPlaylistLibrary() {
             writeLocalStorage('cp_playlistId', listId);
 
             playlist = [];
+            // Keep the published queue in step with the cleared one: a load that
+            // fails after this point must not leave the previous songs visible.
+            window.playlist = playlist;
             currentIndex = -1;
             allSongsLoaded = false;
             renderedCount = 0;

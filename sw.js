@@ -1,5 +1,5 @@
-const CACHE_NAME = 'cplayer5-v87-reliability-sprint';
-const PRECACHE_REVISION = 'sha256:c437a4d110a5f461adf6220a1df391e3996c0adb2ce9378bd0097da9832c0c5d';
+const CACHE_NAME = 'cplayer5-v88-reliability-sprint';
+const PRECACHE_REVISION = 'sha256:436fd4ffdce6947e720d9e1775aa17efe8d71a486feee604c2850ecf6be24dfe';
 const COVER_CACHE_LIMIT = 160;
 const DYNAMIC_API_PATH_SEGMENTS = new Set([
   '163_search',

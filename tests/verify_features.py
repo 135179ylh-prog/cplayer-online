@@ -210,6 +210,15 @@ require((ROOT / "js" / "fluid-background.js").is_file(), "fluid background modul
 require("./js/fluid-background.js" in SW, "fluid background module is not precached")
 require((ROOT / "js" / "lyrics-canvas.js").is_file(), "lyrics canvas module is missing")
 require("./js/lyrics-canvas.js" in SW, "lyrics canvas module is not precached")
+# Every point that empties the queue must republish it in the same breath, or a
+# later failure leaves window.playlist exposing songs the app no longer holds.
+queue_clear_sites = list(re.finditer(r"\n\s*playlist = \[\];", APP))
+require(len(queue_clear_sites) == 3,
+        f"expected 3 queue-clearing sites in js/app.js, found {len(queue_clear_sites)}")
+for match in queue_clear_sites:
+    line_number = APP[:match.start()].count("\n") + 2
+    require("window.playlist = playlist;" in APP[match.end():match.end() + 300],
+            f"queue-clearing site at js/app.js:{line_number} does not republish window.playlist")
 require((ROOT / "js" / "cloud-sync.js").is_file(), "cloud sync module is missing")
 require((ROOT / "js" / "cloud-config.js").is_file(), "public cloud config is missing")
 require((ROOT / "js" / "vendor" / "supabase.js").stat().st_size > 100_000, "vendored Supabase browser bundle is missing")
