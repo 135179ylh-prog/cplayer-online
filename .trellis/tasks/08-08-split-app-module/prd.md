@@ -44,6 +44,8 @@ stale 值，而且**不会立刻报错** —— 这是本任务的核心风险�
 | 1 | 删除死代码（弹簧物理滚动，外部引用 0 次） | 10271 → 10215 | 完成 |
 | 2 | 提取 `FluidBackground` 到 `js/fluid-background.js` | 10215 → 10015 | 完成 |
 | 3 | 提取 `LyricsCanvasRenderer` 到 `js/lyrics-canvas.js` | 10015 → 9684 | 完成 |
+| — | 修复顺带发现的真 bug：歌单加载失败留下过期 `window.playlist` | — | 完成 |
+| 4 | 提取 `MobileUIManager` 到 `js/mobile-ui.js`（691 行） | 9684 → 9010 | 完成 |
 
 前三步共减 587 行。这三步都是「零状态写入」的块，属于最容易的部分；剩余约 7700 行
 全部涉及共享状态，必须换策略（见下）。

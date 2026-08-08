@@ -51,6 +51,7 @@ OLD_SW_FIXTURE = (ROOT / "tests" / "e2e" / "fixtures" / "sw-old.js").read_text(e
 CORE_UTILS = (ROOT / "js" / "core-utils.js").read_text(encoding="utf-8")
 FLUID_BACKGROUND = (ROOT / "js" / "fluid-background.js").read_text(encoding="utf-8")
 LYRICS_CANVAS = (ROOT / "js" / "lyrics-canvas.js").read_text(encoding="utf-8")
+MOBILE_UI = (ROOT / "js" / "mobile-ui.js").read_text(encoding="utf-8")
 
 
 def require(condition: bool, message: str) -> None:
@@ -101,7 +102,6 @@ required_app = {
     "queue serialization": "let queueSaveInFlight = null;",
     "lifecycle flush": "flushScheduledQueueSave('pagehide');",
     "desktop search race guard": "let desktopSearchRequestId = 0;",
-    "mobile search race guard": "this.searchRequestId = 0;",
     "API timeout wrapper": "async function fetchJsonWithTimeout",
     "API retry primitive": "fetchJsonWithRetry",
     "central API config": "meta[name=\"cplayer-api-base-url\"]",
@@ -124,10 +124,8 @@ required_app = {
     "offline feedback": "window.addEventListener('offline'",
     "safe search title": "titleDiv.textContent = song.name ||",
     "mobile instance export": "window.mobileUI = mobileUI;",
-    "mobile add action": "this.loadPlaylist();",
     "synchronous mobile initialization": "function initCanvasRenderers()",
     "service worker update policy": "updateViaCache: 'none'",
-    "dynamic cover sizing": 'width="40" height="40" decoding="async"',
     "accessible overlay stack": "const accessibleOverlayStack = [];",
     "focus-safe overlay manager": "function openAccessibleOverlay(modal, options)",
     "keyboard progress control": "function handleProgressKeydown(event)",
@@ -199,7 +197,20 @@ require(
 require('<script type="module">' not in HTML, "main app module is still inline")
 require("from './core-utils.js';" in APP and "./js/core-utils.js" not in APP, "app module import path is invalid")
 require("from './cloud-sync.js';" in APP, "cloud sync module import path is invalid")
-require("self.loadPlaylist();" not in APP, "mobile search still uses the window self object")
+require("self.loadPlaylist();" not in APP and "self.loadPlaylist();" not in MOBILE_UI,
+        "mobile search still uses the window self object")
+require("this.loadPlaylist();" in MOBILE_UI, "mobile add action no longer refreshes the sheet list")
+# Re-homed from required_app when MobileUIManager moved out of js/app.js.
+require("this.searchRequestId = 0;" in MOBILE_UI, "mobile search race guard is missing")
+require('width="40" height="40" decoding="async"' in MOBILE_UI, "dynamic cover sizing is missing")
+# The virtual-list helpers must stay arrow functions: as `function` declarations
+# their `this` is undefined, so every this.deps read inside them throws. That is
+# exactly how the first version of this extraction broke the mobile list.
+for helper in ["const mCreateItem = (i) =>", "const mRender = (force) =>"]:
+    require(helper in MOBILE_UI,
+            f"mobile list helper must stay an arrow function to keep `this`: {helper}")
+require("function mCreateItem" not in MOBILE_UI and "function mRender" not in MOBILE_UI,
+        "mobile list helpers must not revert to function declarations")
 require("mob-search-img-${song.id}" not in APP, "external song id is still interpolated into mobile HTML")
 require(APP.count("const RECENT_HISTORY_KEY = 'cp_recent_history';") == 1, "recent history key is duplicated")
 require(APP.count("localStorage.") == 3, "production localStorage access bypasses the safe storage boundary")
@@ -210,6 +221,26 @@ require((ROOT / "js" / "fluid-background.js").is_file(), "fluid background modul
 require("./js/fluid-background.js" in SW, "fluid background module is not precached")
 require((ROOT / "js" / "lyrics-canvas.js").is_file(), "lyrics canvas module is missing")
 require("./js/lyrics-canvas.js" in SW, "lyrics canvas module is not precached")
+require((ROOT / "js" / "mobile-ui.js").is_file(), "mobile UI module is missing")
+require("./js/mobile-ui.js" in SW, "mobile UI module is not precached")
+require("export class MobileUIManager" in MOBILE_UI
+        and "from './mobile-ui.js';" in APP
+        and "class MobileUIManager" not in APP,
+        "MobileUIManager must live in its own module and be imported by the app module")
+require("this.deps = deps;" in MOBILE_UI, "the mobile UI module must hold its injected dependencies")
+# State must arrive as getters. A snapshot would freeze the values the mobile
+# list renders from, which is invisible until the list stops updating.
+for accessor in ["getCurrentIndex: () => currentIndex",
+                 "getPlayMode: () => playMode",
+                 "getShuffledOrder: () => shuffledOrder"]:
+    require(accessor in APP, f"mobile UI player state must be injected as a getter: {accessor}")
+for forbidden in ["cloudSession", "queueSaveTimer", "parsedLyrics ="]:
+    require(forbidden not in MOBILE_UI,
+            f"extracted mobile UI module must not reach into app state: {forbidden}")
+# Bare reads of the player state would mean the module still expects module scope.
+for bare in [r"(?<![.\w])playMode\b", r"(?<![.\w])shuffledOrder\b", r"(?<![.\w])currentIndex\b"]:
+    require(re.search(bare, MOBILE_UI) is None,
+            f"mobile UI module still reads player state from module scope: {bare}")
 # Every point that empties the queue must republish it in the same breath, or a
 # later failure leaves window.playlist exposing songs the app no longer holds.
 queue_clear_sites = list(re.finditer(r"\n\s*playlist = \[\];", APP))
@@ -307,6 +338,24 @@ require(
     all(path in tailwind_config for path in ("'./index.html'", "'./playlist-downloader.html'", "'./js/app.js'")),
     "Tailwind content scan is incomplete",
 )
+# Any module carrying class-name strings must be scanned, or Tailwind purges those
+# classes and the UI loses styling with no failing check to show why.
+for module_path in sorted((ROOT / "js").glob("*.js")):
+    if module_path.name in {"color-thief.umd.js", "cloud-config.js"}:
+        continue
+    module_text = module_path.read_text(encoding="utf-8")
+    # Count only Tailwind-shaped utility classes inside a class attribute the
+    # module actually emits. A parameter named className, or a `class="` that only
+    # appears inside a regex literal, puts nothing into the bundle.
+    emitted = re.findall(r"""class="([^"]{20,})\"""", module_text)
+    utility_like = [
+        value for value in emitted
+        if re.search(r"\b(flex|grid|px-|py-|mt-|mb-|ml-|mr-|w-|h-|gap-|rounded|text-|bg-|border|opacity-|min-w-|max-w-|absolute|relative|truncate)", value)
+    ]
+    if not utility_like:
+        continue
+    require(f"'./js/{module_path.name}'" in tailwind_config,
+            f"js/{module_path.name} emits {len(utility_like)} Tailwind class attributes but is not in the content scan")
 require("@tailwind base;" in tailwind_input and "@tailwind utilities;" in tailwind_input, "Tailwind source directives are incomplete")
 require('href="css/tailwind.css"' in HTML and 'js/tailwindcss.js' not in HTML, "main page still uses runtime Tailwind")
 require('href="css/tailwind.css"' in DOWNLOADER and 'cdn.tailwindcss.com' not in DOWNLOADER, "downloader still uses Play CDN")
@@ -375,7 +424,7 @@ require(api_endpoints == {"/163_search", "/163_music", "/163_lyric", "/163_playl
 require("search.set('apikey', key)" in APP, "API key is not appended through URLSearchParams")
 require("writeLocalStorage('cp_api_key', key)" in APP, "API key is not persisted from runtime input")
 require("removeLocalStorage('cp_api_key')" in APP, "API key reset is missing")
-production_source = "\n".join((HTML, APP, DOWNLOADER, SW, CORE_UTILS, FLUID_BACKGROUND, LYRICS_CANVAS))
+production_source = "\n".join((HTML, APP, DOWNLOADER, SW, CORE_UTILS, FLUID_BACKGROUND, LYRICS_CANVAS, MOBILE_UI))
 require(not re.search(r"apikey\s*=\s*['\"][^'\"]{8,}['\"]", production_source, flags=re.IGNORECASE), "a literal API key appears to be hard-coded")
 require("serviceWorkers: 'block'" in API_CONFIG_E2E and "randomUUID" in API_CONFIG_E2E, "API config browser test is not deterministic or uses a fixed key")
 require("searchParams.has('apikey')" in API_CONFIG_E2E, "browser test does not prove key-free compatibility")
@@ -632,8 +681,10 @@ require(re.search(r"(?<![.\w])audio[.?]", LYRICS_CANVAS) is None,
         "lyrics canvas module still reads a module-scoped audio element")
 require("prefers-reduced-motion: reduce" in HTML and "prefersReducedMotion()" in APP,
         "reduced-motion CSS/runtime ownership is incomplete")
-require("mobileLayoutQuery" in APP and "this.isMobile = isMobileLayoutViewport()" in APP
-        and "const isNowMobile = isMobileLayoutViewport()" in APP,
+require("mobileLayoutQuery" in APP
+        and "this.isMobile = this.deps.isMobileLayoutViewport()" in MOBILE_UI
+        and "const isNowMobile = this.deps.isMobileLayoutViewport()" in MOBILE_UI
+        and "isMobileLayoutViewport" in APP,
         "runtime mobile-layout ownership does not match the responsive CSS boundary")
 require("tests/e2e" not in WORKFLOW and "tests/e2e" not in PAGES_BUILDER,
         "test-only Worker/server files must not enter the Pages artifact")
