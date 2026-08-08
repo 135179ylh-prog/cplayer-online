@@ -50,6 +50,7 @@ TEST_SERVER = (ROOT / "tests" / "e2e" / "server.mjs").read_text(encoding="utf-8"
 OLD_SW_FIXTURE = (ROOT / "tests" / "e2e" / "fixtures" / "sw-old.js").read_text(encoding="utf-8")
 CORE_UTILS = (ROOT / "js" / "core-utils.js").read_text(encoding="utf-8")
 FLUID_BACKGROUND = (ROOT / "js" / "fluid-background.js").read_text(encoding="utf-8")
+LYRICS_CANVAS = (ROOT / "js" / "lyrics-canvas.js").read_text(encoding="utf-8")
 
 
 def require(condition: bool, message: str) -> None:
@@ -207,6 +208,8 @@ require((ROOT / "js" / "app.js").is_file(), "production app module is missing")
 require((ROOT / "js" / "core-utils.js").is_file(), "core utility module is missing")
 require((ROOT / "js" / "fluid-background.js").is_file(), "fluid background module is missing")
 require("./js/fluid-background.js" in SW, "fluid background module is not precached")
+require((ROOT / "js" / "lyrics-canvas.js").is_file(), "lyrics canvas module is missing")
+require("./js/lyrics-canvas.js" in SW, "lyrics canvas module is not precached")
 require((ROOT / "js" / "cloud-sync.js").is_file(), "cloud sync module is missing")
 require((ROOT / "js" / "cloud-config.js").is_file(), "public cloud config is missing")
 require((ROOT / "js" / "vendor" / "supabase.js").stat().st_size > 100_000, "vendored Supabase browser bundle is missing")
@@ -363,7 +366,7 @@ require(api_endpoints == {"/163_search", "/163_music", "/163_lyric", "/163_playl
 require("search.set('apikey', key)" in APP, "API key is not appended through URLSearchParams")
 require("writeLocalStorage('cp_api_key', key)" in APP, "API key is not persisted from runtime input")
 require("removeLocalStorage('cp_api_key')" in APP, "API key reset is missing")
-production_source = "\n".join((HTML, APP, DOWNLOADER, SW, CORE_UTILS, FLUID_BACKGROUND))
+production_source = "\n".join((HTML, APP, DOWNLOADER, SW, CORE_UTILS, FLUID_BACKGROUND, LYRICS_CANVAS))
 require(not re.search(r"apikey\s*=\s*['\"][^'\"]{8,}['\"]", production_source, flags=re.IGNORECASE), "a literal API key appears to be hard-coded")
 require("serviceWorkers: 'block'" in API_CONFIG_E2E and "randomUUID" in API_CONFIG_E2E, "API config browser test is not deterministic or uses a fixed key")
 require("searchParams.has('apikey')" in API_CONFIG_E2E, "browser test does not prove key-free compatibility")
@@ -601,6 +604,23 @@ for forbidden in ["playlist", "currentIndex", "cloudSession", "queueSaveTimer", 
 # onto window would mean the module grew its own global surface.
 require(re.search(r"window\.[A-Za-z_$][A-Za-z0-9_$]*\s*=", FLUID_BACKGROUND) is None,
         "extracted fluid background module must not publish globals")
+require("export class LyricsCanvasRenderer" in LYRICS_CANVAS
+        and "from './lyrics-canvas.js';" in APP
+        and "class LyricsCanvasRenderer" not in APP,
+        "LyricsCanvasRenderer must live in its own module and be imported by the app module")
+require("new LyricsCanvasRenderer('lyricsCanvas', { audio })" in APP,
+        "the lyrics canvas must receive the media element by injection")
+require("this.audio = options.audio || null;" in LYRICS_CANVAS,
+        "the lyrics canvas must hold its injected media element")
+for forbidden in ["playlist", "currentIndex", "cloudSession", "parsedLyrics =", "showToast"]:
+    require(forbidden not in LYRICS_CANVAS,
+            f"extracted lyrics canvas module must not reach into app state: {forbidden}")
+require(re.search(r"window\.[A-Za-z_$][A-Za-z0-9_$]*\s*=", LYRICS_CANVAS) is None,
+        "extracted lyrics canvas module must not publish globals")
+# A bare `audio.` reference would mean the module still expects a module-scoped
+# element instead of the injected one.
+require(re.search(r"(?<![.\w])audio[.?]", LYRICS_CANVAS) is None,
+        "lyrics canvas module still reads a module-scoped audio element")
 require("prefers-reduced-motion: reduce" in HTML and "prefersReducedMotion()" in APP,
         "reduced-motion CSS/runtime ownership is incomplete")
 require("mobileLayoutQuery" in APP and "this.isMobile = isMobileLayoutViewport()" in APP

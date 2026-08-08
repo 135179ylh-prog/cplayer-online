@@ -1,5 +1,5 @@
-const CACHE_NAME = 'cplayer5-v86-reliability-sprint';
-const PRECACHE_REVISION = 'sha256:2cd1c72ccd6391fe1f57698a93818516bc44ecaca171924d640689763bc7dce5';
+const CACHE_NAME = 'cplayer5-v87-reliability-sprint';
+const PRECACHE_REVISION = 'sha256:c437a4d110a5f461adf6220a1df391e3996c0adb2ce9378bd0097da9832c0c5d';
 const COVER_CACHE_LIMIT = 160;
 const DYNAMIC_API_PATH_SEGMENTS = new Set([
   '163_search',
@@ -28,6 +28,7 @@ const CORE_ASSETS = [
   './js/app.js',
   './js/core-utils.js',
   './js/fluid-background.js',
+  './js/lyrics-canvas.js',
   './img/icon.svg',
   './img/icon.png',
   './manifest.json'
