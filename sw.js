@@ -1,5 +1,5 @@
-const CACHE_NAME = 'cplayer5-v91-reliability-sprint';
-const PRECACHE_REVISION = 'sha256:f3fa25060254cf3d561009cce07dc976a4578f6f6f7a327777bf4b352658dea6';
+const CACHE_NAME = 'cplayer5-v92-reliability-sprint';
+const PRECACHE_REVISION = 'sha256:942dc93c245f098c6a43a1d295668979f44d4c72453bafbd9d69da11304359ef';
 const COVER_CACHE_LIMIT = 160;
 const DYNAMIC_API_PATH_SEGMENTS = new Set([
   '163_search',
@@ -32,6 +32,7 @@ const CORE_ASSETS = [
   './js/mobile-ui.js',
   './js/search-view.js',
   './js/playlist-view.js',
+  './js/sleep-timer.js',
   './img/icon.svg',
   './img/icon.png',
   './manifest.json'

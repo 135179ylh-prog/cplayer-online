@@ -49,6 +49,7 @@
             renderAllPlaylistItems,
             setupVirtualScroll
         } from './playlist-view.js';
+        import { configureSleepTimer, setupSleepTimerUI } from './sleep-timer.js';
 
         // 监听 plusready 事件，增加原生能力支持
         document.addEventListener('plusready', function () {
@@ -855,7 +856,6 @@
         const USER_PL_PREFIX = 'user_pl_';
         const RECENT_HISTORY_KEY = 'cp_recent_history';
         const PLAYBACK_SESSION_KEY = 'cp_playback_session';
-        const SLEEP_TIMER_KEY = 'cp_sleep_timer_end_at';
         const RECENT_HISTORY_LIMIT = 50;
         const PLAYLIST_BACKUP_FORMAT = 'cplayer-playlists-backup';
         const PLAYLIST_BACKUP_VERSION = 1;
@@ -877,9 +877,6 @@
         let pendingSongForPlaylist = null;
         let pendingPlaybackSession = null;
         let playbackSessionLastSavedAt = 0;
-        let sleepTimerEndAt = 0;
-        let sleepTimerTimeout = null;
-        let sleepTimerInterval = null;
         let cloudService = null;
         let cloudSession = null;
         let cloudUserId = '';
@@ -1022,92 +1019,6 @@
                 : 0;
         }
 
-        function formatSleepTimerRemaining(remainingMs) {
-            const totalMinutes = Math.max(1, Math.ceil(remainingMs / 60000));
-            if (totalMinutes < 60) return totalMinutes + ' 分钟';
-            const hours = Math.floor(totalMinutes / 60);
-            const minutes = totalMinutes % 60;
-            return minutes ? hours + ' 小时 ' + minutes + ' 分钟' : hours + ' 小时';
-        }
-
-        function updateSleepTimerUI() {
-            const status = document.getElementById('sleepTimerStatus');
-            const select = document.getElementById('sleepTimerSelect');
-            const button = document.getElementById('sleepTimerBtn');
-            const remaining = getSleepTimerRemainingMs(sleepTimerEndAt);
-            if (status) status.textContent = remaining ? '剩余 ' + formatSleepTimerRemaining(remaining) : '未设置';
-            if (button) button.textContent = remaining ? '取消' : '设置';
-            if (!remaining && select) select.value = '0';
-        }
-
-        function clearSleepTimer(options) {
-            options = options || {};
-            if (sleepTimerTimeout) clearTimeout(sleepTimerTimeout);
-            if (sleepTimerInterval) clearInterval(sleepTimerInterval);
-            sleepTimerTimeout = null;
-            sleepTimerInterval = null;
-            sleepTimerEndAt = 0;
-            removeLocalStorage(SLEEP_TIMER_KEY);
-            updateSleepTimerUI();
-            if (options.notify && typeof showToast === 'function') showToast('睡眠定时已取消');
-        }
-
-        function handleSleepTimerExpired() {
-            try { audio.pause(); } catch (error) {}
-            savePlaybackSession('sleep_timer', true);
-            clearSleepTimer();
-            if (typeof showToast === 'function') showToast('睡眠定时到点，已暂停播放');
-        }
-
-        function scheduleSleepTimer() {
-            if (sleepTimerTimeout) clearTimeout(sleepTimerTimeout);
-            if (sleepTimerInterval) clearInterval(sleepTimerInterval);
-            const remaining = getSleepTimerRemainingMs(sleepTimerEndAt);
-            if (!remaining) {
-                clearSleepTimer();
-                return false;
-            }
-            sleepTimerTimeout = setTimeout(handleSleepTimerExpired, remaining);
-            sleepTimerInterval = setInterval(updateSleepTimerUI, 1000);
-            updateSleepTimerUI();
-            return true;
-        }
-
-        function setSleepTimer(minutes) {
-            const value = Number(minutes);
-            if (!Number.isFinite(value) || value <= 0) {
-                clearSleepTimer({ notify: true });
-                return;
-            }
-            sleepTimerEndAt = Date.now() + value * 60000;
-            writeLocalStorage(SLEEP_TIMER_KEY, String(sleepTimerEndAt));
-            scheduleSleepTimer();
-            if (typeof showToast === 'function') showToast('睡眠定时已设置：' + value + ' 分钟');
-        }
-
-        function setupSleepTimerUI() {
-            const select = document.getElementById('sleepTimerSelect');
-            const button = document.getElementById('sleepTimerBtn');
-            if (!select || !button || button.dataset.bound === '1') return;
-            button.dataset.bound = '1';
-            button.addEventListener('click', function () {
-                if (getSleepTimerRemainingMs(sleepTimerEndAt)) {
-                    clearSleepTimer({ notify: true });
-                    return;
-                }
-                if (Number(select.value) <= 0) {
-                    if (typeof showToast === 'function') showToast('请先选择定时时长', true);
-                    return;
-                }
-                setSleepTimer(select.value);
-            });
-            sleepTimerEndAt = Number(readLocalStorage(SLEEP_TIMER_KEY, '0')) || 0;
-            if (getSleepTimerRemainingMs(sleepTimerEndAt)) scheduleSleepTimer();
-            else clearSleepTimer();
-        }
-
-        // API 密钥/地址设置：只绑定按钮到 saveApiSettings/resetApiSettings。
-        // 实际读写逻辑集中在那两个函数里（含地址校验与本地存储）。
         function setupApiSettingsUI() {
             const saveBtn = document.getElementById('settingsApiSaveBtn');
             const resetBtn = document.getElementById('settingsApiResetBtn');
@@ -4469,6 +4380,16 @@ async function refreshUserPlaylistLibrary() {
                 takePreloadedNextMedia,
                 scheduleSaveCurrentQueue,
                 getPlaybackResumeTime
+            });
+            // Wired here so it is ready before setupSleepTimerUI() runs later in
+            // this same handler. Nothing assigns these, so plain references suffice.
+            configureSleepTimer({
+                audio,
+                showToast,
+                savePlaybackSession,
+                readLocalStorage,
+                writeLocalStorage,
+                removeLocalStorage
             });
             storageWarningUiReady = true;
             flushStorageWarning();

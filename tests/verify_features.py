@@ -54,6 +54,7 @@ LYRICS_CANVAS = (ROOT / "js" / "lyrics-canvas.js").read_text(encoding="utf-8")
 MOBILE_UI = (ROOT / "js" / "mobile-ui.js").read_text(encoding="utf-8")
 SEARCH_VIEW = (ROOT / "js" / "search-view.js").read_text(encoding="utf-8")
 PLAYLIST_VIEW = (ROOT / "js" / "playlist-view.js").read_text(encoding="utf-8")
+SLEEP_TIMER = (ROOT / "js" / "sleep-timer.js").read_text(encoding="utf-8")
 
 
 def require(condition: bool, message: str) -> None:
@@ -473,7 +474,7 @@ require(api_endpoints == {"/163_search", "/163_music", "/163_lyric", "/163_playl
 require("search.set('apikey', key)" in APP, "API key is not appended through URLSearchParams")
 require("writeLocalStorage('cp_api_key', key)" in APP, "API key is not persisted from runtime input")
 require("removeLocalStorage('cp_api_key')" in APP, "API key reset is missing")
-production_source = "\n".join((HTML, APP, DOWNLOADER, SW, CORE_UTILS, FLUID_BACKGROUND, LYRICS_CANVAS, MOBILE_UI, SEARCH_VIEW, PLAYLIST_VIEW))
+production_source = "\n".join((HTML, APP, DOWNLOADER, SW, CORE_UTILS, FLUID_BACKGROUND, LYRICS_CANVAS, MOBILE_UI, SEARCH_VIEW, PLAYLIST_VIEW, SLEEP_TIMER))
 require(not re.search(r"apikey\s*=\s*['\"][^'\"]{8,}['\"]", production_source, flags=re.IGNORECASE), "a literal API key appears to be hard-coded")
 require("serviceWorkers: 'block'" in API_CONFIG_E2E and "randomUUID" in API_CONFIG_E2E, "API config browser test is not deterministic or uses a fixed key")
 require("searchParams.has('apikey')" in API_CONFIG_E2E, "browser test does not prove key-free compatibility")
@@ -852,7 +853,26 @@ require("const PLAYBACK_SESSION_KEY = 'cp_playback_session';" in APP, "playback 
 require("normalizePlaybackSession" in APP and "preparePlaybackResume" in APP, "playback resume is not wired")
 require("getSafePlaybackResumeTime" in APP, "safe playback resume boundary is not wired")
 require("savePlaybackSession('timeupdate', false)" in APP, "playback progress is not throttled through the shared saver")
-require('id="sleepTimerSelect"' in HTML and "setupSleepTimerUI" in APP, "sleep timer controls are missing")
+require('id="sleepTimerSelect"' in HTML and "setupSleepTimerUI" in SLEEP_TIMER
+        and "setupSleepTimerUI" in APP,
+        "sleep timer controls are missing")
+require((ROOT / "js" / "sleep-timer.js").is_file(), "sleep timer module is missing")
+require("./js/sleep-timer.js" in SW, "sleep timer module is not precached")
+require("from './sleep-timer.js';" in APP, "app module does not import the sleep timer")
+require("export function configureSleepTimer" in SLEEP_TIMER and "configureSleepTimer({" in APP,
+        "the sleep timer must be configured with its dependencies at startup")
+require("export function setupSleepTimerUI" in SLEEP_TIMER,
+        "sleep timer must export its entry point")
+# These four travelled with the block; nothing outside referenced them.
+for private_name in ["sleepTimerEndAt", "sleepTimerTimeout", "sleepTimerInterval", "SLEEP_TIMER_KEY"]:
+    require(private_name in SLEEP_TIMER and private_name not in APP,
+            f"sleep timer binding must stay private to its module: {private_name}")
+require("cp_sleep_timer_end_at" in SLEEP_TIMER,
+        "sleep timer storage key must stay with the timer module")
+require(re.search(r"window\.[A-Za-z_$][A-Za-z0-9_$]*\s*=", SLEEP_TIMER) is None,
+        "extracted sleep timer module must not publish globals")
+require(re.search(r"deps\.get[A-Za-z]+\(\)\s*=[^=]", SLEEP_TIMER) is None,
+        "sleep timer must not assign to a getter call")
 require("classifyPlaybackFailure(error, navigator.onLine !== false)" in APP, "playback failure feedback is not classified")
 require("recordPlaybackDiagnostic({ attempt, error, source, category: failure.kind })" in APP,
         "playback failures are not recorded in the local diagnostic buffer")
