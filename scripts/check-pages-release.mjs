@@ -295,8 +295,15 @@ async function waitForDebuggerPort(profileDirectory, chrome, deadline, readStder
             throw new Error(`Chrome exited early with code ${chrome.exitCode}: ${readStderr().trim().slice(-400)}`);
         }
         if (existsSync(portFile)) {
-            const port = Number(readFileSync(portFile, 'utf8').split('\n')[0]);
-            if (Number.isInteger(port) && port > 0) return port;
+            // On Windows this read races Chrome still writing the file and throws
+            // EBUSY. That is "not ready yet", not a failure, so keep polling
+            // instead of aborting the whole acceptance run.
+            try {
+                const port = Number(readFileSync(portFile, 'utf8').split('\n')[0]);
+                if (Number.isInteger(port) && port > 0) return port;
+            } catch (error) {
+                if (error.code !== 'EBUSY' && error.code !== 'EPERM' && error.code !== 'ENOENT') throw error;
+            }
         }
         await new Promise((resolveWait) => setTimeout(resolveWait, 150));
     }

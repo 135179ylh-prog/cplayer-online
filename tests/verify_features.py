@@ -727,6 +727,11 @@ for snippet in [
     require(snippet in RELEASE_CHECK, f"online release check boundary is missing: {snippet}")
 require("rm(profileDirectory, { recursive: true, force: true, maxRetries: 5 })" in RELEASE_CHECK,
         "online release check does not remove its temporary browser profile")
+# Reading DevToolsActivePort races Chrome writing it, which throws EBUSY on
+# Windows and aborted two acceptance runs. Transient read errors must keep the
+# poll going, while a real error must still surface.
+require("error.code !== 'EBUSY'" in RELEASE_CHECK and "error.code !== 'EPERM'" in RELEASE_CHECK,
+        "online release check must tolerate a transient DevToolsActivePort read error")
 require("chrome.kill()" in RELEASE_CHECK and "SIGKILL" in RELEASE_CHECK,
         "online release check does not stop its temporary browser")
 require("cp_api_key" not in RELEASE_CHECK and "publishableKey" not in RELEASE_CHECK,
