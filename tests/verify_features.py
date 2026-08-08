@@ -261,6 +261,17 @@ require("window.playSongAtIndex = " in PLAYLIST_VIEW and "window.playSongAtIndex
 for forbidden in ["cloudSession", "queueSaveTimer", "parsedLyrics ="]:
     require(forbidden not in PLAYLIST_VIEW,
             f"extracted playlist view module must not reach into app state: {forbidden}")
+# A queued song must be savable to a playlist from the row, on both layouts.
+require("js-add-playlist-item" in PLAYLIST_VIEW and "js-add-playlist-item" in MOBILE_UI,
+        "the queue row must offer a save-to-playlist action on desktop and mobile")
+require("window.openAddToPlaylistModal(song)" in PLAYLIST_VIEW,
+        "the desktop queue row must open the add-to-playlist modal")
+# Playing a search result must not wipe the result list or the query; that forced
+# a fresh search before a second song could be added.
+require("deps.dom.searchResults.classList.add('hidden');\n                deps.showToast" not in SEARCH_VIEW,
+        "playing a search result must not hide the result list")
+require(SEARCH_VIEW.count("deps.dom.searchInput.value = '';") == 0,
+        "playing a search result must not clear the search query")
 require("mob-search-img-${song.id}" not in APP, "external song id is still interpolated into mobile HTML")
 require(APP.count("const RECENT_HISTORY_KEY = 'cp_recent_history';") == 1, "recent history key is duplicated")
 require(APP.count("localStorage.") == 3, "production localStorage access bypasses the safe storage boundary")

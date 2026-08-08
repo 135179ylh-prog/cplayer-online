@@ -117,6 +117,22 @@ function vsCreateItem(i) {
         deps.setCurrentIndex(actualIndex);
         deps.loadAndPlaySong(songId, { index: actualIndex, reason: 'playlist_click' });
     };
+    // The desktop queue row had no way to save a song to a playlist, while the
+    // mobile sheet row has always offered one. Same action, same modal.
+    const addPlaylistBtn = document.createElement('button');
+    addPlaylistBtn.type = 'button';
+    addPlaylistBtn.className = 'js-add-playlist-item w-11 h-11 flex-none flex items-center justify-center rounded-full border border-white/15 text-xs opacity-70';
+    addPlaylistBtn.setAttribute('aria-label', '收藏「' + songName + '」到歌单');
+    addPlaylistBtn.title = '收藏到歌单';
+    addPlaylistBtn.innerHTML = '<i class="fas fa-folder-plus" aria-hidden="true"></i>';
+    addPlaylistBtn.onclick = function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        const song = deps.getPlaylist()[actualIndex];
+        if (song) window.openAddToPlaylistModal(song);
+    };
+    div.appendChild(addPlaylistBtn);
+
     const delBtn = document.createElement('button');
     delBtn.type = 'button';
     delBtn.className = 'js-remove-queue w-11 h-11 flex-none flex items-center justify-center rounded-full border border-white/15 text-xs opacity-70';

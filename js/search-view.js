@@ -264,9 +264,8 @@ export async function searchSongs(query) {
                 const targetIndex = window.insertSongToPlaylist(newSong);
                 deps.renderAllPlaylistItems();
                 deps.playSongAtIndex(targetIndex);
-
-                deps.dom.searchResults.classList.add('hidden');
-                deps.dom.searchInput.value = '';
+                // Same reasoning as the keyword-result row: keep the result and the
+                // query so the next action does not require re-searching.
                 deps.showToast(`已添加并播放: ${newSong.name}`);
             } else {
                 throw new Error('无效的歌曲ID');
@@ -386,8 +385,9 @@ export async function searchSongs(query) {
                 const targetIndex = window.insertSongToPlaylist(newSong);
                 deps.renderAllPlaylistItems();
                 deps.playSongAtIndex(targetIndex);
-                deps.dom.searchResults.classList.add('hidden');
-                deps.dom.searchInput.value = '';
+                // Keep the results and the query. Clearing them forced a fresh
+                // search to add a second song, and neither the add-to-queue button
+                // beside this one nor the mobile row behaves that way.
                 deps.showToast('已添加并播放: ' + newSong.name);
             };
             deps.dom.searchResults.appendChild(div);
