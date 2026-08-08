@@ -52,6 +52,7 @@ CORE_UTILS = (ROOT / "js" / "core-utils.js").read_text(encoding="utf-8")
 FLUID_BACKGROUND = (ROOT / "js" / "fluid-background.js").read_text(encoding="utf-8")
 LYRICS_CANVAS = (ROOT / "js" / "lyrics-canvas.js").read_text(encoding="utf-8")
 MOBILE_UI = (ROOT / "js" / "mobile-ui.js").read_text(encoding="utf-8")
+SEARCH_VIEW = (ROOT / "js" / "search-view.js").read_text(encoding="utf-8")
 
 
 def require(condition: bool, message: str) -> None:
@@ -101,7 +102,6 @@ required_app = {
     "current queue restore": "if (!cached || !Array.isArray(cached.songs)) return false;",
     "queue serialization": "let queueSaveInFlight = null;",
     "lifecycle flush": "flushScheduledQueueSave('pagehide');",
-    "desktop search race guard": "let desktopSearchRequestId = 0;",
     "API timeout wrapper": "async function fetchJsonWithTimeout",
     "API retry primitive": "fetchJsonWithRetry",
     "central API config": "meta[name=\"cplayer-api-base-url\"]",
@@ -122,7 +122,6 @@ required_app = {
     "explicit app readiness": "document.documentElement.dataset.cplayerReady = 'true';",
     "visual lifecycle owner": "function syncVisualLifecycle()",
     "offline feedback": "window.addEventListener('offline'",
-    "safe search title": "titleDiv.textContent = song.name ||",
     "mobile instance export": "window.mobileUI = mobileUI;",
     "synchronous mobile initialization": "function initCanvasRenderers()",
     "service worker update policy": "updateViaCache: 'none'",
@@ -211,6 +210,28 @@ for helper in ["const mCreateItem = (i) =>", "const mRender = (force) =>"]:
             f"mobile list helper must stay an arrow function to keep `this`: {helper}")
 require("function mCreateItem" not in MOBILE_UI and "function mRender" not in MOBILE_UI,
         "mobile list helpers must not revert to function declarations")
+
+require((ROOT / "js" / "search-view.js").is_file(), "search view module is missing")
+require("./js/search-view.js" in SW, "search view module is not precached")
+require("from './search-view.js';" in APP, "app module does not import the search view")
+require("export function configureSearchView" in SEARCH_VIEW
+        and "configureSearchView({" in APP,
+        "the search view must be configured with its dependencies at startup")
+# Re-homed from required_app when the search block moved out of js/app.js.
+require("let desktopSearchRequestId = 0;" in SEARCH_VIEW, "desktop search race guard is missing")
+require("titleDiv.textContent = song.name ||" in SEARCH_VIEW, "safe search title is missing")
+for exported in ["export async function searchSongs", "export function createSearchResultPager",
+                 "export function cleanupSearchResultPager", "export function renderSearchRecoveryState"]:
+    require(exported in SEARCH_VIEW, f"search view must export its entry point: {exported}")
+# The stale-response guard must stay module-private; publishing it would let other
+# code advance the request id and defeat the isolation it provides.
+require("desktopSearchRequestId" not in APP,
+        "the search request-id guard must stay inside the search view module")
+require(re.search(r"window\.[A-Za-z_$][A-Za-z0-9_$]*\s*=", SEARCH_VIEW) is None,
+        "extracted search view module must not publish globals")
+for forbidden in ["cloudSession", "queueSaveTimer", "currentIndex"]:
+    require(forbidden not in SEARCH_VIEW,
+            f"extracted search view module must not reach into app state: {forbidden}")
 require("mob-search-img-${song.id}" not in APP, "external song id is still interpolated into mobile HTML")
 require(APP.count("const RECENT_HISTORY_KEY = 'cp_recent_history';") == 1, "recent history key is duplicated")
 require(APP.count("localStorage.") == 3, "production localStorage access bypasses the safe storage boundary")
@@ -424,7 +445,7 @@ require(api_endpoints == {"/163_search", "/163_music", "/163_lyric", "/163_playl
 require("search.set('apikey', key)" in APP, "API key is not appended through URLSearchParams")
 require("writeLocalStorage('cp_api_key', key)" in APP, "API key is not persisted from runtime input")
 require("removeLocalStorage('cp_api_key')" in APP, "API key reset is missing")
-production_source = "\n".join((HTML, APP, DOWNLOADER, SW, CORE_UTILS, FLUID_BACKGROUND, LYRICS_CANVAS, MOBILE_UI))
+production_source = "\n".join((HTML, APP, DOWNLOADER, SW, CORE_UTILS, FLUID_BACKGROUND, LYRICS_CANVAS, MOBILE_UI, SEARCH_VIEW))
 require(not re.search(r"apikey\s*=\s*['\"][^'\"]{8,}['\"]", production_source, flags=re.IGNORECASE), "a literal API key appears to be hard-coded")
 require("serviceWorkers: 'block'" in API_CONFIG_E2E and "randomUUID" in API_CONFIG_E2E, "API config browser test is not deterministic or uses a fixed key")
 require("searchParams.has('apikey')" in API_CONFIG_E2E, "browser test does not prove key-free compatibility")
@@ -834,10 +855,14 @@ for snippet in [
     require(snippet in QUEUE_FAILURE_E2E, f"queue failure-path contract is missing: {snippet}")
 require("a hidden auto-advance updates the visible now-playing UI after the page returns" in RUNTIME_RESILIENCE_E2E,
         "hidden auto-advance does not prove the visible now-playing UI recovers")
-require(APP.count("renderSearchRecoveryState") >= 3, "desktop and mobile search retry states are not shared")
-require("重试搜索：" in APP and "当前已离线" in APP, "search retry accessibility or offline copy is missing")
+require(SEARCH_VIEW.count("renderSearchRecoveryState") >= 2
+        and "renderSearchRecoveryState" in MOBILE_UI,
+        "desktop and mobile search retry states are not shared")
+require("重试搜索：" in SEARCH_VIEW and "当前已离线" in SEARCH_VIEW,
+        "search retry accessibility or offline copy is missing")
 for snippet in ["normalizeSearchPage", "mergeUniqueSearchSongs", "createSearchResultPager", "加载更多搜索结果"]:
-    require(snippet in APP or snippet in CORE_UTILS, f"search pagination contract is missing: {snippet}")
+    require(snippet in APP or snippet in CORE_UTILS or snippet in SEARCH_VIEW,
+            f"search pagination contract is missing: {snippet}")
 require("ChKSzAPI.buildUrl('/163_search', { keyword: query, limit, offset })" in APP,
         "search requests do not carry the shared limit/offset cursor")
 

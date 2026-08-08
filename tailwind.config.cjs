@@ -7,6 +7,7 @@ module.exports = {
     './playlist-downloader.html',
     './js/app.js',
     './js/mobile-ui.js',
+    './js/search-view.js',
   ],
   theme: {
     extend: {},
