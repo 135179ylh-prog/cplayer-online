@@ -23,6 +23,7 @@ export const CORE_ASSETS = Object.freeze([
     './js/playlist-view.js',
     './js/sleep-timer.js',
     './js/cloud-state.js',
+    './js/cloud-ui.js',
     './img/icon.svg',
     './img/icon.png',
     './manifest.json'

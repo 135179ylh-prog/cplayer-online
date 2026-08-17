@@ -32,6 +32,17 @@ const QUEUE_SONGS = [
 // so a test can prove which queue entries were actually attempted.
 async function routeSongDetail(page, failIds) {
     const requestedIds = [];
+    // Lyrics are fetched for every committed song. Left unmocked they reach the
+    // real upstream, which answers 401 without a key, and that auth error
+    // surfaces ahead of the skip toast this spec asserts on. CI has outbound
+    // network access, so the omission failed there while passing locally.
+    await page.route(/\/163_lyric\?/, async (route) => {
+        await route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({ code: 200, data: { lrc: '', tlyric: '' } })
+        });
+    });
     await page.route(/\/163_music\?/, async (route) => {
         const id = new URL(route.request().url()).searchParams.get('id') || '';
         requestedIds.push(id);
