@@ -464,7 +464,9 @@ required_ignore_rules = [
 ]
 for rule in required_ignore_rules:
     require(rule in GITIGNORE, f"missing local runtime ignore rule: {rule}")
-require("api.chksz.top" in README, "README does not document the upstream API dependency")
+require("api.chksz.com" in README, "README does not document the upstream API dependency")
+require('name="cplayer-api-base-url" content="https://api.chksz.com/api"' in HTML,
+        "built-in API base must point at the live upstream host, not the retired api.chksz.top")
 require("Service Worker 的缓存修订号" in README, "README does not explain version semantics")
 require("npm run verify" in README, "README does not document the release quality gate")
 require("apikey" in README and "localStorage" in README, "README does not explain API key storage and transport")

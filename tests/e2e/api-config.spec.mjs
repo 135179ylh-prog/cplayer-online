@@ -125,7 +125,13 @@ test('reset removes custom API settings and restores key-free default requests',
     await page.locator('#settingsApiResetBtn').click();
 
     await expect(page.locator('#settingsApiKeyInput')).toHaveValue('');
-    await expect(page.locator('#settingsApiBaseInput')).toHaveValue('https://api.chksz.top/api');
+    // Read the built-in default from the page instead of hard-coding a host, so
+    // this contract survives the upstream service changing its domain.
+    const builtInBase = await page.evaluate(() => document
+        .querySelector('meta[name="cplayer-api-base-url"]')
+        .content.trim().replace(/\/+$/, ''));
+    expect(builtInBase).toMatch(/^https:\/\/[^\s/]+\/api$/);
+    await expect(page.locator('#settingsApiBaseInput')).toHaveValue(builtInBase);
     await expect.poll(() => page.evaluate(() => ({
         key: localStorage.getItem('cp_api_key'),
         base: localStorage.getItem('cp_api_base')
@@ -137,6 +143,6 @@ test('reset removes custom API settings and restores key-free default requests',
     await expect(search.results.getByText(SEARCH_RESULT.name)).toBeVisible();
 
     const requestUrl = new URL(searchMock.urls.at(-1));
-    expect(requestUrl.origin + requestUrl.pathname).toBe('https://api.chksz.top/api/163_search');
+    expect(requestUrl.origin + requestUrl.pathname).toBe(`${builtInBase}/163_search`);
     expect(requestUrl.searchParams.has('apikey')).toBe(false);
 });
