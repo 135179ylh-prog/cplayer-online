@@ -3,6 +3,8 @@
  * Keep this module free of DOM and storage dependencies.
  */
 
+import { readChKSzJsonResponse } from './chksz-api-response.js';
+
 export const API_REQUEST_TIMEOUT_MS = 15000;
 export const API_REQUEST_RETRIES = 1;
 export const API_RETRY_DELAY_MS = 350;
@@ -254,13 +256,6 @@ export function shouldRetryRequest(error) {
     return error instanceof TypeError;
 }
 
-function createHttpError(status) {
-    const error = new Error('网络请求失败 (' + status + ')');
-    error.status = status;
-    error.retryable = status >= 500 && status <= 599;
-    return error;
-}
-
 /**
  * Fetch JSON with an AbortController timeout and bounded retry policy.
  * `fetchImpl` and `sleepImpl` are injectable to keep tests deterministic.
@@ -287,10 +282,7 @@ export async function fetchJsonWithRetry(url, options = {}) {
         const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
         try {
             const response = await fetchImpl(url, controller ? { signal: controller.signal } : undefined);
-            if (!response || !response.ok) {
-                throw createHttpError(response ? response.status : 0);
-            }
-            return await response.json();
+            return await readChKSzJsonResponse(response, '网络请求');
         } catch (error) {
             let finalError = error;
             if (error && error.name === 'AbortError') {

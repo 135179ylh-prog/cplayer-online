@@ -49,6 +49,7 @@ RELEASE_CHECK = (ROOT / "scripts" / "check-pages-release.mjs").read_text(encodin
 TEST_SERVER = (ROOT / "tests" / "e2e" / "server.mjs").read_text(encoding="utf-8")
 OLD_SW_FIXTURE = (ROOT / "tests" / "e2e" / "fixtures" / "sw-old.js").read_text(encoding="utf-8")
 CORE_UTILS = (ROOT / "js" / "core-utils.js").read_text(encoding="utf-8")
+CHKSZ_API_RESPONSE = (ROOT / "js" / "chksz-api-response.js").read_text(encoding="utf-8")
 FLUID_BACKGROUND = (ROOT / "js" / "fluid-background.js").read_text(encoding="utf-8")
 LYRICS_CANVAS = (ROOT / "js" / "lyrics-canvas.js").read_text(encoding="utf-8")
 MOBILE_UI = (ROOT / "js" / "mobile-ui.js").read_text(encoding="utf-8")
@@ -283,6 +284,15 @@ require(APP.count("localStorage.") == 3, "production localStorage access bypasse
 require((ROOT / "playlist.js").is_file(), "optional playlist.js hook is missing")
 require((ROOT / "js" / "app.js").is_file(), "production app module is missing")
 require((ROOT / "js" / "core-utils.js").is_file(), "core utility module is missing")
+require((ROOT / "js" / "chksz-api-response.js").is_file(), "ChKSz response module is missing")
+require("./js/chksz-api-response.js" in SW, "ChKSz response module is not precached")
+require("from './chksz-api-response.js';" in CORE_UTILS
+        and "readChKSzJsonResponse" in CORE_UTILS,
+        "core request utilities do not use the shared ChKSz response decoder")
+require("export class ChKSzHttpError" in CHKSZ_API_RESPONSE
+        and "friendlyChKSzStatus" in CHKSZ_API_RESPONSE
+        and "formatChKSzError" in CHKSZ_API_RESPONSE,
+        "ChKSz response module is missing its safe error contract")
 require((ROOT / "js" / "fluid-background.js").is_file(), "fluid background module is missing")
 require("./js/fluid-background.js" in SW, "fluid background module is not precached")
 require((ROOT / "js" / "lyrics-canvas.js").is_file(), "lyrics canvas module is missing")
@@ -492,7 +502,7 @@ require(api_endpoints == {"/163_search", "/163_music", "/163_lyric", "/163_playl
 require("search.set('apikey', key)" in APP, "API key is not appended through URLSearchParams")
 require("writeLocalStorage('cp_api_key', key)" in APP, "API key is not persisted from runtime input")
 require("removeLocalStorage('cp_api_key')" in APP, "API key reset is missing")
-production_source = "\n".join((HTML, APP, DOWNLOADER, SW, CORE_UTILS, FLUID_BACKGROUND, LYRICS_CANVAS, MOBILE_UI, SEARCH_VIEW, PLAYLIST_VIEW, SLEEP_TIMER, CLOUD_STATE, CLOUD_UI))
+production_source = "\n".join((HTML, APP, DOWNLOADER, SW, CORE_UTILS, CHKSZ_API_RESPONSE, FLUID_BACKGROUND, LYRICS_CANVAS, MOBILE_UI, SEARCH_VIEW, PLAYLIST_VIEW, SLEEP_TIMER, CLOUD_STATE, CLOUD_UI))
 require(not re.search(r"apikey\s*=\s*['\"][^'\"]{8,}['\"]", production_source, flags=re.IGNORECASE), "a literal API key appears to be hard-coded")
 require("serviceWorkers: 'block'" in API_CONFIG_E2E and "randomUUID" in API_CONFIG_E2E, "API config browser test is not deterministic or uses a fixed key")
 require("searchParams.has('apikey')" in API_CONFIG_E2E, "browser test does not prove key-free compatibility")

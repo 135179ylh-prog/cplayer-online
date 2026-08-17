@@ -201,10 +201,47 @@ test('fetchJsonWithRetry does not retry client errors', async () => {
         sleepImpl: async () => assert.fail('client errors must not sleep'),
         fetchImpl: async () => {
             calls += 1;
-            return { ok: false, status: 404 };
+            return { ok: false, status: 404, json: async () => ({ code: 'NOT_FOUND' }) };
         }
-    }), /网络请求失败 \(404\)/);
+    }), (error) => error.status === 404 && error.code === 'NOT_FOUND' && /资源不存在/.test(error.message));
     assert.equal(calls, 1);
+});
+
+test('fetchJsonWithRetry preserves a safe upstream status code without response details', async () => {
+    await assert.rejects(() => fetchJsonWithRetry('/api', {
+        retries: 0,
+        fetchImpl: async () => ({
+            ok: false,
+            status: 429,
+            json: async () => ({
+                code: 'RATE_LIMIT',
+                msg: 'secret-key=https://example.invalid/private?apikey=should-not-leak'
+            })
+        })
+    }), (error) => {
+        assert.equal(error.name, 'ChKSzHttpError');
+        assert.equal(error.status, 429);
+        assert.equal(error.code, 'RATE_LIMIT');
+        assert.equal(error.retryable, false);
+        assert.doesNotMatch(error.message, /secret-key|example\.invalid|apikey|private/);
+        return true;
+    });
+});
+
+test('fetchJsonWithRetry retries a 503 response with malformed JSON safely', async () => {
+    let calls = 0;
+    const result = await fetchJsonWithRetry('/api', {
+        retries: 1,
+        retryDelayMs: 5,
+        sleepImpl: async () => {},
+        fetchImpl: async () => {
+            calls += 1;
+            if (calls === 1) return { ok: false, status: 503, json: async () => { throw new SyntaxError('bad json'); } };
+            return { ok: true, status: 200, json: async () => ({ ok: true }) };
+        }
+    });
+    assert.deepEqual(result, { ok: true });
+    assert.equal(calls, 2);
 });
 
 test('network TypeError is retryable but malformed JSON is not', async () => {

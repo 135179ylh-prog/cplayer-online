@@ -27,6 +27,7 @@ const PUBLIC_PATHS = [
     '/css/tailwind.css',
     '/js/app.js',
     '/js/core-utils.js',
+    '/js/chksz-api-response.js',
     '/js/fluid-background.js',
     '/js/lyrics-canvas.js',
     '/js/mobile-ui.js',
