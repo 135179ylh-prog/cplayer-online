@@ -52,6 +52,75 @@ stale 值，而且**不会立刻报错** —— 这是本任务的核心风险�
 | 7 | 提取睡眠定时到 `js/sleep-timer.js`（86 行 + 4 处声明） | 8429 → 8350 | 完成 |
 | — | 修用户报告的两个线上缺陷（队列不能加歌单、点播放丢搜索结果） | — | 完成 |
 | 8 | 云同步状态收拢到 `js/cloud-state.js`（19 个状态 + 3 个常量） | 8350 → 8330 | 完成 |
+| — | 修上游 API 换域名（作者关停境内服务，`api.chksz.top` → `api.chksz.com`） | — | 已推送，CI 失败 |
+| — | 修 CI 暴露的测试缺陷：歌词请求未 mock，换域名后打真实上游返回 401 | — | 进行中 |
+| 9 | 提取云同步 UI 到 `js/cloud-ui.js`（594 行） | 8330 → 7790 | **进行中，未提交** |
+
+### 换域名引发的测试缺陷（判断错误记录）
+
+推送 `b0a956a`（换 API 域名）后 CI 在浏览器层失败，`queue-failure-paths.spec.mjs`
+八项挂掉，deploy 被跳过——**该修复实际未上线**。我先前对用户说"已推送上线"是错的，
+只推送成功，部署没成功。
+
+失败信息是提示文案不符：期望"正在尝试下一首"，实际"API 密钥无效或额度已用完"。
+
+我最初推断是路由正则匹配不上新域名，实测否定（正则只匹配路径，与域名无关）。
+又推断歌词失败只 `console.warn` 不会弹提示，也错了。最后写探针打印全部出网请求，
+才看到真凶：**`/163_lyric` 从未被 mock**，换域名前本机代理拦不住它所以无害，
+换域名后 CI 能真正连上上游、拿到 401，`fetchJsonWithTimeout` 抛 `ApiAuthError`，
+这个错误的提示抢在跳歌提示之前显示。
+
+修复是给该 spec 加上歌词 mock（`runtime-background-resilience.spec.mjs` 一直有，
+我写新 spec 时漏了）。
+
+**诚实说明**：这个修复无法在本地变异验证。去掉歌词 mock 后本地仍通过，因为本机
+走代理访问 `api.chksz.com` 会快速失败，反而掩盖了缺陷。探针实测证明歌词请求确实
+出网（必要性成立），但充分性只能由 CI 判定。
+
+教训：本地环境的网络限制会掩盖"未 mock 外部依赖"这类缺陷。新写 spec 时应比照
+同类既有 spec 的 mock 清单，而不是只 mock 自己直接断言的端点。
+
+### 第 9 步漏掉一个 import（本步最严重的失误）
+
+跑完整门禁时 7 项云同步用例失败，提示"健康检查失败，但没有修改本机数据"。
+
+真因：`cloudHealthStatusClasses` 搬到了 `cloud-ui.js` 并已导出，但 `js/app.js`
+的 import 清单里漏了它。`renderCloudHealthSnapshot` 调用时抛
+`ReferenceError`，被 `runCloudHealthCheck` 的 catch 吞掉，只留一句
+`console.warn`，界面只显示笼统的失败文案。
+
+**这正是 goal 里预警的那类缺陷**：搬错不会立刻报错，等到那条代码路径真正执行
+才炸。语法检查通过、模块能加载，问题只在点"健康检查"时才出现。
+
+排查用了探针而非读码：挂 `page.on('console')` 捕获被吞掉的 warn，一次就拿到
+准确的 `ReferenceError` 和行号。
+
+修完后我做了两件超出"改一行"的事：
+
+1. 写一次性脚本比对 `cloud-ui.js` 的 15 个导出与 app 的 import 清单，确认没有
+   第二处遗漏，也没有多余导入。脚本本身出过两个错（懒匹配吞掉了整个 import 区、
+   展开语法 `...name` 被误判为属性访问），修正后结论才成立。
+2. 给 `cloud-health-check.spec.mjs` 加 `collectUnexpectedErrors`。原来它只断言
+   界面文案，无法暴露被吞掉的运行时错误。变异验证：删掉那行 import，测试失败。
+
+留待后续：`account-cloud-sync.spec.mjs` 同样没有收集运行时错误，可用相同手法加固。
+
+### 第 9 步当前状态（供接手者参考）
+
+代码已搬完并接好 import，`js/app.js` 已降到 7790 行。已完成的注册：
+`sw.js`、`scripts/pages-contract.mjs`、`tests/e2e/release-artifact.spec.mjs`
+三处 CORE_ASSETS/PUBLIC_PATHS，缓存名 v96 与重算后的预缓存哈希。
+
+契约侧改动：新增 `CLOUD_UI` 常量，把 `required_app` 的断言目标改为
+`APP_RUNTIME`（= APP + CLOUD_UI），这样后续再搬 cloud 函数不必逐条改断言；
+补了 `production_source`（漏掉会造成密钥扫描盲区）；新增三条模块边界契约
+（不得重复声明共享状态、不得发布全局、必须读共享状态），均经变异验证。
+
+**未完成**：门禁在第 1 层 CSS 挂过一次——`cloud-ui.js` 含 25 处 Tailwind 类名
+但不在 `tailwind.config.cjs` 的扫描范围内，类会被清除（静默视觉回归）。
+已补上该配置，但十层门禁**尚未重跑**，也未提交、推送、线上验收。
+
+另：`git stash@{0}` 是本步的一份冗余备份，内容已在工作树中，可安全丢弃。
 
 第 8 步几乎不减行数，但它是必要铺垫：cloud 主题横跨约 5000 行、被非 cloud 代码
 穿插，无法整块搬移。先把状态移出去，后续每次搬 cloud 函数都不再需要注入 setter。

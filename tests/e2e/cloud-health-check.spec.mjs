@@ -1,6 +1,12 @@
 import { readFile } from 'node:fs/promises';
 import { test, expect } from '@playwright/test';
-import { openSettings, waitForAppReady } from './helpers.mjs';
+import { collectUnexpectedErrors, openSettings, waitForAppReady } from './helpers.mjs';
+
+// The health check swallows any error into a generic "检查失败" message, so a
+// missing import after a module extraction shows up only as that text with the
+// real ReferenceError hidden in console.warn. Failing the spec on an unexpected
+// runtime error surfaces the cause instead of the symptom.
+const ALLOWED_HEALTH_ERRORS = [];
 
 async function readStorageFingerprint(page) {
     return page.evaluate(() => new Promise((resolve, reject) => {
@@ -29,6 +35,7 @@ async function readStorageFingerprint(page) {
 }
 
 test('本机同步健康检查只读、可导出脱敏报告', async ({ page }) => {
+    const errors = collectUnexpectedErrors(page, ALLOWED_HEALTH_ERRORS);
     await page.addInitScript(() => {
         window.CPLAYER_CLOUD_CONFIG = { url: '', publishableKey: '' };
     });
@@ -59,6 +66,8 @@ test('本机同步健康检查只读、可导出脱敏报告', async ({ page }) 
     expect(after).toEqual(before);
     await expect(page.locator('#cloudHealthCheckExportBtn')).toBeVisible();
     await expect(page.locator('#cloudHealthCheckBtn')).toBeEnabled();
+
+    expect(errors, errors.join('\n')).toEqual([]);
 });
 
 test('导出的健康报告文件与内存报告一致且不含敏感字段', async ({ page }) => {

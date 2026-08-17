@@ -56,6 +56,11 @@ SEARCH_VIEW = (ROOT / "js" / "search-view.js").read_text(encoding="utf-8")
 PLAYLIST_VIEW = (ROOT / "js" / "playlist-view.js").read_text(encoding="utf-8")
 SLEEP_TIMER = (ROOT / "js" / "sleep-timer.js").read_text(encoding="utf-8")
 CLOUD_STATE = (ROOT / "js" / "cloud-state.js").read_text(encoding="utf-8")
+CLOUD_UI = (ROOT / "js" / "cloud-ui.js").read_text(encoding="utf-8")
+# The cloud account/status UI now lives in its own module. These contracts pin
+# that the behaviour exists somewhere in the app runtime, not which file holds
+# it, so further cloud extractions do not have to re-home each assertion.
+APP_RUNTIME = "\n".join((APP, CLOUD_UI))
 
 
 def require(condition: bool, message: str) -> None:
@@ -179,7 +184,7 @@ for label, snippet in required_html.items():
     require(snippet in HTML, f"missing {label}: {snippet}")
 
 for label, snippet in required_app.items():
-    require(snippet in APP, f"missing {label}: {snippet}")
+    require(snippet in APP_RUNTIME, f"missing {label}: {snippet}")
 
 boot_order = [
     APP.index("await loadDefaultPlaylist();"),
@@ -487,7 +492,7 @@ require(api_endpoints == {"/163_search", "/163_music", "/163_lyric", "/163_playl
 require("search.set('apikey', key)" in APP, "API key is not appended through URLSearchParams")
 require("writeLocalStorage('cp_api_key', key)" in APP, "API key is not persisted from runtime input")
 require("removeLocalStorage('cp_api_key')" in APP, "API key reset is missing")
-production_source = "\n".join((HTML, APP, DOWNLOADER, SW, CORE_UTILS, FLUID_BACKGROUND, LYRICS_CANVAS, MOBILE_UI, SEARCH_VIEW, PLAYLIST_VIEW, SLEEP_TIMER, CLOUD_STATE))
+production_source = "\n".join((HTML, APP, DOWNLOADER, SW, CORE_UTILS, FLUID_BACKGROUND, LYRICS_CANVAS, MOBILE_UI, SEARCH_VIEW, PLAYLIST_VIEW, SLEEP_TIMER, CLOUD_STATE, CLOUD_UI))
 require(not re.search(r"apikey\s*=\s*['\"][^'\"]{8,}['\"]", production_source, flags=re.IGNORECASE), "a literal API key appears to be hard-coded")
 require("serviceWorkers: 'block'" in API_CONFIG_E2E and "randomUUID" in API_CONFIG_E2E, "API config browser test is not deterministic or uses a fixed key")
 require("searchParams.has('apikey')" in API_CONFIG_E2E, "browser test does not prove key-free compatibility")
@@ -907,6 +912,18 @@ require("getElementById('cloudState." not in APP and 'getElementById("cloudState
         "a DOM id must not be prefixed with the cloud state object")
 require(re.search(r"window\.[A-Za-z_$][A-Za-z0-9_$]*\s*=", CLOUD_STATE) is None,
         "cloud state module must not publish globals")
+require((ROOT / "js" / "cloud-ui.js").is_file(), "cloud UI module is missing")
+require("./js/cloud-ui.js" in SW, "cloud UI module is not precached")
+require("from './cloud-ui.js';" in APP, "app module does not import the cloud UI")
+# The UI module must read the shared state object rather than keep its own copy;
+# a local declaration here would silently diverge from the rest of the app.
+require("from './cloud-state.js';" in CLOUD_UI,
+        "cloud UI module must read the shared cloud state")
+for name in ["cloudSession", "cloudUserId", "cloudPendingCount", "cloudHealthSnapshot"]:
+    require(re.search(rf"^let {name}\b", CLOUD_UI, flags=re.MULTILINE) is None,
+            f"cloud UI module must not re-declare shared state: {name}")
+require(re.search(r"window\.[A-Za-z_$][A-Za-z0-9_$]*\s*=", CLOUD_UI) is None,
+        "cloud UI module must not publish globals")
 require("classifyPlaybackFailure(error, navigator.onLine !== false)" in APP, "playback failure feedback is not classified")
 require("recordPlaybackDiagnostic({ attempt, error, source, category: failure.kind })" in APP,
         "playback failures are not recorded in the local diagnostic buffer")

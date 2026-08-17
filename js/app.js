@@ -54,6 +54,7 @@
         import {
             cloudConflicts,
             cloudErrorMessage,
+            cloudHealthStatusClasses,
             cloudHealthStatusLabel,
             configureCloudUi,
             forgetCloudSyncSuccess,

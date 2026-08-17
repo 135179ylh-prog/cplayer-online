@@ -9,6 +9,7 @@ module.exports = {
     './js/mobile-ui.js',
     './js/search-view.js',
     './js/playlist-view.js',
+    './js/cloud-ui.js',
   ],
   theme: {
     extend: {},
