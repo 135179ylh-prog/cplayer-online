@@ -10,9 +10,11 @@
 - [x] `npm test` 串行通过 63/63；并行运行曾因两个任务同时操作 `output/pages` 产生临时目录竞态，未作为产品失败记录。
 - [x] `npm run check:module`、`npm run check:features` 和 `npm run build:pages` 聚焦检查通过。
 - [x] 完整 `npm run verify` 通过：10/10 层，295 项浏览器用例通过，13 项按视口条件跳过，0 失败。
+- [x] 独立提交 `5e6be0c272114f9ed78ae6475fb272914732e4ed` 已推送；Actions run `32050777791` 的 quality 和 deploy 均为 success。
+- [x] 使用精确 commit 的临时 detached worktree 完成线上验收 5/5：线上 commit 一致，缓存为 `cplayer5-v97-reliability-sprint`，预缓存哈希一致，运行时 ready/Worker activated，核心资源 23/23。
 
-## 待完成
+## 结果
 
 - [x] 响应解码单元测试
-- [ ] 独立提交、推送、Actions quality/deploy
-- [ ] 用最终完整 commit 做线上验收
+- [x] 独立提交、推送、Actions quality/deploy
+- [x] 用最终完整 commit 做线上验收
