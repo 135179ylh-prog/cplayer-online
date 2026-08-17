@@ -52,9 +52,9 @@ stale 值，而且**不会立刻报错** —— 这是本任务的核心风险�
 | 7 | 提取睡眠定时到 `js/sleep-timer.js`（86 行 + 4 处声明） | 8429 → 8350 | 完成 |
 | — | 修用户报告的两个线上缺陷（队列不能加歌单、点播放丢搜索结果） | — | 完成 |
 | 8 | 云同步状态收拢到 `js/cloud-state.js`（19 个状态 + 3 个常量） | 8350 → 8330 | 完成 |
-| — | 修上游 API 换域名（作者关停境内服务，`api.chksz.top` → `api.chksz.com`） | — | 已推送，CI 失败 |
-| — | 修 CI 暴露的测试缺陷：歌词请求未 mock，换域名后打真实上游返回 401 | — | 进行中 |
-| 9 | 提取云同步 UI 到 `js/cloud-ui.js`（594 行） | 8330 → 7790 | **进行中，未提交** |
+| — | 修上游 API 换域名（作者关停境内服务，`api.chksz.top` → `api.chksz.com`） | — | 完成 |
+| — | 修 CI 暴露的测试缺陷：歌词请求未 mock，换域名后打真实上游返回 401 | — | 完成 |
+| 9 | 提取云同步 UI 到 `js/cloud-ui.js`（594 行） | 8330 → 7791 | 完成 |
 
 ### 换域名引发的测试缺陷（判断错误记录）
 
@@ -105,22 +105,29 @@ stale 值，而且**不会立刻报错** —— 这是本任务的核心风险�
 
 留待后续：`account-cloud-sync.spec.mjs` 同样没有收集运行时错误，可用相同手法加固。
 
-### 第 9 步当前状态（供接手者参考）
+### 第 9 步收尾记录
 
-代码已搬完并接好 import，`js/app.js` 已降到 7790 行。已完成的注册：
-`sw.js`、`scripts/pages-contract.mjs`、`tests/e2e/release-artifact.spec.mjs`
-三处 CORE_ASSETS/PUBLIC_PATHS，缓存名 v96 与重算后的预缓存哈希。
+搬移 594 行，`js/app.js` 8330 → 7791。注册了 `sw.js`、`scripts/pages-contract.mjs`、
+`tests/e2e/release-artifact.spec.mjs` 三处清单，缓存名 v96，预缓存哈希重算两次
+（加模块一次、修 import 一次）。`tailwind.config.cjs` 也必须加——该模块含 25 处
+Tailwind 类名，不在扫描范围内类会被清除，且不会有任何检查报错。
 
-契约侧改动：新增 `CLOUD_UI` 常量，把 `required_app` 的断言目标改为
-`APP_RUNTIME`（= APP + CLOUD_UI），这样后续再搬 cloud 函数不必逐条改断言；
-补了 `production_source`（漏掉会造成密钥扫描盲区）；新增三条模块边界契约
-（不得重复声明共享状态、不得发布全局、必须读共享状态），均经变异验证。
+契约侧：新增 `CLOUD_UI` 常量，`required_app` 的断言目标改为 `APP_RUNTIME`
+（= APP + CLOUD_UI），后续再搬 cloud 函数不必逐条改断言；补了 `production_source`
+（漏掉会造成密钥扫描盲区）；新增三条模块边界契约（不得重复声明共享状态、
+不得发布全局、必须读共享状态），均经变异验证。
 
-**未完成**：门禁在第 1 层 CSS 挂过一次——`cloud-ui.js` 含 25 处 Tailwind 类名
-但不在 `tailwind.config.cjs` 的扫描范围内，类会被清除（静默视觉回归）。
-已补上该配置，但十层门禁**尚未重跑**，也未提交、推送、线上验收。
+提交 `c4d662f` + `7d60a7c`；Pages run `32047906017` quality/deploy 均 success；
+线上验收 5/5（核心资源 22/22，线上 API 地址已是 `api.chksz.com`）。
 
-另：`git stash@{0}` 是本步的一份冗余备份，内容已在工作树中，可安全丢弃。
+deploy 首次失败是 GitHub 侧 503（"No server is currently available"，错误信息
+自称疑似 Pages 故障），当时 githubstatus 仍报 operational；重跑 deploy 后通过。
+非本项目缺陷，但记下来：deploy 失败时改动并未上线，不可因"推送成功"就宣称上线。
+
+**提交边界失误**：合并时用了 `git add js/app.js`，把第 9 步的代码搬移一起带进了
+「修歌词 mock」提交，所以 `c4d662f` 混入 613 行 `app.js` 改动。两提交合起来内容
+完整、与门禁验过的树一致，但违背了自己定的「独立提交」。已推送，不改写历史。
+后续一律 `git add` 精确文件，不用宽泛路径。
 
 第 8 步几乎不减行数，但它是必要铺垫：cloud 主题横跨约 5000 行、被非 cloud 代码
 穿插，无法整块搬移。先把状态移出去，后续每次搬 cloud 函数都不再需要注入 setter。
